@@ -63,11 +63,7 @@ services:
     volumes:
       - ../storage/dev:/var/yuviron-server/storage
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "wget -q --spider http://127.0.0.1:8080/health || exit 1"
-        ]
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:5073/health/ready || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -76,11 +72,11 @@ services:
   yuviron-dev-frontend:
     build:
       context: ../src/yuviron-frontend
-      dockerfile: infra/docker/frontend/Dockerfile
+      dockerfile: ../../infra/docker/frontend/Dockerfile
     container_name: yuviron-dev-frontend
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/ || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
