@@ -76,7 +76,7 @@ services:
   yuviron-dev-frontend:
     build:
       context: ../src/yuviron-frontend
-      dockerfile: ../infra/docker/frontend/Dockerfile
+      dockerfile: infra/docker/frontend/Dockerfile
     container_name: yuviron-dev-frontend
     restart: always
     healthcheck:
