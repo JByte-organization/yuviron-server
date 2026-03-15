@@ -1,0 +1,111 @@
+services:
+  yuviron-dev-mysql:
+    image: mysql:8.0
+    container_name: yuviron-dev-mysql
+    env_file:
+      - ../env/dev.env
+    volumes:
+      - yuviron_dev_db:/var/lib/mysql
+    restart: always
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent || exit 1"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  yuviron-dev-redis:
+    image: redis:7-alpine
+    container_name: yuviron-dev-redis
+    restart: always
+    volumes:
+      - yuviron_dev_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  yuviron-dev-migrator:
+    build:
+      context: /opt/yuviron-server
+      dockerfile: infra/docker/migrator/Dockerfile
+    container_name: yuviron-dev-migrator
+    env_file:
+      - ../env/dev.env
+    depends_on:
+      yuviron-dev-mysql:
+        condition: service_healthy
+      yuviron-dev-redis:
+        condition: service_healthy
+    restart: "no"
+
+  yuviron-dev-backend:
+    build:
+      context: /opt/yuviron-server
+      dockerfile: infra/docker/backend/Dockerfile
+    container_name: yuviron-dev-backend
+    env_file:
+      - ../env/dev.env
+    depends_on:
+      yuviron-dev-mysql:
+        condition: service_healthy
+      yuviron-dev-redis:
+        condition: service_healthy
+      yuviron-dev-migrator:
+        condition: service_completed_successfully
+    restart: always
+    volumes:
+      - ../storage/dev:/var/yuviron-server/storage
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q --spider http://127.0.0.1:8080/health || exit 1"
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  yuviron-dev-frontend:
+    build:
+      context: ../src/yuviron-frontend
+      dockerfile: ../infra/docker/frontend/Dockerfile
+    container_name: yuviron-dev-frontend
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  yuviron-dev-nginx:
+    image: nginx:alpine
+    container_name: yuviron-dev-nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/dev.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      yuviron-dev-backend:
+        condition: service_healthy
+      yuviron-dev-frontend:
+        condition: service_healthy
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  yuviron_dev_db:
+  yuviron_dev_redis:

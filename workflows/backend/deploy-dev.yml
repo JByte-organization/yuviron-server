@@ -1,0 +1,30 @@
+name: Deploy backend
+
+on:
+  push:
+    branches: [dev]
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, yuviron]
+
+    steps:
+      - name: Update backend source
+        run: |
+          set -e
+          cd /opt/yuviron-server/src/yuviron-backend
+          git fetch origin dev
+          git reset --hard origin/dev
+          git clean -fd
+
+      - name: Apply EF Core migrations
+        run: |
+          set -e
+          cd /opt/yuviron-server/infra
+          docker compose -f compose.dev.yml run --rm yuviron-dev-migrator
+
+      - name: Rebuild and restart services
+        run: |
+          set -e
+          cd /opt/yuviron-server/infra
+          docker compose -f compose.dev.yml up -d --build --force-recreate yuviron-dev-backend yuviron-dev-frontend yuviron-dev-nginx
