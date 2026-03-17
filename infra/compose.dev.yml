@@ -17,6 +17,8 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+    networks:
+      - yuviron_shared
 
   yuviron-dev-redis:
     image: redis:7-alpine
@@ -30,6 +32,8 @@ services:
       timeout: 3s
       retries: 10
       start_period: 5s
+    networks:
+      - yuviron_shared
 
   yuviron-dev-migrator:
     build:
@@ -44,6 +48,8 @@ services:
       yuviron-dev-redis:
         condition: service_healthy
     restart: "no"
+    networks:
+      - yuviron_shared
 
   yuviron-dev-backend:
     build:
@@ -68,6 +74,8 @@ services:
       timeout: 5s
       retries: 10
       start_period: 40s
+    networks:
+      - yuviron_shared
 
   yuviron-dev-frontend:
     build:
@@ -81,27 +89,13 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
-
-  yuviron-dev-nginx:
-    image: nginx:alpine
-    container_name: yuviron-dev-nginx
-    ports:
-      - "8080:80"
-    volumes:
-      - ./nginx/dev.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      yuviron-dev-backend:
-        condition: service_healthy
-      yuviron-dev-frontend:
-        condition: service_healthy
-    restart: always
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
+    networks:
+      - yuviron_shared
 
 volumes:
   yuviron_dev_db:
   yuviron_dev_redis:
+
+networks:
+  yuviron_shared:
+    external: true
