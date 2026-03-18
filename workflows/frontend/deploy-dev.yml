@@ -9,8 +9,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  detect-affected:
     runs-on: [self-hosted, yuviron]
+
+    outputs:
+      apps: ${{ steps.affected.outputs.apps }}
+      has_apps: ${{ steps.affected.outputs.has_apps }}
 
     steps:
       - name: Update frontend source
@@ -21,8 +25,62 @@ jobs:
           git reset --hard origin/dev
           git clean -fd
 
-      - name: Rebuild and restart frontend
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.0.0 --activate
+
+      - name: Install dependencies
+        run: |
+          cd /opt/yuviron-server/src/yuviron-frontend
+          pnpm install --frozen-lockfile
+
+      - name: Detect affected apps
+        id: affected
+        run: |
+          cd /opt/yuviron-server/src/yuviron-frontend
+
+          APPS=$(bash .github/scripts/get-affected-apps.sh | tail -n 1)
+
+          echo "apps=$APPS" >> $GITHUB_OUTPUT
+
+          if [ "$APPS" = "[]" ]; then
+            echo "has_apps=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_apps=true" >> $GITHUB_OUTPUT
+          fi
+
+
+  deploy:
+    needs: detect-affected
+    if: needs.detect-affected.outputs.has_apps == 'true'
+    runs-on: [self-hosted, yuviron]
+
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.detect-affected.outputs.apps) }}
+
+    steps:
+      - name: Update frontend source
         run: |
           set -e
-          cd /opt/yuviron-server/infra
-          docker compose -f compose.dev.yml up -d --build --force-recreate yuviron-dev-frontend
+          cd /opt/yuviron-server/src/yuviron-frontend
+          git fetch origin dev
+          git reset --hard origin/dev
+          git clean -fd
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.0.0 --activate
+
+      - name: Install dependencies
+        run: |
+          cd /opt/yuviron-server/src/yuviron-frontend
+          pnpm install --frozen-lockfile
+
+      - name: Deploy affected app
+        run: |
+          cd /opt/yuviron-server/src/yuviron-frontend
+          pnpm --filter ${{ matrix.app }} run deploy
