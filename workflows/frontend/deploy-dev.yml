@@ -25,10 +25,10 @@ jobs:
           git reset --hard origin/dev
           git clean -fd
 
-      - name: Enable pnpm
+      - name: Check Node
         run: |
-          corepack enable
-          corepack prepare pnpm@9.0.0 --activate
+          node -v
+          pnpm -v
 
       - name: Install dependencies
         run: |
@@ -50,6 +50,10 @@ jobs:
             echo "has_apps=true" >> $GITHUB_OUTPUT
           fi
 
+      - name: Print affected apps
+        run: |
+          echo "Affected apps:"
+          echo "${{ steps.affected.outputs.apps }}"
 
   deploy:
     needs: detect-affected
@@ -70,10 +74,10 @@ jobs:
           git reset --hard origin/dev
           git clean -fd
 
-      - name: Enable pnpm
+      - name: Check Node
         run: |
-          corepack enable
-          corepack prepare pnpm@9.0.0 --activate
+          node -v
+          pnpm -v
 
       - name: Install dependencies
         run: |
