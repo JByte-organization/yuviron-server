@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CERTS_DIR="/opt/yuviron-server/certs"
+CERTS_DIR="../certs"
 TMP_DIR="$(mktemp -d)"
 
 CERT_FILE="yuviron-cert.pem"

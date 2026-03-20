@@ -57,7 +57,7 @@ services:
 
   yuviron-prod-backend:
     build:
-      context: /opt/yuviron-server
+      context: ./
       dockerfile: infra/docker/backend/Dockerfile
     container_name: yuviron-prod-backend
     env_file:
