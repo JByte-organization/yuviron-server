@@ -11,7 +11,7 @@ DOMAINS=(
   "yuviron.com"
   "api.yuviron.com"
   "dev.yuviron.com"
-  "api-dev.yuviron.com"
+  "dev-api.yuviron.com"
   "*.yuviron.com"
 )
 

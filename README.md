@@ -11,14 +11,14 @@ https://dev.yuviron.com
 https://dev-backoffice.yuviron.com
 https://dev-admin.yuviron.com
 
-https://api-dev.yuviron.com
+https://dev-api.yuviron.com
 ```
 
 Дополнительные API endpoints:
 
 ```text
-https://api-dev.yuviron.com/swagger/
-https://api-dev.yuviron.com/health/
+https://dev-api.yuviron.com/swagger/
+https://dev-api.yuviron.com/health/
 ```
 
 В дальнейшем production-окружение планируется по адресам:
@@ -287,7 +287,7 @@ chmod +x regen-yuviron-certs.sh
 dev.yuviron.com
 dev-backoffice.yuviron.com
 dev-admin.yuviron.com
-api-dev.yuviron.com
+dev-api.yuviron.com
 ```
 
 ---
@@ -427,7 +427,7 @@ ipconfig /flushdns
 nslookup dev.yuviron.com
 nslookup dev-backoffice.yuviron.com
 nslookup dev-admin.yuviron.com
-nslookup api-dev.yuviron.com
+nslookup dev-api.yuviron.com
 ```
 
 ---
@@ -485,13 +485,13 @@ yuviron-dev-admin
 * `https://dev.yuviron.com` → `yuviron-dev-client-app`
 * `https://dev-backoffice.yuviron.com` → `yuviron-dev-backoffice`
 * `https://dev-admin.yuviron.com` → `yuviron-dev-admin`
-* `https://api-dev.yuviron.com/api/` → `yuviron-dev-backend`
-* `https://api-dev.yuviron.com/swagger/` → `yuviron-dev-backend`
-* `https://api-dev.yuviron.com/health/` → `yuviron-dev-backend`
+* `https://dev-api.yuviron.com/api/` → `yuviron-dev-backend`
+* `https://dev-api.yuviron.com/swagger/` → `yuviron-dev-backend`
+* `https://dev-api.yuviron.com/health/` → `yuviron-dev-backend`
 
 На frontend-доменах пути `/api/` и `/swagger/` намеренно закрыты через `404`.
 
-На `api-dev.yuviron.com` все остальные пути, кроме разрешённых backend endpoint'ов, также возвращают `404`.
+На `dev-api.yuviron.com` все остальные пути, кроме разрешённых backend endpoint'ов, также возвращают `404`.
 
 ---
 
