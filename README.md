@@ -322,12 +322,12 @@ radmin_setup.bat
 # Установка сертификата на Windows
 
 1. Открыть `rootCA.crt`
-2. Нажать **Install Certificate**
-3. Выбрать **Local Machine**
+2. Нажать **Install Certificate / Установить сертификат**
+3. Выбрать **Local Machine / Локальный компьютер**
 4. Выбрать хранилище
 
 ```text
-Trusted Root Certification Authorities
+Trusted Root Certification Authorities / Доверенные корневые центры сертификации
 ```
 
 5. Завершить установку
