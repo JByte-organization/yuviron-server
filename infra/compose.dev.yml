@@ -37,7 +37,7 @@ services:
 
   yuviron-dev-migrator:
     build:
-      context: ./
+      context: ../
       dockerfile: infra/docker/migrator/Dockerfile
     container_name: yuviron-dev-migrator
     env_file:
@@ -53,7 +53,7 @@ services:
 
   yuviron-dev-backend:
     build:
-      context: ./
+      context: ../
       dockerfile: infra/docker/backend/Dockerfile
     container_name: yuviron-dev-backend
     env_file:
