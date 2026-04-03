@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-SCRIPT_NAME=$(basename "$0")
+SCRIPT_NAME="$(basename "$0")"
 
 log() {
   printf '[%s] %s\n' "$1" "$2"
@@ -23,144 +23,130 @@ Examples:
 USAGE
 }
 
-ENVIRONMENT="${1:-}"
-PROJECT_ROOT="${2:-/opt/yuviron-server}"
-
-[[ -n "$ENVIRONMENT" ]] || { usage; exit 1; }
-[[ "$ENVIRONMENT" == "dev" || "$ENVIRONMENT" == "prod" ]] || fail "Environment must be 'dev' or 'prod'."
-
-if ! command -v docker >/dev/null 2>&1; then
-  fail "docker is not installed or not available in PATH."
-fi
-
-if docker compose version >/dev/null 2>&1; then
-  COMPOSE_CMD=(docker compose)
-elif command -v docker-compose >/dev/null 2>&1; then
-  COMPOSE_CMD=(docker-compose)
-else
-  fail "Docker Compose is not installed."
-fi
-
-COMPOSE_FILE="$PROJECT_ROOT/infra/compose.${ENVIRONMENT}.yml"
-ENV_FILE="$PROJECT_ROOT/env/${ENVIRONMENT}.env"
-INFRA_DIR="$PROJECT_ROOT/infra"
-EDGE_COMPOSE_FILE="$PROJECT_ROOT/edge/docker-compose.yml"
-EDGE_NGINX_CONF="$PROJECT_ROOT/edge/nginx.conf"
-CERTS_DIR="$PROJECT_ROOT/certs"
-SHARED_NETWORK="yuviron_shared"
-
-BACKEND_DOCKERFILE="$PROJECT_ROOT/infra/docker/backend/Dockerfile"
-FRONTEND_DOCKERFILE="$PROJECT_ROOT/infra/docker/frontend/Dockerfile"
-MIGRATOR_DOCKERFILE="$PROJECT_ROOT/infra/docker/migrator/Dockerfile"
-BACKEND_SOURCE_DIR="$PROJECT_ROOT/src/yuviron-backend"
-FRONTEND_SOURCE_DIR="$PROJECT_ROOT/src/yuviron-frontend"
-STORAGE_DIR="$PROJECT_ROOT/storage/${ENVIRONMENT}"
-NGINX_CONF="$PROJECT_ROOT/infra/nginx/${ENVIRONMENT}.conf"
-
-readonly ENVIRONMENT PROJECT_ROOT COMPOSE_FILE ENV_FILE INFRA_DIR EDGE_COMPOSE_FILE EDGE_NGINX_CONF CERTS_DIR SHARED_NETWORK
-
-REQUIRED_ENV_VARS=(
-  MYSQL_ROOT_PASSWORD
-  ASPNETCORE_ENVIRONMENT
-  ConnectionStrings__Default
-  ConnectionStrings__Redis
-)
-
-# Adjust these if you decide that some directories may be created lazily.
-REQUIRED_PATHS=(
-  "$PROJECT_ROOT"
-  "$INFRA_DIR"
-  "$COMPOSE_FILE"
-  "$ENV_FILE"
-  "$BACKEND_DOCKERFILE"
-  "$FRONTEND_DOCKERFILE"
-  "$MIGRATOR_DOCKERFILE"
-  "$BACKEND_SOURCE_DIR"
-  "$FRONTEND_SOURCE_DIR"
-  "$STORAGE_DIR"
-  "$NGINX_CONF"
-)
-
-DEV_ONLY_PATHS=(
-  "$PROJECT_ROOT/infra/nginx/dev.conf"
-)
-
-PROD_ONLY_PATHS=(
-  "$PROJECT_ROOT/infra/nginx/prod.conf"
-)
-
-assert_exists() {
+assert_file() {
   local path="$1"
-  [[ -e "$path" ]] || fail "Required path does not exist: $path"
+  [[ -f "$path" ]] || fail "File not found: $path"
 }
 
 assert_dir() {
   local path="$1"
-  [[ -d "$path" ]] || fail "Required directory does not exist: $path"
+  [[ -d "$path" ]] || fail "Directory not found: $path"
 }
 
-assert_file() {
-  local path="$1"
-  [[ -f "$path" ]] || fail "Required file does not exist: $path"
+assert_command() {
+  local cmd="$1"
+  command -v "$cmd" >/dev/null 2>&1 || fail "Required command not found: $cmd"
 }
 
-assert_readable() {
-  local path="$1"
-  [[ -r "$path" ]] || fail "Path exists but is not readable: $path"
-}
+ENVIRONMENT="${1:-}"
+PROJECT_ROOT="${2:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
-check_basic_paths() {
+if [[ -z "$ENVIRONMENT" ]]; then
+  usage
+  exit 1
+fi
+
+if [[ "$ENVIRONMENT" != "dev" && "$ENVIRONMENT" != "prod" ]]; then
+  fail "First argument must be 'dev' or 'prod'"
+fi
+
+PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd)"
+INFRA_DIR="$PROJECT_ROOT/infra"
+EDGE_DIR="$PROJECT_ROOT/edge"
+SCRIPTS_DIR="$PROJECT_ROOT/scripts"
+ENV_DIR="$PROJECT_ROOT/env"
+CERTS_DIR="$PROJECT_ROOT/certs"
+STORAGE_DIR="$PROJECT_ROOT/storage/$ENVIRONMENT"
+
+COMPOSE_BASE_FILE="$INFRA_DIR/compose.base.yml"
+COMPOSE_OVERRIDE_FILE="$INFRA_DIR/compose.$ENVIRONMENT.yml"
+ENV_FILE="$ENV_DIR/$ENVIRONMENT.env"
+EDGE_DOCKERFILE="$EDGE_DIR/Dockerfile"
+NGINX_TEMPLATE="$EDGE_DIR/nginx/default.conf.template"
+BACKEND_DOCKERFILE="$INFRA_DIR/docker/backend/Dockerfile"
+FRONTEND_DOCKERFILE="$INFRA_DIR/docker/frontend/Dockerfile"
+MIGRATOR_DOCKERFILE="$INFRA_DIR/docker/migrator/Dockerfile"
+
+SHARED_NETWORK="yuviron_shared"
+COMPOSE_PROJECT="yuviron-$ENVIRONMENT"
+
+if [[ "$ENVIRONMENT" == "dev" ]]; then
+  CERT_FILE="$CERTS_DIR/yuviron-cert.pem"
+  KEY_FILE="$CERTS_DIR/yuviron-key.pem"
+  CLIENT_SERVER_NAME="dev.yuviron.com"
+  ADMIN_SERVER_NAME="dev-admin.yuviron.com"
+  BACKOFFICE_SERVER_NAME="dev-backoffice.yuviron.com"
+  API_SERVER_NAME="dev-api.yuviron.com"
+else
+  CERT_FILE="$CERTS_DIR/yuviron-cert.pem"
+  KEY_FILE="$CERTS_DIR/yuviron-key.pem"
+  CLIENT_SERVER_NAME="yuviron.com"
+  ADMIN_SERVER_NAME="admin.yuviron.com"
+  BACKOFFICE_SERVER_NAME="backoffice.yuviron.com"
+  API_SERVER_NAME="api.yuviron.com"
+fi
+
+REQUIRED_ENV_VARS=(
+  MYSQL_ROOT_PASSWORD
+  MYSQL_DATABASE
+  MYSQL_USER
+  MYSQL_PASSWORD
+  ASPNETCORE_ENVIRONMENT
+  ConnectionStrings__Default
+  ConnectionStrings__Redis
+  FILE_STORAGE_ROOT
+)
+
+check_required_paths() {
   info "Checking required files and directories"
-
-  for path in "${REQUIRED_PATHS[@]}"; do
-    assert_exists "$path"
-    assert_readable "$path"
-  done
 
   assert_dir "$PROJECT_ROOT"
   assert_dir "$INFRA_DIR"
-  assert_dir "$BACKEND_SOURCE_DIR"
-  assert_dir "$FRONTEND_SOURCE_DIR"
+  assert_dir "$EDGE_DIR"
+  assert_dir "$ENV_DIR"
+  assert_dir "$CERTS_DIR"
   assert_dir "$STORAGE_DIR"
 
-  assert_file "$COMPOSE_FILE"
+  assert_file "$COMPOSE_BASE_FILE"
+  assert_file "$COMPOSE_OVERRIDE_FILE"
   assert_file "$ENV_FILE"
+  assert_file "$EDGE_DOCKERFILE"
+  assert_file "$NGINX_TEMPLATE"
   assert_file "$BACKEND_DOCKERFILE"
   assert_file "$FRONTEND_DOCKERFILE"
   assert_file "$MIGRATOR_DOCKERFILE"
-  assert_file "$NGINX_CONF"
-
-  if [[ "$ENVIRONMENT" == "dev" ]]; then
-    for path in "${DEV_ONLY_PATHS[@]}"; do
-      assert_exists "$path"
-    done
-  fi
-
-  if [[ "$ENVIRONMENT" == "prod" ]]; then
-    for path in "${PROD_ONLY_PATHS[@]}"; do
-      assert_exists "$path"
-    done
-  fi
+  assert_file "$CERT_FILE"
+  assert_file "$KEY_FILE"
 
   ok "Required files and directories are present"
 }
 
+check_tools() {
+  info "Checking required tools"
+  assert_command docker
+  ok "Required tools are available"
+}
+
+check_docker_access() {
+  info "Checking Docker access"
+  docker info >/dev/null 2>&1 || fail "Docker daemon is unavailable or current user has no access"
+  ok "Docker daemon is available"
+}
+
 load_env_file() {
   info "Loading env file: $ENV_FILE"
-
   set -a
   # shellcheck disable=SC1090
   source "$ENV_FILE"
   set +a
-
   ok "Env file loaded"
 }
 
 check_required_env_vars() {
-  info "Checking required env vars in $ENV_FILE"
-
+  info "Checking required env vars"
   local missing=()
   local key
+
   for key in "${REQUIRED_ENV_VARS[@]}"; do
     if [[ -z "${!key:-}" ]]; then
       missing+=("$key")
@@ -174,21 +160,22 @@ check_required_env_vars() {
   ok "Required env vars are present"
 }
 
-check_docker_access() {
-  info "Checking Docker access"
-  docker info >/dev/null 2>&1 || fail "Docker daemon is unavailable or current user has no access."
-  ok "Docker daemon is available"
+check_storage_writable() {
+  info "Checking storage directory permissions"
+  local probe_file="$STORAGE_DIR/.preflight-write-test"
+  touch "$probe_file" 2>/dev/null || fail "Storage directory is not writable: $STORAGE_DIR"
+  rm -f "$probe_file"
+  ok "Storage directory is writable"
 }
 
 check_disk_space() {
-  info "Checking free disk space on project volume"
+  info "Checking free disk space"
   local available_kb
-  available_kb=$(df -Pk "$PROJECT_ROOT" | awk 'NR==2 {print $4}')
-  [[ "$available_kb" =~ ^[0-9]+$ ]] || fail "Unable to determine free disk space."
+  available_kb="$(df -Pk "$PROJECT_ROOT" | awk 'NR==2 {print $4}')"
+  [[ "$available_kb" =~ ^[0-9]+$ ]] || fail "Unable to determine free disk space"
 
-  # 1 GiB minimal reserve.
   if (( available_kb < 1048576 )); then
-    fail "Less than 1 GiB free disk space left on volume containing $PROJECT_ROOT."
+    fail "Less than 1 GiB free disk space left on volume containing $PROJECT_ROOT"
   fi
 
   ok "Sufficient disk space detected"
@@ -196,115 +183,67 @@ check_disk_space() {
 
 check_shared_network() {
   info "Checking Docker network: $SHARED_NETWORK"
-
-  if docker network inspect "$SHARED_NETWORK" >/dev/null 2>&1; then
-    ok "Docker network exists: $SHARED_NETWORK"
-  else
-    fail "Docker network does not exist: $SHARED_NETWORK"
-  fi
+  docker network inspect "$SHARED_NETWORK" >/dev/null 2>&1 || fail "Docker network does not exist: $SHARED_NETWORK"
+  ok "Docker network exists: $SHARED_NETWORK"
 }
 
 check_compose_config() {
-  info "Validating Docker Compose config: $COMPOSE_FILE"
+  info "Validating compose config"
 
-  (
-    cd "$INFRA_DIR"
-    "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" config >/dev/null
-  ) || fail "docker compose config validation failed for $COMPOSE_FILE"
+  docker compose \
+    --env-file "$ENV_FILE" \
+    -p "$COMPOSE_PROJECT" \
+    -f "$COMPOSE_BASE_FILE" \
+    -f "$COMPOSE_OVERRIDE_FILE" \
+    config >/dev/null \
+    || fail "docker compose config validation failed"
 
   ok "Compose config is valid"
 }
 
-check_edge_compose_config() {
-  if [[ -f "$EDGE_COMPOSE_FILE" ]]; then
-    info "Validating edge compose config: $EDGE_COMPOSE_FILE"
-    (
-      cd "$PROJECT_ROOT/edge"
-      "${COMPOSE_CMD[@]}" -f "$EDGE_COMPOSE_FILE" config >/dev/null
-    ) || fail "docker compose config validation failed for $EDGE_COMPOSE_FILE"
-    ok "Edge compose config is valid"
-  else
-    warn "Edge compose file not found, skipping: $EDGE_COMPOSE_FILE"
-  fi
-}
+check_nginx_template() {
+  info "Validating nginx template rendering and syntax"
 
-validate_nginx_file_in_container() {
-  local file_path="$1"
-  local temp_dir
-  temp_dir=$(mktemp -d)
-
-  cp "$file_path" "$temp_dir/default.conf"
+  local image_id
+  image_id="$(docker build -q -f "$EDGE_DOCKERFILE" "$EDGE_DIR")"
 
   docker run --rm \
     --network "$SHARED_NETWORK" \
-    -v "$temp_dir/default.conf:/etc/nginx/conf.d/default.conf:ro" \
-    -v "$CERTS_DIR:/etc/nginx/certs:ro" \
-    nginx:alpine nginx -t >/dev/null 2>&1 \
-    || { rm -rf "$temp_dir"; fail "nginx validation failed for $file_path"; }
+    -e CLIENT_SERVER_NAME="$CLIENT_SERVER_NAME" \
+    -e ADMIN_SERVER_NAME="$ADMIN_SERVER_NAME" \
+    -e BACKOFFICE_SERVER_NAME="$BACKOFFICE_SERVER_NAME" \
+    -e API_SERVER_NAME="$API_SERVER_NAME" \
+    -e CLIENT_APP_UPSTREAM="client-app:3000" \
+    -e ADMIN_UPSTREAM="admin:3000" \
+    -e BACKOFFICE_UPSTREAM="backoffice:3000" \
+    -e BACKEND_UPSTREAM="backend:5073" \
+    -v "$NGINX_TEMPLATE:/etc/nginx/templates/default.conf.template:ro" \
+    -v "$CERT_FILE:/etc/nginx/certs/cert.pem:ro" \
+    -v "$KEY_FILE:/etc/nginx/certs/key.pem:ro" \
+    "$image_id" \
+    /bin/sh -c "envsubst '\$CLIENT_SERVER_NAME \$ADMIN_SERVER_NAME \$BACKOFFICE_SERVER_NAME \$API_SERVER_NAME \$CLIENT_APP_UPSTREAM \$ADMIN_UPSTREAM \$BACKOFFICE_UPSTREAM \$BACKEND_UPSTREAM' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -t" \
+    >/dev/null 2>&1 \
+    || fail "Nginx template validation failed"
 
-  rm -rf "$temp_dir"
-}
-
-check_nginx_config() {
-  if [[ -f "$NGINX_CONF" ]]; then
-    info "Validating nginx config in container: $NGINX_CONF"
-    validate_nginx_file_in_container "$NGINX_CONF"
-    ok "Nginx config is valid: $NGINX_CONF"
-  fi
-
-  if [[ -f "$EDGE_NGINX_CONF" ]]; then
-    info "Validating nginx config in container: $EDGE_NGINX_CONF"
-    validate_nginx_file_in_container "$EDGE_NGINX_CONF"
-    ok "Nginx config is valid: $EDGE_NGINX_CONF"
-  fi
-}
-
-check_bind_mount_sources() {
-  info "Checking bind mount source paths"
-
-  local paths=(
-    "$STORAGE_DIR"
-    "$EDGE_NGINX_CONF"
-    "$CERTS_DIR"
-    "$BACKEND_SOURCE_DIR"
-    "$FRONTEND_SOURCE_DIR"
-    "$PROJECT_ROOT/infra/nginx"
-  )
-
-  local path
-  for path in "${paths[@]}"; do
-    if [[ -e "$path" ]]; then
-      ok "Bind mount source exists: $path"
-    else
-      warn "Optional bind mount source not found: $path"
-    fi
-  done
-}
-
-check_build_contexts() {
-  info "Checking Docker build contexts"
-  assert_dir "$PROJECT_ROOT"
-  assert_dir "$FRONTEND_SOURCE_DIR"
-  ok "Docker build contexts exist"
+  ok "Nginx template is valid"
 }
 
 main() {
   info "Starting preflight checks for environment: $ENVIRONMENT"
   info "Project root: $PROJECT_ROOT"
 
+  check_required_paths
+  check_tools
   check_docker_access
-  check_disk_space
-  check_basic_paths
   load_env_file
   check_required_env_vars
+  check_storage_writable
+  check_disk_space
   check_shared_network
-  check_build_contexts
-  check_bind_mount_sources
   check_compose_config
-  check_edge_compose_config
-  check_nginx_config
+  check_nginx_template
 
-  ok "All preflight checks passed for $ENVIRONMENT"
+  ok "Preflight completed successfully for: $ENVIRONMENT"
 }
 
-main "$@"
+main
