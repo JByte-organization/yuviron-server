@@ -1,0 +1,144 @@
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - yuviron_db:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent || exit 1"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - yuviron_shared
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - yuviron_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - yuviron_shared
+
+  migrator:
+    build:
+      context: ../
+      dockerfile: infra/docker/migrator/Dockerfile
+    restart: "no"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - yuviron_shared
+
+  backend:
+    build:
+      context: ../
+      dockerfile: infra/docker/backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:5073/health/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    networks:
+      - yuviron_shared
+
+  admin:
+    build:
+      context: ../src/yuviron-frontend
+      dockerfile: ../../infra/docker/frontend/Dockerfile
+      args:
+        APP_NAME: admin
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - yuviron_shared
+
+  backoffice:
+    build:
+      context: ../src/yuviron-frontend
+      dockerfile: ../../infra/docker/frontend/Dockerfile
+      args:
+        APP_NAME: backoffice
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - yuviron_shared
+
+  client-app:
+    build:
+      context: ../src/yuviron-frontend
+      dockerfile: ../../infra/docker/frontend/Dockerfile
+      args:
+        APP_NAME: client-app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - yuviron_shared
+
+  nginx:
+    build:
+      context: ../edge
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      admin:
+        condition: service_started
+      backoffice:
+        condition: service_started
+      client-app:
+        condition: service_started
+    networks:
+      - yuviron_shared
+
+volumes:
+  yuviron_db:
+  yuviron_redis:
+
+networks:
+  yuviron_shared:
+    external: true

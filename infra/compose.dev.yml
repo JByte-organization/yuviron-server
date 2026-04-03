@@ -1,137 +1,52 @@
 services:
-  yuviron-dev-mysql:
-    image: mysql:8.0
-    container_name: yuviron-dev-mysql
+  mysql:
     env_file:
       - ../env/dev.env
-    volumes:
-      - yuviron_dev_db:/var/lib/mysql
-    restart: always
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent || exit 1"
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    networks:
-      - yuviron_shared
 
-  yuviron-dev-redis:
-    image: redis:7-alpine
-    container_name: yuviron-dev-redis
-    restart: always
-    volumes:
-      - yuviron_dev_redis:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-      start_period: 5s
-    networks:
-      - yuviron_shared
-
-  yuviron-dev-migrator:
-    build:
-      context: ../
-      dockerfile: infra/docker/migrator/Dockerfile
-    container_name: yuviron-dev-migrator
+  migrator:
     env_file:
       - ../env/dev.env
-    depends_on:
-      yuviron-dev-mysql:
-        condition: service_healthy
-      yuviron-dev-redis:
-        condition: service_healthy
-    restart: "no"
-    networks:
-      - yuviron_shared
 
-  yuviron-dev-backend:
-    build:
-      context: ../
-      dockerfile: infra/docker/backend/Dockerfile
-    container_name: yuviron-dev-backend
+  backend:
     env_file:
       - ../env/dev.env
-    depends_on:
-      yuviron-dev-mysql:
-        condition: service_healthy
-      yuviron-dev-redis:
-        condition: service_healthy
-      yuviron-dev-migrator:
-        condition: service_completed_successfully
-    restart: always
     volumes:
       - ../storage/dev:/var/yuviron-server/storage
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:5073/health/ready || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 40s
-    networks:
-      - yuviron_shared
+    ports:
+      - "5073:5073"
 
-  yuviron-dev-admin:
-    build:
-      context: ../src/yuviron-frontend
-      dockerfile: ../../infra/docker/frontend/Dockerfile
-      args:
-        APP_NAME: admin
-    container_name: yuviron-dev-admin
-    restart: always
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/ || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
-    networks:
-      - yuviron_shared
+  admin:
+    ports:
+      - "3001:3000"
 
-  yuviron-dev-backoffice:
-    build:
-      context: ../src/yuviron-frontend
-      dockerfile: ../../infra/docker/frontend/Dockerfile
-      args:
-        APP_NAME: backoffice
-    container_name: yuviron-dev-backoffice
-    restart: always
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/ || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
-    networks:
-      - yuviron_shared
+  backoffice:
+    ports:
+      - "3002:3000"
 
-  yuviron-dev-client-app:
-    build:
-      context: ../src/yuviron-frontend
-      dockerfile: ../../infra/docker/frontend/Dockerfile
-      args:
-        APP_NAME: client-app
-    container_name: yuviron-dev-client-app
-    restart: always
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/ || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
-    networks:
-      - yuviron_shared
+  client-app:
+    ports:
+      - "3003:3000"
 
-volumes:
-  yuviron_dev_db:
-  yuviron_dev_redis:
+  nginx:
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CLIENT_SERVER_NAME: dev.yuviron.com
+      ADMIN_SERVER_NAME: dev-admin.yuviron.com
+      BACKOFFICE_SERVER_NAME: dev-backoffice.yuviron.com
+      API_SERVER_NAME: dev-api.yuviron.com
 
-networks:
-  yuviron_shared:
-    external: true
+      CLIENT_APP_UPSTREAM: client-app:3000
+      ADMIN_UPSTREAM: admin:3000
+      BACKOFFICE_UPSTREAM: backoffice:3000
+      BACKEND_UPSTREAM: backend:5073
+    volumes:
+      - ../edge/nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ../certs/yuviron-cert.pem:/etc/nginx/certs/cert.pem:ro
+      - ../certs/yuviron-key.pem:/etc/nginx/certs/key.pem:ro
+    command: >
+      /bin/sh -c "envsubst '$$CLIENT_SERVER_NAME $$ADMIN_SERVER_NAME $$BACKOFFICE_SERVER_NAME $$API_SERVER_NAME $$CLIENT_APP_UPSTREAM $$ADMIN_UPSTREAM $$BACKOFFICE_UPSTREAM $$BACKEND_UPSTREAM'
+      < /etc/nginx/templates/default.conf.template
+      > /etc/nginx/conf.d/default.conf
+      && nginx -g 'daemon off;'"

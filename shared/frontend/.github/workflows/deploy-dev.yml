@@ -1,0 +1,228 @@
+name: Deploy frontend dev
+
+on:
+  push:
+    branches:
+      - dev
+
+concurrency:
+  group: deploy-frontend-dev
+  cancel-in-progress: true
+
+jobs:
+  detect-affected:
+    runs-on: [self-hosted, yuviron]
+
+    outputs:
+      apps: ${{ steps.affected.outputs.apps }}
+      has_apps: ${{ steps.affected.outputs.has_apps }}
+      reason: ${{ steps.affected.outputs.reason }}
+
+    steps:
+      - name: Sync frontend source
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server/src/yuviron-frontend
+          git fetch --prune origin dev
+          git reset --hard origin/dev
+          git clean -fdx
+
+      - name: Install frontend dependencies for detection
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server/src/yuviron-frontend
+          pnpm install --frozen-lockfile
+
+      - name: Detect affected apps
+        id: affected
+        env:
+          BASE_SHA: ${{ github.event.before }}
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server/src/yuviron-frontend
+
+          resolve_base_sha() {
+            local base_sha="${BASE_SHA:-}"
+
+            if [ -z "$base_sha" ] || [ "$base_sha" = "0000000000000000000000000000000000000000" ]; then
+              echo "BASE_SHA is empty or zeroed, trying HEAD~1" >&2
+              git rev-parse --verify HEAD~1 >/dev/null 2>&1 || return 1
+              base_sha="$(git rev-parse HEAD~1)"
+            fi
+
+            if ! git cat-file -e "${base_sha}^{commit}" 2>/dev/null; then
+              echo "BASE_SHA is missing locally, trying to fetch it: $base_sha" >&2
+              git fetch origin "${base_sha}" --depth=1 || true
+            fi
+
+            git cat-file -e "${base_sha}^{commit}" 2>/dev/null || return 1
+            printf '%s\n' "$base_sha"
+          }
+
+          REASON="selective deploy"
+
+          RESOLVED_BASE_SHA="$(resolve_base_sha)" || {
+            echo "Failed to resolve valid BASE_SHA" >&2
+            exit 1
+          }
+
+          echo "Using BASE_SHA=${RESOLVED_BASE_SHA}"
+
+          APPS_RAW="$(bash .github/scripts/get-affected-apps.sh "$RESOLVED_BASE_SHA")" || {
+            echo "Affected detection script failed" >&2
+            exit 1
+          }
+
+          if [ -z "${APPS_RAW}" ]; then
+            APPS_RAW="[]"
+            REASON="no affected apps"
+          fi
+
+          echo "Detected apps raw: ${APPS_RAW}"
+
+          APPS="$(APPS_RAW="$APPS_RAW" python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          raw = os.environ["APPS_RAW"]
+          allowed = ["admin", "backoffice", "client-app"]
+
+          try:
+              data = json.loads(raw)
+          except Exception as e:
+              print(f"Invalid JSON from affected script: {e}", file=sys.stderr)
+              sys.exit(1)
+
+          if not isinstance(data, list):
+              print("Affected script returned non-list JSON", file=sys.stderr)
+              sys.exit(1)
+
+          result = []
+          for app in data:
+              if app in allowed and app not in result:
+                  result.append(app)
+
+          print(json.dumps(result))
+          PY
+          )"
+
+          echo "Normalized apps: ${APPS}"
+          echo "apps=${APPS}" >> "$GITHUB_OUTPUT"
+          echo "reason=${REASON}" >> "$GITHUB_OUTPUT"
+
+          if [ "${APPS}" = "[]" ]; then
+            echo "has_apps=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_apps=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Print affected apps
+        run: |
+          echo "Affected apps: ${{ steps.affected.outputs.apps }}"
+          echo "Has apps: ${{ steps.affected.outputs.has_apps }}"
+          echo "Reason: ${{ steps.affected.outputs.reason }}"
+
+  deploy:
+    needs: detect-affected
+    if: needs.detect-affected.outputs.has_apps == 'true'
+    runs-on: [self-hosted, yuviron]
+
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.detect-affected.outputs.apps) }}
+
+    env:
+      DETECT_REASON: ${{ needs.detect-affected.outputs.reason }}
+
+    steps:
+      - name: Sync frontend source
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server/src/yuviron-frontend
+          git fetch --prune origin dev
+          git reset --hard origin/dev
+          git clean -fdx
+
+      - name: Print deploy mode
+        run: |
+          echo "Deploy mode reason: ${DETECT_REASON}"
+          echo "Current app: ${{ matrix.app }}"
+          echo "Selective deploy mode."
+
+      - name: Preflight check
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server
+          chmod +x ./scripts/preflight-check.sh
+          ./scripts/preflight-check.sh dev /opt/yuviron-server
+
+      - name: Install frontend dependencies
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server/src/yuviron-frontend
+          pnpm install --frozen-lockfile
+
+      - name: Typecheck affected app
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server/src/yuviron-frontend
+          pnpm --filter "${{ matrix.app }}" run typecheck
+
+      # Включи обратно, когда lint станет стабильным.
+      # - name: Lint affected app
+      #   run: |
+      #     set -Eeuo pipefail
+      #     cd /opt/yuviron-server/src/yuviron-frontend
+      #     pnpm --filter "${{ matrix.app }}" run lint
+
+      - name: Build affected frontend service
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server
+
+          echo "Building frontend service: ${{ matrix.app }}"
+
+          docker compose \
+            --env-file ./env/dev.env \
+            -p yuviron-dev \
+            -f ./infra/compose.base.yml \
+            -f ./infra/compose.dev.yml \
+            build "${{ matrix.app }}"
+
+      - name: Restart affected frontend service
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server
+
+          echo "Restarting frontend service: ${{ matrix.app }}"
+
+          docker compose \
+            --env-file ./env/dev.env \
+            -p yuviron-dev \
+            -f ./infra/compose.base.yml \
+            -f ./infra/compose.dev.yml \
+            up -d --no-deps "${{ matrix.app }}"
+
+      - name: Show running services
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server
+          docker compose \
+            --env-file ./env/dev.env \
+            -p yuviron-dev \
+            -f ./infra/compose.base.yml \
+            -f ./infra/compose.dev.yml \
+            ps
+
+  no-changes:
+    needs: detect-affected
+    if: needs.detect-affected.outputs.has_apps != 'true'
+    runs-on: [self-hosted, yuviron]
+
+    steps:
+      - name: No affected frontend apps
+        run: |
+          echo "No affected frontend apps detected. Skipping deploy."
+          echo "Reason: ${{ needs.detect-affected.outputs.reason }}"

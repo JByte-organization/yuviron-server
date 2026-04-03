@@ -1,121 +1,50 @@
 services:
-  yuviron-prod-mysql:
-    image: mysql:8.0
-    container_name: yuviron-prod-mysql
+  mysql:
     env_file:
       - ../env/prod.env
-    volumes:
-      - yuviron_prod_db:/var/lib/mysql
     restart: always
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent || exit 1"
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
 
-  yuviron-prod-redis:
-    image: redis:7-alpine
-    container_name: yuviron-prod-redis
-    restart: always
-    volumes:
-      - yuviron_prod_redis:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-      start_period: 5s
-
-  yuviron-prod-migrator:
-    image: mcr.microsoft.com/dotnet/sdk:9.0
-    container_name: yuviron-prod-migrator
-    working_dir: /src
-    volumes:
-      - ../src/yuviron-backend:/src
+  migrator:
     env_file:
       - ../env/prod.env
-    depends_on:
-      yuviron-prod-mysql:
-        condition: service_healthy
-      yuviron-prod-redis:
-        condition: service_healthy
-    restart: "no"
-    command: >
-      bash -lc "
-        set -e &&
-        dotnet tool install --global dotnet-ef --version 9.* || dotnet tool update --global dotnet-ef --version 9.* &&
-        export PATH=$PATH:/root/.dotnet/tools &&
-        dotnet restore &&
-        dotnet build src/Yuviron.Api/Yuviron.Api.csproj -c Release &&
-        dotnet ef database update -p src/Yuviron.Infrastructure -s src/Yuviron.Api
-      "
 
-  yuviron-prod-backend:
-    build:
-      context: ./
-      dockerfile: infra/docker/backend/Dockerfile
-    container_name: yuviron-prod-backend
+  backend:
     env_file:
       - ../env/prod.env
-    depends_on:
-      yuviron-prod-mysql:
-        condition: service_healthy
-      yuviron-prod-redis:
-        condition: service_healthy
-      yuviron-prod-migrator:
-        condition: service_completed_successfully
-    restart: always
     volumes:
       - ../storage/prod:/var/yuviron-server/storage
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "wget -q --spider http://127.0.0.1:5073/health || exit 1"
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 40s
-
-  yuviron-prod-frontend:
-    build:
-      context: ../src/yuviron-frontend
-      dockerfile: ../../infra/docker/frontend/Dockerfile
-    container_name: yuviron-prod-frontend
     restart: always
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
 
-  yuviron-prod-nginx:
-    image: nginx:alpine
-    container_name: yuviron-prod-nginx
+  admin:
+    restart: always
+
+  backoffice:
+    restart: always
+
+  client-app:
+    restart: always
+
+  nginx:
     ports:
       - "80:80"
-    volumes:
-      - ./nginx/prod.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      yuviron-prod-backend:
-        condition: service_healthy
-      yuviron-prod-frontend:
-        condition: service_healthy
-    restart: always
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
+      - "443:443"
+    environment:
+      CLIENT_SERVER_NAME: yuviron.com
+      ADMIN_SERVER_NAME: admin.yuviron.com
+      BACKOFFICE_SERVER_NAME: backoffice.yuviron.com
+      API_SERVER_NAME: api.yuviron.com
 
-volumes:
-  yuviron_prod_db:
-  yuviron_prod_redis:
+      CLIENT_APP_UPSTREAM: client-app:3000
+      ADMIN_UPSTREAM: admin:3000
+      BACKOFFICE_UPSTREAM: backoffice:3000
+      BACKEND_UPSTREAM: backend:5073
+    volumes:
+      - ../edge/nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ../certs/yuviron-cert.pem:/etc/nginx/certs/cert.pem:ro
+      - ../certs/yuviron-key.pem:/etc/nginx/certs/key.pem:ro
+    command: >
+      /bin/sh -c "envsubst '$$CLIENT_SERVER_NAME $$ADMIN_SERVER_NAME $$BACKOFFICE_SERVER_NAME $$API_SERVER_NAME $$CLIENT_APP_UPSTREAM $$ADMIN_UPSTREAM $$BACKOFFICE_UPSTREAM $$BACKEND_UPSTREAM'
+      < /etc/nginx/templates/default.conf.template
+      > /etc/nginx/conf.d/default.conf
+      && nginx -g 'daemon off;'"
+    restart: always
