@@ -363,6 +363,96 @@ FILE_STORAGE_ROOT=/var/yuviron-server/storage
 
 ---
 
+
+---
+
+# Бэкапы
+
+В инфраструктуре реализована система резервного копирования.
+
+## Что покрывается
+
+* MySQL (дампы базы)
+* storage (файлы)
+* единые архивы
+* тест восстановления
+
+## Переменные окружения
+
+```env
+BACKUP_ROOT=./backups
+BACKUP_TMP=./backups/tmp
+BACKUP_LOG_DIR=./backups/logs
+BACKUP_ARCHIVE_DIR=./backups/archives
+BACKUP_RESTORE_TEST_TMP=./backups/restore-test
+
+BACKUP_ENVS=dev,prod
+
+BACKUP_STORAGE_DEV=./storage/dev
+BACKUP_STORAGE_PROD=./storage/prod
+
+BACKUP_REMOTE_PATH=
+
+BACKUP_RETENTION_DAYS=14
+
+BACKUP_PROJECT_NAME=yuviron-server
+
+COMPOSE_BASE_FILE=infra/compose.base.yml
+COMPOSE_DEV_FILE=infra/compose.dev.yml
+COMPOSE_PROD_FILE=infra/compose.prod.yml
+
+COMPOSE_PROJECT_DEV=yuviron_dev
+COMPOSE_PROJECT_PROD=yuviron_prod
+
+MYSQL_SERVICE_NAME=mysql
+BACKEND_SERVICE_NAME=backend
+```
+
+## Скрипты
+
+```text
+scripts/backup.sh
+scripts/restore-test.sh
+scripts/setup-cron.sh
+```
+
+## Создание бэкапа
+
+```bash
+./scripts/backup.sh
+```
+
+## Проверка восстановления
+
+```bash
+./scripts/restore-test.sh
+```
+
+## Автоматизация (cron)
+
+```bash
+./scripts/setup-cron.sh
+```
+
+## Ротация
+
+```env
+BACKUP_RETENTION_DAYS=14
+```
+
+## Структура
+
+```text
+backups/
+├── tmp/
+├── logs/
+├── archives/
+└── restore-test/
+```
+
+Директория `backups` добавлена в `.gitignore`.
+
+
 # Сертификаты
 
 Сертификаты хранятся в директории:
