@@ -118,6 +118,18 @@ services:
     networks:
       - yuviron_shared
 
+  seq:
+    image: datalust/seq:latest
+    user: "0:0"
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+    expose:
+      - "80"
+      - "5341"
+    networks:
+      - yuviron_shared
+
   nginx:
     build:
       context: ../edge
