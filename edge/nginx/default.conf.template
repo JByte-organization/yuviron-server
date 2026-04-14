@@ -46,6 +46,19 @@ server {
 }
 
 server {
+    listen 80;
+    server_name ${ASPIRE_SERVER_NAME};
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 80;
+    server_name ${RABBITMQ_SERVER_NAME};
+    return 301 https://$host$request_uri;
+}
+
+
+server {
     listen 443 ssl;
     http2 on;
     server_name ${CLIENT_SERVER_NAME};
@@ -155,6 +168,54 @@ server {
 
     location / {
         proxy_pass http://$seq_upstream;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${ASPIRE_SERVER_NAME};
+
+    ssl_certificate /etc/nginx/certs/cert.pem;
+    ssl_certificate_key /etc/nginx/certs/key.pem;
+
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    set $aspire_upstream ${ASPIRE_UPSTREAM};
+
+    location / {
+        proxy_pass http://$aspire_upstream;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${RABBITMQ_SERVER_NAME};
+
+    ssl_certificate /etc/nginx/certs/cert.pem;
+    ssl_certificate_key /etc/nginx/certs/key.pem;
+
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    set $rabbitmq_upstream ${RABBITMQ_UPSTREAM};
+
+    location / {
+        proxy_pass http://$rabbitmq_upstream;
         proxy_http_version 1.1;
 
         proxy_set_header Host $host;
