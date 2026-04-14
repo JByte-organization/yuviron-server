@@ -130,6 +130,36 @@ services:
     networks:
       - yuviron_shared
 
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0
+    restart: unless-stopped
+    expose:
+      - "18888"
+      - "4317"
+    networks:
+      - yuviron_shared
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_DEFAULT_VHOST}
+    volumes:
+      - yuviron_rabbitmq:/var/lib/rabbitmq
+    expose:
+      - "5672"
+      - "15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - yuviron_shared
+
   nginx:
     build:
       context: ../edge
@@ -150,6 +180,7 @@ services:
 volumes:
   yuviron_db:
   yuviron_redis:
+  yuviron_rabbitmq:
 
 networks:
   yuviron_shared:
