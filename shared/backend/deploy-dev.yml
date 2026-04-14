@@ -1,11 +1,11 @@
-name: Deploy backend dev
+name: Deploy backend and media worker dev
 
 on:
   push:
     branches: [dev]
 
 concurrency:
-  group: deploy-backend-dev
+  group: deploy-backend-media-worker-dev
   cancel-in-progress: true
 
 jobs:
@@ -34,18 +34,32 @@ jobs:
           SEED_USER_PASSWORD: ${{ secrets.SEED_USER_PASSWORD }}
           SEED_PREMIUM_EMAIL: ${{ secrets.SEED_PREMIUM_EMAIL }}
           SEED_PREMIUM_PASSWORD: ${{ secrets.SEED_PREMIUM_PASSWORD }}
+          JAMENDO_CLIENT_ID: ${{ secrets.JAMENDO_CLIENT_ID }}
         run: |
           set -e
           ENV_FILE="Development"
-          CONFIG_PATH="/opt/yuviron-server/src/yuviron-backend/src/Yuviron.Api/appsettings.${ENV_FILE}.json"
 
-          mkdir -p "$(dirname "$CONFIG_PATH")"
+          API_CONFIG_PATH="/opt/yuviron-server/src/yuviron-backend/src/Yuviron.Api/appsettings.${ENV_FILE}.json"
+          WORKER_CONFIG_PATH="/opt/yuviron-server/src/yuviron-backend/src/Yuviron.MediaWorker/appsettings.${ENV_FILE}.json"
 
-          python3 - <<'PY' > "$CONFIG_PATH"
+          mkdir -p "$(dirname "$API_CONFIG_PATH")"
+          mkdir -p "$(dirname "$WORKER_CONFIG_PATH")"
+
+          python3 - <<'PY' > "$API_CONFIG_PATH"
           import json
           import os
 
           config = {
+              "CorsSettings": {
+                  "AllowedOrigins": [
+                      "https://yuviron.com",
+                      "https://backoffice.yuviron.com",
+                      "https://admin.yuviron.com",
+                      "https://dev.yuviron.com",
+                      "https://dev-backoffice.yuviron.com",
+                      "https://dev-admin.yuviron.com"
+                  ]
+              },
               "JwtSettings": {
                   "Secret": os.environ["JWT_SECRET"],
                   "Issuer": "YuvironApi",
@@ -75,14 +89,31 @@ jobs:
                       "Email": os.environ["SEED_PREMIUM_EMAIL"],
                       "Password": os.environ["SEED_PREMIUM_PASSWORD"]
                   }
+              },
+              "JamendoApi": {
+                  "ClientId": os.environ["JAMENDO_CLIENT_ID"]
               }
           }
 
           print(json.dumps(config, ensure_ascii=False, indent=2))
           PY
 
-          python3 -m json.tool "$CONFIG_PATH" >/dev/null
+          python3 - <<'PY' > "$WORKER_CONFIG_PATH"
+          import json
+          import os
 
+          config = {
+              "JamendoApi": {
+                  "ClientId": os.environ["JAMENDO_CLIENT_ID"]
+              }
+          }
+
+          print(json.dumps(config, ensure_ascii=False, indent=2))
+          PY
+
+          python3 -m json.tool "$API_CONFIG_PATH" >/dev/null
+          python3 -m json.tool "$WORKER_CONFIG_PATH" >/dev/null
+    
       - name: Preflight check
         run: |
           set -e
@@ -90,7 +121,7 @@ jobs:
           chmod +x ./scripts/preflight-check.sh
           ./scripts/preflight-check.sh dev /opt/yuviron-server
 
-      - name: Build backend services
+      - name: Build backend and worker services
         run: |
           set -e
           cd /opt/yuviron-server
@@ -98,7 +129,7 @@ jobs:
             -p yuviron-dev \
             -f ./infra/compose.base.yml \
             -f ./infra/compose.dev.yml \
-            build migrator backend
+            build migrator backend media-worker
 
       - name: Apply migrations
         run: |
@@ -110,7 +141,7 @@ jobs:
             -f ./infra/compose.dev.yml \
             run --rm migrator
 
-      - name: Restart backend
+      - name: Restart backend and media worker
         run: |
           set -e
           cd /opt/yuviron-server
@@ -118,7 +149,7 @@ jobs:
             -p yuviron-dev \
             -f ./infra/compose.base.yml \
             -f ./infra/compose.dev.yml \
-            up -d --no-deps backend
+            up -d --no-deps backend media-worker
 
       - name: Show running services
         run: |
@@ -128,3 +159,12 @@ jobs:
             -f ./infra/compose.base.yml \
             -f ./infra/compose.dev.yml \
             ps
+    
+      - name: Show media worker logs
+        run: |
+          cd /opt/yuviron-server
+          docker compose \
+            -p yuviron-dev \
+            -f ./infra/compose.base.yml \
+            -f ./infra/compose.dev.yml \
+            logs --tail=100 media-worker
