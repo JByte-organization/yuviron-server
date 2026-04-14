@@ -70,6 +70,23 @@ services:
     networks:
       - yuviron_shared
 
+  media-worker:
+    build:
+      context: ../
+      dockerfile: infra/docker/media-worker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    networks:
+      - yuviron_shared
+
   admin:
     build:
       context: ../src/yuviron-frontend
