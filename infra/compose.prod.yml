@@ -15,6 +15,16 @@ services:
       - ../storage/prod:/var/yuviron-server/storage
     restart: always
 
+  # media-worker:
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: "2.0"
+  #         memory: 2G
+  #       reservations:
+  #         cpus: "0.5"
+  #         memory: 512M
+
   admin:
     restart: always
 
