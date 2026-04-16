@@ -59,6 +59,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
       migrator:
         condition: service_completed_successfully
     healthcheck:
@@ -66,7 +68,7 @@ services:
       interval: 15s
       timeout: 5s
       retries: 10
-      start_period: 40s
+      start_period: 60s
     networks:
       - yuviron_shared
 
@@ -169,7 +171,7 @@ services:
       - "5672"
       - "15672"
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_port_connectivity"]
       interval: 10s
       timeout: 5s
       retries: 10
