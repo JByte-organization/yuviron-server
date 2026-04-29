@@ -87,8 +87,7 @@ jobs:
         run: |
           set -e
           cd /opt/yuviron-server
-          chmod +x ./scripts/preflight-check.sh
-          ./scripts/preflight-check.sh prod /opt/yuviron-server
+          ./scripts/cli.py stack preflight prod /opt/yuviron-server
 
       - name: Build backend services
         run: |
