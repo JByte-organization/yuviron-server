@@ -20,3 +20,5 @@ backups
 # python
 __pycache__/
 *.pyc
+
+src/*
