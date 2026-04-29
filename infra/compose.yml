@@ -3,6 +3,8 @@ services:
     image: mysql:8.4
     container_name: ${COMPOSE_PROJECT_NAME}-mysql
     restart: ${RESTART_POLICY}
+    security_opt:
+      - no-new-privileges:true
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
@@ -29,6 +31,8 @@ services:
     image: redis:7-alpine
     container_name: ${COMPOSE_PROJECT_NAME}-redis
     restart: ${RESTART_POLICY}
+    security_opt:
+      - no-new-privileges:true
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
@@ -47,6 +51,8 @@ services:
     image: rabbitmq:3-management
     container_name: ${COMPOSE_PROJECT_NAME}-rabbitmq
     restart: ${RESTART_POLICY}
+    security_opt:
+      - no-new-privileges:true
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
@@ -73,6 +79,8 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME}-seq
     user: "0:0"
     restart: ${RESTART_POLICY}
+    security_opt:
+      - no-new-privileges:true
     environment:
       ACCEPT_EULA: "Y"
       SEQ_FIRSTRUN_ADMINUSERNAME: ${SEQ_FIRSTRUN_ADMINUSERNAME}
@@ -90,11 +98,17 @@ services:
     memswap_limit: ${SEQ_MEMSWAP_LIMIT:-512m}
     cpus: ${SEQ_CPUS:-0.5}
 
-
   aspire-dashboard:
     image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0
     container_name: ${COMPOSE_PROJECT_NAME}-aspire
     restart: ${RESTART_POLICY}
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     environment:
       ASPNETCORE_URLS: ${ASPIRE_ASPNETCORE_URLS}
       DOTNET_DASHBOARD_OTLP_ENDPOINT_URL: ${ASPIRE_OTLP_ENDPOINT_URL}
@@ -116,6 +130,8 @@ services:
       context: ..
       dockerfile: infra/docker/migrator/Dockerfile
     container_name: ${COMPOSE_PROJECT_NAME}-migrator
+    security_opt:
+      - no-new-privileges:true
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
       ConnectionStrings__Default: ${ConnectionStrings__Default}
@@ -146,6 +162,13 @@ services:
       dockerfile: infra/docker/backend/Dockerfile
     container_name: ${COMPOSE_PROJECT_NAME}-backend
     restart: ${RESTART_POLICY}
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     environment:
       ASPNETCORE_HTTP_PORTS: 5073
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
@@ -192,6 +215,13 @@ services:
       dockerfile: infra/docker/media-worker/Dockerfile
     container_name: ${COMPOSE_PROJECT_NAME}-media-worker
     restart: ${RESTART_POLICY}
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
       ConnectionStrings__Default: ${ConnectionStrings__Default}
@@ -232,6 +262,13 @@ services:
         APP_NAME: client-app
     container_name: ${COMPOSE_PROJECT_NAME}-client
     restart: ${RESTART_POLICY}
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     networks:
       - default
     mem_limit: ${CLIENT_APP_MEM_LIMIT:-256m}
@@ -244,6 +281,13 @@ services:
       dockerfile: Dockerfile
     container_name: ${COMPOSE_PROJECT_NAME}-nginx
     restart: ${RESTART_POLICY}
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       backend:
         condition: service_started
