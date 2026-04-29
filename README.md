@@ -2,17 +2,25 @@
 
 Инфраструктурный репозиторий для развёртывания **dev** и **prod** окружений Yuviron и автоматизации **CI/CD через GitHub Actions**.
 
+Ключевые изменения и рефакторинг (апрель 2026):
+
+- Единый `infra/compose.yml` вместо набора `compose.base/dev/prod`.
+- Новый Python CLI: `scripts/cli.py` управляет всеми операциями (ранее — набор bash-скриптов).
+- Команды CLI вынесены в `scripts/commands/` (например, `backup`, `stack`, `certs`, `tools`).
+- Конфигурация, сгенерированная утилитами, хранится в `config/`.
+- Шаблоны примеров окружений: `env/example.env` и `env/common.env` (отныне трекаются).
+- Резервное копирование и восстановление реализованы как команды CLI: `./scripts/cli.py backup create|restore|verify`.
+
 Репозиторий содержит:
 
-* Docker-инфраструктуру
-* edge nginx
-* SSL-сертификаты
-* шаблонизированную nginx-конфигурацию
-* инструменты preflight-проверки
-* скрипты запуска и остановки окружений
-* workflow для автоматического деплоя через **self-hosted runner**
+- Docker-инфраструктуру (композиция сервисов в `infra/compose.yml`)
+- Edge (nginx) конфигурацию и шаблоны
+- Скрипты и Python CLI (`scripts/cli.py`, `scripts/commands/`)
+- Инструменты preflight-проверки и smoke-тесты (`checks/`, `tests/`)
+- Конфигурационные шаблоны (`templates/`) и рендеринг в `config/`
+- Helpers и утилиты в `core/`
 
-После завершения настройки окружения должны быть доступны следующие адреса.
+После настройки окружения будут доступны типичные хосты (зависит от DNS и routes):
 
 ## Dev
 
@@ -68,60 +76,28 @@ https://api.yuviron.com
 
 # Архитектура инфраструктуры
 
-Инфраструктура построена по модели:
+Инфраструктура теперь описана единым файлом `infra/compose.yml`. Различия между окружениями задаются через env-файлы и сгенерированные конфиги.
 
-```text
-compose.base.yml   → общая логика инфраструктуры
-compose.dev.yml    → dev overrides
-compose.prod.yml   → prod overrides
-```
+Ключевые компоненты:
 
-Это означает, что:
+- **Docker / Docker Compose plugin** — исполнение сервисов
+- **Edge Nginx** — маршрутизация входящих запросов
+- **MySQL, Redis, RabbitMQ** — сервисы данных
+- **Backend, Migrator, MediaWorker** — серверные процессы
+- **Frontend apps** — `client-app`, `backoffice`, `admin` (разделены сборки: next/static)
+- **GitHub Actions + self-hosted runner** — CI/CD
 
-* состав сервисов в целом одинаковый
-* связи между сервисами одинаковые
-* различия между dev и prod ограничены:
-
-  * env-файлами
-  * доменами
-  * сертификатами
-  * volume/directories
-  * policy запуска
-  * дополнительными dev/prod параметрами nginx и приложений
-
-Основные компоненты системы:
-
-* **Docker** — запускает сервисы проекта в контейнерах
-* **Docker Compose** — управляет инфраструктурой контейнеров
-* **Edge Nginx** — единая точка входа в систему
-* **MySQL** — база данных
-* **Redis** — кэш и вспомогательное хранилище
-* **Backend** — API и серверная логика
-* **Migrator** — применение миграций базы данных
-* **Frontend apps**:
-
-  * `client-app`
-  * `backoffice`
-  * `admin`
-* **GitHub Actions** — CI/CD и автодеплой
-* **Self-Hosted Runner** — выполняет workflow непосредственно на сервере
-
-Общая схема работы инфраструктуры:
+Схема работы (упрощённо):
 
 ```text
 Пользователь / разработчик
-        ↓
+  ↓
 DNS (*.yuviron.com)
-        ↓
-Сетевая маршрутизация / VPN / DNS
-        ↓
-Ubuntu VM
-        ↓
+  ↓
 edge nginx
-        ↓
-client-app / backoffice / admin / backend
+  ↓
+приложения (frontend / backend)
 ```
-
 ---
 
 # Dev-доступ для разработчиков
@@ -174,10 +150,7 @@ edge/nginx/default.conf.template
 envsubst
 ```
 
-Различия между окружениями задаются через переменные окружения и compose overrides:
-
-* `infra/compose.dev.yml`
-* `infra/compose.prod.yml`
+Различия между окружениями задаются через переменные окружения и сгенерированные файлы в `config/`.
 
 Такой подход позволяет:
 
@@ -277,16 +250,16 @@ cd yuviron-server
 
 # Установка Docker
 
-Для установки Docker используется скрипт:
+Для установки Docker доступен скрипт-утилит в репозитории:
 
 ```text
-scripts/docker_install.sh
+scripts/tools/docker_install.sh
 ```
 
 Запуск:
 
 ```bash
-cd /opt/yuviron-server/scripts
+cd /opt/yuviron-server/scripts/tools
 chmod +x docker_install.sh
 ./docker_install.sh
 ```
@@ -305,27 +278,21 @@ chmod +x docker_install.sh
 
 # Настройка переменных окружения
 
-В репозитории находится пример:
+В репозитории находятся шаблоны окружений:
 
 ```text
-env/env.example
+env/example.env
+env/common.env
 ```
 
-Необходимо создать файлы окружений:
-
-```text
-env/dev.env
-env/prod.env
-```
-
-Пример:
+Необходимо создать файлы окружений для каждого окружения (и при необходимости включить общие переменные из `env/common.env`):
 
 ```bash
-cp env/env.example env/dev.env
-cp env/env.example env/prod.env
+cp env/example.env env/dev.env
+cp env/example.env env/prod.env
 ```
 
-После этого открыть файлы и указать реальные значения переменных.
+После этого откройте файлы и укажите реальные значения переменных.
 
 ## Пример dev-конфигурации
 
@@ -359,7 +326,7 @@ Swagger__Enabled=false
 FILE_STORAGE_ROOT=/var/yuviron-server/storage
 ```
 
-Главное условие — **ключи должны совпадать с `env/env.example`**.
+Главное условие — **ключи должны совпадать с `env/example.env`**.
 
 ---
 
@@ -397,9 +364,7 @@ BACKUP_RETENTION_DAYS=14
 
 BACKUP_PROJECT_NAME=yuviron-server
 
-COMPOSE_BASE_FILE=infra/compose.base.yml
-COMPOSE_DEV_FILE=infra/compose.dev.yml
-COMPOSE_PROD_FILE=infra/compose.prod.yml
+COMPOSE_FILE=infra/compose.yml
 
 COMPOSE_PROJECT_DEV=yuviron_dev
 COMPOSE_PROJECT_PROD=yuviron_prod
@@ -411,27 +376,27 @@ BACKEND_SERVICE_NAME=backend
 ## Скрипты
 
 ```text
-scripts/backup.sh
-scripts/restore-test.sh
-scripts/setup-cron.sh
+scripts/cli.py backup create
+scripts/cli.py backup verify
+tools/setup-cron.sh
 ```
 
 ## Создание бэкапа
 
 ```bash
-./scripts/backup.sh
+./scripts/cli.py backup create
 ```
 
 ## Проверка восстановления
 
 ```bash
-./scripts/restore-test.sh
+./scripts/cli.py backup verify
 ```
 
 ## Автоматизация (cron)
 
 ```bash
-./scripts/setup-cron.sh
+./tools/setup-cron.sh
 ```
 
 ## Ротация
@@ -653,6 +618,12 @@ netsh interface portproxy add v4tov4 listenport=80 listenaddress=26.240.80.131 c
 netsh interface portproxy add v4tov4 listenport=443 listenaddress=26.240.80.131 connectport=443 connectaddress=192.168.147.128
 ```
 
+Проверить:
+
+```powershell
+netsh interface portproxy show v4tov4
+```
+
 Это означает:
 
 * Windows принимает HTTP/HTTPS на `26.240.80.131`
@@ -713,13 +684,13 @@ docker network create yuviron_shared
 ## Dev
 
 ```bash
-./scripts/preflight-check.sh dev
+./scripts/cli.py stack preflight dev
 ```
 
 ## Prod
 
 ```bash
-./scripts/preflight-check.sh prod
+./scripts/cli.py stack preflight prod
 ```
 
 Скрипт проверяет:
@@ -1194,13 +1165,10 @@ yuviron-server
 │       └── migrator/
 │
 ├── scripts/
-│   ├── docker_install.sh
-│   ├── down-dev.sh
-│   ├── down-prod.sh
-│   ├── preflight-check.sh
-│   ├── regen-yuviron-certs.sh
-│   ├── up-dev.sh
-│   └── up-prod.sh
+│   ├── cli.py
+│   ├── init.py
+│   ├── generate-config.py
+│   └── tools/
 │
 ├── storage/
 ├── workflows/
