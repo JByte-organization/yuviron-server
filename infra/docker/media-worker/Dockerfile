@@ -1,16 +1,27 @@
+# syntax=docker/dockerfile:1
+
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+
 WORKDIR /src
 
-COPY src/yuviron-backend ./
-RUN dotnet restore src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj
-RUN dotnet publish src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj \
+COPY src/yuviron-backend/src/Yuviron.Api/Yuviron.Api.csproj ./src/Yuviron.Api/
+COPY src/yuviron-backend/src/Yuviron.Application/Yuviron.Application.csproj ./src/Yuviron.Application/
+COPY src/yuviron-backend/src/Yuviron.Domain/Yuviron.Domain.csproj ./src/Yuviron.Domain/
+COPY src/yuviron-backend/src/Yuviron.Infrastructure/Yuviron.Infrastructure.csproj ./src/Yuviron.Infrastructure/
+COPY src/yuviron-backend/src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj ./src/Yuviron.MediaWorker/
+
+RUN dotnet restore ./src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj
+
+COPY src/yuviron-backend/ ./
+
+RUN dotnet publish ./src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj \
     -c Release \
     -o /app/publish \
     /p:UseAppHost=false
 
-FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
+FROM mcr.microsoft.com/dotnet/aspnet:9.0
+
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
