@@ -9,7 +9,9 @@ from typing import Any
 from .ui import log_err, log_warn
 
 
-DOMAIN_PATTERN = re.compile(r"[a-z0-9.-]+")
+DOMAIN_PATTERN = re.compile(
+    r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}"
+)
 
 
 class CommandError(RuntimeError):
@@ -56,6 +58,8 @@ def validate_domain(domain: str) -> str:
         fail("Domain must not include protocol")
     if "/" in normalized:
         fail("Domain must not include path")
+    if ".." in normalized:
+        fail("Domain must not contain consecutive dots")
     if not DOMAIN_PATTERN.fullmatch(normalized):
         fail(f"Invalid domain: {normalized}")
     return normalized
