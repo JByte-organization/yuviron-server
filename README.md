@@ -100,6 +100,212 @@ edge nginx
 ```
 ---
 
+# 🚀 CLI (scripts/cli.py)
+
+Основной инструмент управления инфраструктурой — Python CLI:
+
+```bash
+./scripts/cli.py <command> <subcommand> [options]
+```
+
+CLI является единым интерфейсом для работы со стеком (dev/prod), заменяя разрозненные bash-скрипты.
+
+---
+
+# 📦 Общая структура
+
+```bash
+./scripts/cli.py <group> <action> [env]
+```
+
+* `group` — логическая группа (stack, backup, certs, tools)
+* `action` — операция
+* `env` — окружение (`dev`, `prod`)
+
+---
+
+# 🧱 STACK
+
+## Preflight (обязательная проверка)
+
+```bash
+./scripts/cli.py stack preflight dev
+./scripts/cli.py stack preflight prod
+```
+
+Проверяет:
+
+* Docker
+* env-файлы
+* сеть
+* права доступа
+* nginx конфигурацию
+* compose конфигурацию
+
+---
+
+## Запуск
+
+```bash
+./scripts/cli.py stack up dev
+./scripts/cli.py stack up prod
+```
+
+---
+
+## Остановка
+
+```bash
+./scripts/cli.py stack down dev
+./scripts/cli.py stack down prod
+```
+
+---
+
+## Перезапуск
+
+```bash
+./scripts/cli.py stack down dev && ./scripts/cli.py stack up dev
+./scripts/cli.py stack down prod && ./scripts/cli.py stack up prod
+```
+
+---
+
+## Статус
+
+```bash
+./scripts/cli.py stack status dev
+./scripts/cli.py stack status prod
+```
+
+---
+
+# 💾 BACKUP
+
+## Создание
+
+```bash
+./scripts/cli.py backup create
+```
+
+## Проверка восстановления
+
+```bash
+./scripts/cli.py backup verify
+```
+
+## Полный цикл
+
+```bash
+./scripts/cli.py backup create && ./scripts/cli.py backup verify
+```
+
+---
+
+# 🔐 CERTS
+
+## Генерация
+
+```bash
+./scripts/cli.py certs generate
+```
+
+## Перегенерация
+
+```bash
+./scripts/cli.py certs regenerate
+```
+
+---
+
+# 🛠 TOOLS
+
+## Установка Docker
+
+```bash
+./scripts/tools/docker_install.sh
+```
+
+## Генерация конфигов
+
+```bash
+python3 scripts/generate-config.py
+```
+
+## Инициализация
+
+```bash
+python3 scripts/init.py
+```
+
+---
+
+# 🔍 Сценарии
+
+## Первый запуск (dev)
+
+```bash
+cp env/example.env env/dev.env
+
+./scripts/cli.py stack preflight dev
+./scripts/cli.py stack up dev
+```
+
+---
+
+## Первый запуск (prod)
+
+```bash
+cp env/example.env env/prod.env
+
+./scripts/cli.py stack preflight prod
+./scripts/cli.py stack up prod
+```
+
+---
+
+## Обновление (deploy)
+
+```bash
+git pull
+
+./scripts/cli.py stack preflight dev
+./scripts/cli.py stack up dev
+```
+
+---
+
+## Восстановление после сбоя
+
+```bash
+./scripts/cli.py stack down prod
+./scripts/cli.py backup verify
+./scripts/cli.py stack up prod
+```
+
+---
+
+## Hard reset
+
+```bash
+./scripts/cli.py stack down dev
+docker system prune -f
+
+./scripts/cli.py stack up dev
+```
+
+---
+
+# ⚠️ Best Practices
+
+* Всегда запускать `preflight` перед `up`
+* Проверять env перед запуском prod
+* Делать backup перед обновлениями
+* Использовать `verify`, а не только `create`
+* Не запускать CLI от root без необходимости
+
+---
+
 # Dev-доступ для разработчиков
 
 В dev-окружении может использоваться доступ через **RadminVPN**, внутренний DNS и отдельную сетевую маршрутизацию.
