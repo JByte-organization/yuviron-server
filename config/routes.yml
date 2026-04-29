@@ -1,0 +1,23 @@
+routes:
+  api:
+    target: backend:5073
+    client_max_body_size: 50m
+    environments: [dev, prod]
+
+  client:
+    app: client
+    client_max_body_size: 5m
+    environments: [dev, prod]
+
+  admin:
+    app: admin
+    environments: [dev, prod]
+
+  backoffice:
+    app: backoffice
+    environments: [dev, prod]
+
+  seq:
+    target: seq:80
+    host_strategy: subdomain
+    environments: [dev]
