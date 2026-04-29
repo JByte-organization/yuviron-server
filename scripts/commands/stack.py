@@ -1,0 +1,417 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import os
+import subprocess
+import sys
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+
+if __package__ in {None, ""}:
+    scripts_dir = Path(__file__).resolve().parents[1]
+    cli_path = scripts_dir / "cli.py"
+    raise SystemExit(subprocess.call([str(cli_path), "stack", *sys.argv[1:]]))
+
+from checks import preflight_core, preflight_generated, preflight_nginx
+from checks.smoke_logic import smoke_expected_codes, smoke_route_path, smoke_status_allowed
+from core.compose import create_compose_context
+from core.docker import ComposeContext, run, run_compose
+from core.env import parse_env_file, parse_routes_file
+from core.paths import resolve_root_dir
+from core.ui import log_info, log_ok, log_warn
+from core.validators import ensure_command, fail, resolve_prompted_environment
+
+
+DEFAULT_ROOT = Path(__file__).resolve().parents[2]
+
+
+@dataclass
+class PreflightContext:
+    root_dir: Path
+    environment: str
+    strict_generated: bool
+    allow_regenerate: bool
+    compose_context: ComposeContext | None = None
+    preflight_stack_started: bool = False
+    runtime_env: Path | None = None
+    runtime_values: dict[str, str] = field(default_factory=dict)
+    manifest_values: dict[str, str] = field(default_factory=dict)
+    routes: list[tuple[str, str, str]] = field(default_factory=list)
+
+    required_env_vars: tuple[str, ...] = (
+        "MYSQL_ROOT_PASSWORD",
+        "MYSQL_DATABASE",
+        "MYSQL_USER",
+        "MYSQL_PASSWORD",
+        "ASPNETCORE_ENVIRONMENT",
+        "ConnectionStrings__Default",
+        "ConnectionStrings__Redis",
+        "FILE_STORAGE_ROOT",
+        "CERT_FILE",
+        "KEY_FILE",
+        "STORAGE_PATH",
+        "SEQ_STORAGE_PATH",
+        "SHARED_NETWORK",
+        "COMPOSE_PROJECT_NAME",
+    )
+
+    def __post_init__(self) -> None:
+        self.root_dir = self.root_dir.resolve()
+        self.infra_dir = self.root_dir / "infra"
+        self.edge_dir = self.root_dir / "infra" / "edge"
+        self.env_dir = self.root_dir / "env"
+        self.generated_dir = self.root_dir / "generated" / self.environment
+        self.certs_dir = self.root_dir / "certs"
+        self.storage_dir = self.root_dir / "storage" / self.environment
+
+        self.compose_file = self.infra_dir / "compose.yml"
+        self.env_file = self.generated_dir / "deploy.env"
+        self.stack_env_file = self.generated_dir / "stack.env"
+        self.routes_file = self.generated_dir / "routes.env"
+        self.manifest_file = self.generated_dir / "manifest.env"
+        self.generated_nginx_conf = self.generated_dir / "nginx.conf"
+        self.apps_file = self.generated_dir / "apps.env"
+        self.frontends_compose_file = self.generated_dir / "compose.frontends.yml"
+
+        self.edge_dockerfile = self.edge_dir / "Dockerfile"
+        self.backend_dockerfile = self.infra_dir / "docker" / "backend" / "Dockerfile"
+        self.migrator_dockerfile = self.infra_dir / "docker" / "migrator" / "Dockerfile"
+        self.frontend_next_dockerfile = self.infra_dir / "docker" / "frontend-next" / "Dockerfile"
+        self.media_worker_dockerfile = self.infra_dir / "docker" / "media-worker" / "Dockerfile"
+        self.frontend_static_dockerfile = self.infra_dir / "docker" / "frontend-static" / "Dockerfile"
+
+        self.frontend_root = self.root_dir / "src" / "yuviron-frontend"
+        self.frontend_package_json = self.frontend_root / "package.json"
+
+    def assert_file(self, path: Path) -> None:
+        if not path.is_file():
+            fail(f"File not found: {path}")
+
+    def assert_dir(self, path: Path) -> None:
+        if not path.is_dir():
+            fail(f"Directory not found: {path}")
+
+    def ensure_compose_context(self) -> ComposeContext:
+        if self.compose_context is None:
+            self.compose_context = create_compose_context(self.root_dir, self.environment, ensure_generated=False)
+        return self.compose_context
+
+    def stop_preflight_stack(self) -> None:
+        if not self.preflight_stack_started:
+            return
+
+        if self.compose_context is None or not self.compose_context.compose_project_name:
+            return
+
+        log_info("Stopping containers started by preflight")
+        run_compose(self.compose_context, "down", "--remove-orphans", check=False)
+        self.preflight_stack_started = False
+
+
+def _service_container_id(context: ComposeContext, service: str) -> str:
+    result = run_compose(context, "ps", "-q", service, capture_output=True, check=False)
+    for line in result.stdout.splitlines():
+        value = line.strip()
+        if value:
+            return value
+    return ""
+
+
+def _wait_for_service_health(context: ComposeContext, service: str, timeout: int = 60) -> None:
+    start_ts = time.time()
+
+    while True:
+        cid = _service_container_id(context, service)
+        if cid:
+            status = run(["docker", "inspect", "-f", "{{.State.Status}}", cid], capture_output=True, check=False).stdout.strip()
+            health = run(
+                ["docker", "inspect", "-f", "{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}", cid],
+                capture_output=True,
+                check=False,
+            ).stdout.strip()
+
+            if status == "running" and health in {"healthy", "no-healthcheck"}:
+                log_ok(f"Service '{service}' is running/healthy")
+                return
+
+        if time.time() - start_ts >= timeout:
+            if cid:
+                state = run(
+                    [
+                        "docker",
+                        "inspect",
+                        "-f",
+                        "{{.State.Status}} / {{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}",
+                        cid,
+                    ],
+                    capture_output=True,
+                    check=False,
+                ).stdout.strip()
+                if state:
+                    log_warn(f"Last known state for '{service}': {state}")
+                log_warn(f"Recent logs for '{service}':")
+                run(["docker", "logs", cid, "--tail", "30"], check=False)
+
+            fail(f"Timed out waiting for service '{service}'")
+
+        time.sleep(2)
+
+
+def _load_compose_services(context: ComposeContext) -> set[str]:
+    log_info("Loading compose services list")
+    result = run_compose(context, "config", "--services", capture_output=True)
+    services = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    if not services:
+        fail("Compose services list is empty")
+    log_ok("Compose services list loaded")
+    return services
+
+
+def _check_stack_running(services: set[str]) -> None:
+    log_info("Checking that required services exist in compose")
+    for service in ["mysql", "redis", "rabbitmq", "nginx", "backend"]:
+        if service not in services:
+            fail(f"Required service is missing from compose config: {service}")
+        log_ok(f"Required service exists: {service}")
+
+
+def _check_service_healths(context: ComposeContext, services: set[str]) -> None:
+    log_info("Waiting for core service health")
+    for service in ["mysql", "redis", "rabbitmq", "backend", "nginx"]:
+        if service in services:
+            _wait_for_service_health(context, service, timeout=120)
+
+
+def _check_backend_readiness(context: ComposeContext, services: set[str]) -> None:
+    if "backend" not in services:
+        log_warn("Backend service does not exist, skipping backend readiness check")
+        return
+
+    log_info("Checking backend readiness endpoint inside container")
+
+    cid = _service_container_id(context, "backend")
+    if not cid:
+        fail("Backend container not found")
+
+    probe = run(
+        ["docker", "exec", cid, "sh", "-c", "wget -q --spider http://127.0.0.1:5073/health/ready"],
+        check=False,
+        capture_output=True,
+    )
+    if probe.returncode != 0:
+        fail("Backend readiness endpoint is not reachable inside container")
+
+    log_ok("Backend readiness endpoint is reachable")
+
+
+def _check_nginx_https(context: ComposeContext, routes_file: Path, https_port: str) -> None:
+    log_info("Checking HTTPS routes from routes.env")
+
+    routes = parse_routes_file(routes_file)
+    for route_name, route_host, _route_upstream in routes:
+        path = smoke_route_path(route_name)
+        expected = smoke_expected_codes(route_name)
+        url = f"https://{route_host}:{https_port}{path}"
+
+        result = run(
+            [
+                "curl",
+                "-k",
+                "-sS",
+                "--resolve",
+                f"{route_host}:{https_port}:127.0.0.1",
+                "-o",
+                "/dev/null",
+                "-w",
+                "%{http_code}",
+                "--connect-timeout",
+                "5",
+                "--max-time",
+                "15",
+                url,
+            ],
+            capture_output=True,
+            check=False,
+        )
+
+        code = (result.stdout or "").strip()
+        if not code:
+            fail(f"No HTTP code returned for route '{route_name}' ({url})")
+        if not smoke_status_allowed(code, expected):
+            fail(
+                f"Route '{route_name}' returned unexpected HTTP status {code} for {url} "
+                f"(allowed: {' '.join(expected)})"
+            )
+
+        log_ok(f"Route '{route_name}' responded with HTTP {code}: {url}")
+
+
+def _show_compose_ps(context: ComposeContext) -> None:
+    log_info("docker compose ps")
+
+    result = run_compose(context, "ps", "--format", "{{.Names}}|{{.Status}}", capture_output=True, check=False)
+    rows = (result.stdout or "").strip()
+
+    if not rows:
+        log_warn("No containers found")
+        return
+
+    print()
+    print(f"{'NAME':<35} {'STATUS':<30}")
+    print(f"{'-' * 35:<35} {'-' * 30:<30}")
+
+    for line in rows.splitlines():
+        if not line.strip() or "|" not in line:
+            continue
+        name, status = line.split("|", 1)
+        print(f"{name:<35} {status:<30}")
+
+    print()
+
+
+def cmd_up(args: argparse.Namespace) -> int:
+    environment = resolve_prompted_environment(args.environment)
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+
+    context = create_compose_context(root_dir, environment, ensure_generated=True)
+    run_compose(context, "up", "-d", "--build", "--remove-orphans")
+    return 0
+
+
+def cmd_down(args: argparse.Namespace) -> int:
+    environment = resolve_prompted_environment(args.environment)
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+
+    context = create_compose_context(root_dir, environment, ensure_generated=False)
+    run_compose(context, "down", "--remove-orphans")
+    return 0
+
+
+def cmd_preflight(args: argparse.Namespace) -> int:
+    environment = resolve_prompted_environment(args.environment)
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+
+    strict_generated = args.strict_generated
+    if strict_generated is None:
+        strict_generated = os.getenv("STRICT_GENERATED", "1") == "1"
+
+    allow_regenerate = args.allow_regenerate
+    if allow_regenerate is None:
+        allow_regenerate = os.getenv("ALLOW_REGENERATE", "0") == "1"
+
+    if not args.no_header:
+        print(":: Preflight")
+        print("─" * 91)
+
+    ctx = PreflightContext(
+        root_dir=root_dir,
+        environment=environment,
+        strict_generated=bool(strict_generated),
+        allow_regenerate=bool(allow_regenerate),
+    )
+
+    try:
+        log_info(f"Starting preflight checks for environment: {environment}")
+
+        preflight_core.check_tools(ctx)
+        preflight_core.check_docker_access(ctx)
+
+        if ctx.strict_generated or environment == "prod":
+            preflight_core.ensure_preflight_generated(ctx)
+
+        preflight_core.check_required_paths(ctx)
+
+        if ctx.strict_generated:
+            preflight_generated.load_manifest_file(ctx)
+            preflight_generated.check_generated_freshness(ctx)
+
+        preflight_core.load_env_file(ctx)
+        preflight_core.check_required_env_vars(ctx)
+        preflight_core.check_runtime_files(ctx)
+        preflight_core.check_storage_writable(ctx)
+        preflight_core.check_disk_space(ctx)
+        preflight_core.check_shared_network(ctx)
+        preflight_core.check_routes_file(ctx)
+        preflight_nginx.check_compose_config(ctx)
+        preflight_nginx.check_nginx_config(ctx)
+
+        log_ok(f"Preflight completed successfully for: {environment}")
+        return 0
+    finally:
+        ctx.stop_preflight_stack()
+
+
+def cmd_smoke(args: argparse.Namespace) -> int:
+    environment = resolve_prompted_environment(args.environment)
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+
+    for command in ("docker", "awk", "curl"):
+        ensure_command(command)
+
+    context = create_compose_context(root_dir, environment, ensure_generated=False)
+    routes_file = root_dir / "generated" / environment / "routes.env"
+    if not routes_file.is_file():
+        fail(f"File not found: {routes_file}")
+
+    env_values = parse_env_file(context.runtime_env)
+    https_port = env_values.get("HTTPS_PORT", "")
+    if not https_port:
+        fail(f"HTTPS_PORT is not set in {context.runtime_env}")
+
+    if not args.no_header:
+        print(":: Smoke")
+        print("─" * 91)
+    log_info(f"Starting smoke test for environment: {environment}")
+
+    log_info("Validating compose config")
+    run_compose(context, "config", capture_output=True)
+    log_ok("Compose config is valid")
+
+    services = _load_compose_services(context)
+    _check_stack_running(services)
+    _check_service_healths(context, services)
+    _check_backend_readiness(context, services)
+    _check_nginx_https(context, routes_file, https_port)
+    _show_compose_ps(context)
+
+    log_ok(f"Smoke test passed successfully for: {environment}")
+    return 0
+
+
+def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    stack_parser = subparsers.add_parser("stack", help="Stack operations")
+    stack_sub = stack_parser.add_subparsers(dest="stack_action", required=True)
+
+    up_parser = stack_sub.add_parser("up", help="Start stack")
+    up_parser.add_argument("environment", nargs="?")
+    up_parser.add_argument("project_root", nargs="?")
+    up_parser.set_defaults(handler=cmd_up)
+
+    down_parser = stack_sub.add_parser("down", help="Stop stack")
+    down_parser.add_argument("environment", nargs="?")
+    down_parser.add_argument("project_root", nargs="?")
+    down_parser.set_defaults(handler=cmd_down)
+
+    preflight_parser = stack_sub.add_parser("preflight", help="Run preflight checks")
+    preflight_parser.add_argument("environment", nargs="?")
+    preflight_parser.add_argument("project_root", nargs="?")
+    preflight_parser.add_argument("--no-header", action="store_true", help=argparse.SUPPRESS)
+
+    strict_group = preflight_parser.add_mutually_exclusive_group()
+    strict_group.add_argument("--strict-generated", dest="strict_generated", action="store_true")
+    strict_group.add_argument("--no-strict-generated", dest="strict_generated", action="store_false")
+    preflight_parser.set_defaults(strict_generated=None)
+
+    regen_group = preflight_parser.add_mutually_exclusive_group()
+    regen_group.add_argument("--allow-regenerate", dest="allow_regenerate", action="store_true")
+    regen_group.add_argument("--no-allow-regenerate", dest="allow_regenerate", action="store_false")
+    preflight_parser.set_defaults(allow_regenerate=None)
+    preflight_parser.set_defaults(handler=cmd_preflight)
+
+    smoke_parser = stack_sub.add_parser("smoke", help="Run smoke checks")
+    smoke_parser.add_argument("environment", nargs="?")
+    smoke_parser.add_argument("project_root", nargs="?")
+    smoke_parser.add_argument("--no-header", action="store_true", help=argparse.SUPPRESS)
+    smoke_parser.set_defaults(handler=cmd_smoke)

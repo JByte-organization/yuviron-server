@@ -1,0 +1,74 @@
+{% for route in routes %}
+    server {
+        listen 80;
+        server_name {{ route.host }};
+        return 301 https://$host$request_uri;
+
+        access_log /var/log/nginx/{{ route.log_name }}.access.log main;
+        error_log  /var/log/nginx/{{ route.log_name }}.error.log warn;
+    }
+
+    server {
+        listen 443 ssl;
+        server_name {{ route.host }};
+
+        ssl_certificate /etc/nginx/certs/cert.pem;
+        ssl_certificate_key /etc/nginx/certs/key.pem;
+
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+        client_max_body_size {{ route.client_max_body_size }};
+
+        location / {
+            proxy_pass http://{{ route.upstream }};
+            proxy_http_version 1.1;
+
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+
+            proxy_connect_timeout 5s;
+            proxy_send_timeout 15s;
+            proxy_read_timeout 3600s;
+        }
+
+        location = /health {
+            access_log off;
+            add_header Content-Type text/plain;
+            return 200 "edge-nginx-ok\n";
+        }
+
+        location ~ /\.(?!well-known) {
+            deny all;
+            access_log off;
+            log_not_found off;
+        }
+
+        location ~* ^/(auth|account|login|register|token|refresh) {
+            limit_req zone=api_auth burst=3 nodelay;
+            limit_req_status 429;
+
+            proxy_pass http://{{ route.upstream }};
+        }
+
+        location ~* ^/(media|upload|uploads|files|file) {
+            client_max_body_size 50m;
+
+            limit_req zone=api_upload burst=2 nodelay;
+            limit_req_status 429;
+
+            proxy_request_buffering off;
+
+            proxy_pass http://{{ route.upstream }};
+        }
+
+        access_log /var/log/nginx/{{ route.log_name }}.access.log main;
+        error_log  /var/log/nginx/{{ route.log_name }}.error.log warn;
+    }
+
+{% endfor %}
+}
