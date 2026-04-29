@@ -144,11 +144,9 @@ client-app / backoffice / admin / backend
 edge/nginx/default.conf.template
 ```
 
-Итоговая конфигурация генерируется при запуске контейнера через:
+Итоговая конфигурация генерируется проектным рендерером на базе Jinja2.
 
-```text
-envsubst
-```
+Шаблоны `scripts/templates/*.j2` рендерятся через Jinja2 с помощью `scripts/core/render_nginx.py`; `scripts/generate-config.py` записывает итог в `generated/<env>/nginx.conf`, который затем монтируется в nginx-контейнер как `/etc/nginx/nginx.conf` при старте стека.
 
 Различия между окружениями задаются через переменные окружения и сгенерированные файлы в `config/`.
 
@@ -702,7 +700,7 @@ docker network create yuviron_shared
 * свободное место на диске
 * наличие сети `yuviron_shared`
 * валидность compose-конфигурации
-* рендеринг и синтаксис nginx template
+* рендеринг и синтаксис Jinja2-шаблонов nginx
 
 Это позволяет обнаружить типовые проблемы **до запуска контейнеров**.
 
