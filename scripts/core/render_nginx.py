@@ -18,7 +18,7 @@ def render_nginx_conf_modular(
     Render nginx config from modular templates in order (01-*, 02-*, 03-*).
     
     Args:
-        route_lines: Iterable of (route_name, route_host, route_upstream) tuples
+        route_lines: Iterable of (route_name, route_host, route_upstream, route_max_body_size) tuples
         template_dir: Directory containing modular templates (01-*.j2, 02-*.j2, etc)
     
     Returns:

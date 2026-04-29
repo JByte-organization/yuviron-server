@@ -182,6 +182,9 @@ def main() -> None:
         "SOURCE_GENERATOR_SHA256": hash_file(generator_path),
     }
 
+    for path in sorted((root_dir / "scripts" / "templates").glob("*.conf")):
+        source_hashes[manifest_hash_key("SOURCE_TEMPLATE", path.name)] = hash_file(path)
+
     for path in sorted((root_dir / "scripts" / "core").glob("*.py")):
         source_hashes[manifest_hash_key("SOURCE_CORE", path.name)] = hash_file(path)
 
