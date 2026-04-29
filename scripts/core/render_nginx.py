@@ -2,78 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Iterable, Tuple
+from jinja2 import Environment
 
 
-def _render_template(template_text: str, context: dict[str, object]) -> str:
-    """
-    Minimal template renderer for the current nginx.conf.j2.
-
-    Supported syntax:
-    - {{ var }}
-    - {% for item in items %} ... {% endfor %}
-
-    This keeps the project dependency-free without adding jinja2.
-    """
-
-    def render_vars(text: str, local_ctx: dict[str, object]) -> str:
-        out = text
-        for key, value in local_ctx.items():
-            out = out.replace(f"{{{{ {key} }}}}", str(value))
-        return out
-
-    lines = template_text.splitlines()
-    output: list[str] = []
-
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-
-        stripped = line.strip()
-        if stripped.startswith("{% for ") and stripped.endswith(" %}"):
-            # Example: {% for route in routes %}
-            expr = stripped[len("{% for ") : -len(" %}")].strip()
-            var_name, _, iterable_name = expr.partition(" in ")
-            var_name = var_name.strip()
-            iterable_name = iterable_name.strip()
-
-            if not var_name or not iterable_name:
-                raise ValueError(f"Invalid for-expression in template: {line}")
-
-            block_lines: list[str] = []
-            i += 1
-            while i < len(lines):
-                inner_line = lines[i]
-                if inner_line.strip() == "{% endfor %}":
-                    break
-                block_lines.append(inner_line)
-                i += 1
-            else:
-                raise ValueError("Missing {% endfor %} in template")
-
-            iterable = context.get(iterable_name)
-            if iterable is None:
-                raise ValueError(f"Missing iterable in context: {iterable_name}")
-
-            for item in iterable:
-                local_ctx = dict(context)
-                local_ctx[var_name] = item
-
-                block_text = "\n".join(block_lines)
-
-                if isinstance(item, dict):
-                    for item_key, item_value in item.items():
-                        block_text = block_text.replace(
-                            f"{{{{ {var_name}.{item_key} }}}}", str(item_value)
-                        )
-
-                output.append(render_vars(block_text, local_ctx))
-        else:
-            output.append(render_vars(line, context))
-
-        i += 1
-
-    return "\n".join(output) + "\n"
-
+def _render_template(template_text: str, context: dict) -> str:
+    env = Environment()
+    template = env.from_string(template_text)
+    return template.render(**context)
 
 def render_nginx_conf_modular(
     route_lines: Iterable[Tuple[str, str, str, str]],
