@@ -13,7 +13,7 @@ from pathlib import Path
 
 from core.validators import CommandError
 
-DEFAULT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_ROOT = Path(__file__).resolve().parents[3]
 
 
 @dataclass

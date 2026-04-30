@@ -11,7 +11,13 @@ from pathlib import Path
 
 from core.compose import create_compose_context
 from core.docker import run, run_compose
-from core.env import generated_exists, load_dotenv_if_exists, parse_env_file, read_env_value
+from core.env import (
+    generated_exists,
+    load_dotenv_if_exists,
+    parse_env_file,
+    read_env_value,
+    ensure_generated_env,
+)
 from core.paths import resolve_root_dir
 from core.validators import CommandError, fail, resolve_prompted_environment, resolve_prompted_required
 
@@ -61,6 +67,15 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
     requested_envs = [item.strip() for item in backup_envs_raw.split(",") if item.strip()]
     available_envs: list[str] = []
     for env_name in requested_envs:
+        try:
+            ensure_generated_env(root_dir, env_name)
+        except CommandError:
+            if generated_exists(root_dir, env_name):
+                available_envs.append(env_name)
+            else:
+                logger.info(f"Environment {env_name} is not configured for backup: generated config is missing")
+            continue
+
         if generated_exists(root_dir, env_name):
             available_envs.append(env_name)
         else:
