@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple
 
 import yaml
 
+from .env import parse_env_file
 from .models import (
     NAME_PATTERN,
     TARGET_PATTERN,
@@ -216,6 +217,16 @@ def load_project_name(config_dir: Path) -> str:
         fail(f"Invalid or missing 'project_name' in {path}")
     return name
 
+
+def load_stack_port(root_dir: Path, env_name: str, key: str, default: str) -> str:
+    values = parse_env_file(root_dir / "env" / "common.env")
+    values.update(parse_env_file(root_dir / "env" / f"{env_name}.env"))
+    value = values.get(key, default).strip()
+    if not value:
+        fail(f"{key} must not be empty")
+    return value
+
+
 def render_stack_values(root_dir: Path, env_name: str, domain: str) -> Dict[str, str]:
     storage_path = root_dir / "storage" / env_name
     seq_storage_path = storage_path / "seq"
@@ -224,8 +235,12 @@ def render_stack_values(root_dir: Path, env_name: str, domain: str) -> Dict[str,
 
     if env_name == "dev":
         restart_policy = "unless-stopped"
+        default_http_port = "8080"
+        default_https_port = "8443"
     else:
         restart_policy = "always"
+        default_http_port = "80"
+        default_https_port = "443"
 
     compose_project_name = f"{project_name}-{env_name}"
     shared_network = f"{project_name}_shared"
@@ -242,7 +257,7 @@ def render_stack_values(root_dir: Path, env_name: str, domain: str) -> Dict[str,
         "STORAGE_PATH": str(storage_path),
         "SEQ_STORAGE_PATH": str(seq_storage_path),
         "RESTART_POLICY": restart_policy,
-        "HTTP_PORT": "80",
-        "HTTPS_PORT": "443",
+        "HTTP_PORT": load_stack_port(root_dir, env_name, "HTTP_PORT", default_http_port),
+        "HTTPS_PORT": load_stack_port(root_dir, env_name, "HTTPS_PORT", default_https_port),
         "SHARED_NETWORK": shared_network,
     }

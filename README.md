@@ -78,6 +78,7 @@ https://api.yuviron.com
 # Архитектура инфраструктуры
 
 Инфраструктура теперь описана единым файлом `infra/compose.yml`. Различия между окружениями задаются через env-файлы и сгенерированные конфиги.
+Общие переменные окружения для `.NET`-сервисов в compose вынесены в YAML anchor `x-dotnet-env`, чтобы `backend` и `media-worker` не расходились при изменениях.
 
 Ключевые компоненты:
 
@@ -279,6 +280,7 @@ generated/<env>/
 * `routes.env` — финальные маршруты `route|host|service:port`
 * `compose.frontends.yml` — optional frontend services
 * `nginx.conf` — готовый nginx config
+* `stack.env` — runtime-значения стека, включая `COMPOSE_PROJECT_NAME`, пути storage/certs и host-порты nginx
 * `manifest.env` — hashes source/generated файлов для проверки свежести
 
 Если preflight пишет, что source stale или modified, перегенерируй файлы:
@@ -401,6 +403,9 @@ git pull
 * Использовать `verify`, а не только `create`
 * Не запускать CLI от root без необходимости
 
+Исключение в compose: `seq` запускается с `user: "0:0"`, потому что образ `datalust/seq` должен писать в bind-mounted `/data`.
+Это осознанное исключение; если используемый образ Seq начнёт стабильно поддерживать non-root запуск, можно заранее `chown`-нуть storage-директорию и убрать root-user.
+
 ---
 
 # Dev-доступ для разработчиков
@@ -455,6 +460,9 @@ scripts/templates/proxy-params.conf
 Различия между окружениями задаются через `env/<env>.env`, `env/common.env`, `config/routes.yml`, `config/apps.yml` и сгенерированные файлы в `generated/<env>/`.
 
 Финальные маршруты nginx берёт не напрямую из `config/routes.yml`, а из `generated/<env>/routes.env`.
+
+В `infra/compose.yml` nginx ждёт готовности `backend` и `client-app` через `depends_on: condition: service_healthy`.
+Для `client-app` healthcheck проверяет TCP-порт Next.js внутри контейнера, не требуя отдельного `/api/health` endpoint во frontend-репозитории.
 
 Такой подход позволяет:
 
@@ -612,6 +620,24 @@ cp env/example.env env/prod.env
 `env/common.env` и `env/<env>.env` объединяются генератором в `generated/<env>/deploy.env`.
 Именно `deploy.env`, а не исходный `env/dev.env` или `env/prod.env`, используется как `--env-file` для Docker Compose.
 
+## Edge-порты
+
+`HTTP_PORT` и `HTTPS_PORT` задают host-порты, на которые Docker публикует nginx:
+
+* `dev` по умолчанию использует `8080/8443`
+* `prod` по умолчанию использует `80/443`
+
+Если нужно переопределить порты, укажи их в `env/<env>.env` и затем перегенерируй runtime-файлы:
+
+```env
+HTTP_PORT=8080
+HTTPS_PORT=8443
+```
+
+```bash
+./scripts/init.py --env dev --domain yuviron.com --no-up
+```
+
 ## Пример dev-конфигурации
 
 ```env
@@ -626,6 +652,9 @@ ConnectionStrings__Redis=redis:6379
 Swagger__Enabled=true
 
 FILE_STORAGE_ROOT=/var/yuviron-server/storage
+
+HTTP_PORT=8080
+HTTPS_PORT=8443
 ```
 
 ## Пример prod-конфигурации
@@ -642,6 +671,9 @@ ConnectionStrings__Redis=redis:6379
 Swagger__Enabled=false
 
 FILE_STORAGE_ROOT=/var/yuviron-server/storage
+
+HTTP_PORT=80
+HTTPS_PORT=443
 ```
 
 Главное условие — **ключи должны совпадать с `env/example.env`**.
@@ -922,11 +954,11 @@ netsh advfirewall firewall add rule name="DNS UDP" dir=in action=allow protocol=
 Пример:
 
 ```powershell
-netsh interface portproxy add v4tov4 listenport=80 listenaddress=26.240.80.131 connectport=80 connectaddress=192.168.147.128
+netsh interface portproxy add v4tov4 listenport=80 listenaddress=26.240.80.131 connectport=8080 connectaddress=192.168.147.128
 ```
 
 ```powershell
-netsh interface portproxy add v4tov4 listenport=443 listenaddress=26.240.80.131 connectport=443 connectaddress=192.168.147.128
+netsh interface portproxy add v4tov4 listenport=443 listenaddress=26.240.80.131 connectport=8443 connectaddress=192.168.147.128
 ```
 
 Проверить:
@@ -938,8 +970,10 @@ netsh interface portproxy show v4tov4
 Это означает:
 
 * Windows принимает HTTP/HTTPS на `26.240.80.131`
-* затем пересылает трафик на Ubuntu VM
+* затем пересылает трафик на dev-порты Ubuntu VM (`8080/8443` по умолчанию)
 * Ubuntu VM отдаёт трафик в контейнер `edge nginx`
+
+Если dev окружение явно настроено на `HTTP_PORT=80` и `HTTPS_PORT=443`, используй `connectport=80/443`.
 
 ---
 
@@ -1163,6 +1197,9 @@ aspire-dashboard
 * `https://dev-backoffice.yuviron.com` → `backoffice`
 * `https://dev-admin.yuviron.com` → `admin`
 * `https://dev-api.yuviron.com` → `backend`
+
+Если ты обращаешься к Ubuntu VM напрямую без внешнего portproxy/reverse proxy, dev HTTPS будет доступен на порту `8443`, например `https://dev.yuviron.com:8443`.
+При portproxy с `listenport=443` внешний URL остаётся без порта.
 
 Дополнительные dev API endpoints:
 
