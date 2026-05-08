@@ -21,3 +21,8 @@ routes:
     target: seq:80
     host_strategy: subdomain
     environments: [dev]
+
+  aspire:
+    target: aspire-dashboard:18888
+    host_strategy: subdomain
+    environments: [dev]

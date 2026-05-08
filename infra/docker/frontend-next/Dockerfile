@@ -25,5 +25,6 @@ COPY --from=build /repo/apps/${APP_NAME}/.next/standalone ./
 COPY --from=build /repo/apps/${APP_NAME}/.next/static ./apps/${APP_NAME}/.next/static
 COPY --from=build /repo/apps/${APP_NAME}/public ./apps/${APP_NAME}/public
 
-EXPOSE 3000
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
 CMD sh -c "node apps/${APP_NAME}/server.js"
