@@ -10,6 +10,10 @@ from core.ui import log_info, log_ok
 from core.validators import ensure_command, fail
 
 
+REQUIRED_STORAGE_DIRS = ("avatars", "banners", "covers", "seq", "temp", "tracks")
+DEFAULT_STORAGE_DIR_MODE = "0777"
+
+
 def check_required_paths(ctx: object) -> None:
     log_info("Checking required files and directories")
 
@@ -18,7 +22,6 @@ def check_required_paths(ctx: object) -> None:
     ctx.assert_dir(ctx.edge_dir)
     ctx.assert_dir(ctx.env_dir)
     ctx.assert_dir(ctx.certs_dir)
-    ctx.assert_dir(ctx.storage_dir)
     ctx.assert_dir(ctx.frontend_root)
 
     ctx.assert_file(ctx.compose_file)
@@ -84,10 +87,14 @@ def ensure_preflight_generated(ctx: object) -> None:
 
 
 def load_env_file(ctx: object) -> None:
-    runtime_tmp_dir = ctx.root_dir / ".tmp" / "runtime"
-    runtime_tmp_dir.mkdir(parents=True, exist_ok=True)
+    runtime_resolver = getattr(ctx, "resolve_runtime_env_file", None)
+    if callable(runtime_resolver):
+        runtime_env = runtime_resolver()
+    else:
+        runtime_tmp_dir = ctx.root_dir / ".tmp" / "runtime"
+        runtime_tmp_dir.mkdir(parents=True, exist_ok=True)
+        runtime_env = resolve_runtime_env(ctx.root_dir, ctx.environment, runtime_tmp_dir)
 
-    runtime_env = resolve_runtime_env(ctx.root_dir, ctx.environment, runtime_tmp_dir)
     log_info(f"Loading env file: {runtime_env}")
 
     values = parse_env_file(runtime_env)
@@ -129,18 +136,100 @@ def check_required_env_vars(ctx: object) -> None:
     log_ok("Required env vars are present")
 
 
-def check_storage_writable(ctx: object) -> None:
-    log_info("Checking storage directory permissions")
-
-    probe_file = ctx.storage_dir / ".preflight-write-test"
+def _storage_dir_mode() -> int:
+    raw = os.getenv("STORAGE_DIR_MODE", DEFAULT_STORAGE_DIR_MODE)
     try:
-        probe_file.touch(exist_ok=False)
+        return int(raw, 8)
+    except ValueError:
+        fail(f"Invalid STORAGE_DIR_MODE: {raw}. Expected octal value, for example 0777.")
+        raise AssertionError("unreachable")
+
+
+def _ensure_storage_directory(path: Path, mode: int) -> None:
+    if not path.exists():
+        log_info(f"Creating storage directory: {path}")
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            fail(f"Could not create storage directory: {path} ({exc})")
+    elif not path.is_dir():
+        fail(f"Storage path exists but is not a directory: {path}")
+
+    current_mode = path.stat().st_mode & 0o777
+    if current_mode != mode:
+        log_info(f"Setting storage directory mode {mode:o}: {path}")
+        try:
+            path.chmod(mode)
+        except OSError as exc:
+            fail(f"Could not set storage directory mode for {path}: {exc}")
+
+
+def _check_storage_directory_permissions(path: Path) -> None:
+    probe_file = path / f".preflight-permission-test-{os.getpid()}"
+    try:
+        probe_file.write_text("preflight\n", encoding="utf-8")
+        if probe_file.read_text(encoding="utf-8") != "preflight\n":
+            fail(f"Storage permission probe failed to read back data: {path}")
+        probe_file.unlink()
     except OSError as exc:
-        fail(f"Storage directory is not writable: {ctx.storage_dir} ({exc})")
+        fail(f"Storage directory is not readable/writable/deletable: {path} ({exc})")
     finally:
         probe_file.unlink(missing_ok=True)
 
-    log_ok("Storage directory is writable")
+
+def check_storage_writable(ctx: object) -> None:
+    log_info(f"Checking storage layout and permissions for: {ctx.storage_dir}")
+
+    mode = _storage_dir_mode()
+
+    _ensure_storage_directory(ctx.storage_dir, mode)
+    _check_storage_directory_permissions(ctx.storage_dir)
+
+    for dirname in REQUIRED_STORAGE_DIRS:
+        path = ctx.storage_dir / dirname
+        _ensure_storage_directory(path, mode)
+        _check_storage_directory_permissions(path)
+
+    log_ok("Storage directories exist and are readable/writable/deletable")
+
+
+def check_backend_storage_permissions(ctx: object) -> None:
+    compose_project_name = ctx.runtime_values.get("COMPOSE_PROJECT_NAME", "")
+    if not compose_project_name:
+        fail("COMPOSE_PROJECT_NAME is missing from runtime env")
+
+    backend_container = f"{compose_project_name}-backend"
+    test_dir = "/var/yuviron-server/storage/temp/test-dir"
+
+    log_info(f"Checking storage permissions inside backend container: {backend_container}")
+
+    result = run(
+        [
+            "docker",
+            "exec",
+            backend_container,
+            "sh",
+            "-c",
+            (
+                f"mkdir -p {test_dir} && "
+                f"echo \"ok\" > {test_dir}/file.txt && "
+                f"cat {test_dir}/file.txt && "
+                f"rm -rf {test_dir}"
+            ),
+        ],
+        capture_output=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        details = (result.stderr or result.stdout or "").strip()
+        suffix = f": {details}" if details else ""
+        fail(f"Backend container storage read/write/delete check failed{suffix}")
+
+    if (result.stdout or "").strip() != "ok":
+        fail(f"Backend container storage read/write/delete check returned unexpected output: {result.stdout!r}")
+
+    log_ok("Backend container can write/read/delete storage files")
 
 
 def check_disk_space(ctx: object) -> None:
