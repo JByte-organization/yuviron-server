@@ -1,3 +1,19 @@
+x-dotnet-env: &dotnet-env
+  ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
+  ConnectionStrings__Default: ${ConnectionStrings__Default}
+  ConnectionStrings__Redis: ${ConnectionStrings__Redis}
+  FILE_STORAGE_ROOT: ${FILE_STORAGE_ROOT}
+  Seq__ServerUrl: ${Seq__ServerUrl}
+  OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+  OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS}
+  RabbitMQ__Host: ${RabbitMQ__Host}
+  RabbitMQ__Port: ${RabbitMQ__Port}
+  RabbitMQ__Username: ${RabbitMQ__Username}
+  RabbitMQ__Password: ${RabbitMQ__Password}
+  RabbitMQ__VirtualHost: ${RabbitMQ__VirtualHost}
+  JamendoApi__ClientId: ${JamendoApi__ClientId}
+
 services:
   mysql:
     image: mysql:8.4
@@ -81,6 +97,8 @@ services:
   seq:
     image: datalust/seq:2025.2
     container_name: ${COMPOSE_PROJECT_NAME}-seq
+    # Seq currently needs root to write to the bind-mounted /data directory.
+    # Keep this exception explicit so it is not mistaken for an accidental root container.
     user: "0:0"
     restart: ${RESTART_POLICY}
     security_opt:
@@ -175,22 +193,9 @@ services:
     security_opt:
       - no-new-privileges:true
     environment:
+      <<: *dotnet-env
       ASPNETCORE_HTTP_PORTS: 5073
-      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
-      ConnectionStrings__Default: ${ConnectionStrings__Default}
-      ConnectionStrings__Redis: ${ConnectionStrings__Redis}
-      FILE_STORAGE_ROOT: ${FILE_STORAGE_ROOT}
       Swagger__Enabled: ${Swagger__Enabled}
-      Seq__ServerUrl: ${Seq__ServerUrl}
-      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL}
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT}
-      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS}
-      RabbitMQ__Host: ${RabbitMQ__Host}
-      RabbitMQ__Port: ${RabbitMQ__Port}
-      RabbitMQ__Username: ${RabbitMQ__Username}
-      RabbitMQ__Password: ${RabbitMQ__Password}
-      RabbitMQ__VirtualHost: ${RabbitMQ__VirtualHost}
-      JamendoApi__ClientId: ${JamendoApi__ClientId}
     volumes:
       - ${STORAGE_PATH}:/var/yuviron-server/storage
     depends_on:
@@ -228,20 +233,7 @@ services:
     security_opt:
       - no-new-privileges:true
     environment:
-      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
-      ConnectionStrings__Default: ${ConnectionStrings__Default}
-      ConnectionStrings__Redis: ${ConnectionStrings__Redis}
-      FILE_STORAGE_ROOT: ${FILE_STORAGE_ROOT}
-      Seq__ServerUrl: ${Seq__ServerUrl}
-      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL}
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT}
-      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS}
-      RabbitMQ__Host: ${RabbitMQ__Host}
-      RabbitMQ__Port: ${RabbitMQ__Port}
-      RabbitMQ__Username: ${RabbitMQ__Username}
-      RabbitMQ__Password: ${RabbitMQ__Password}
-      RabbitMQ__VirtualHost: ${RabbitMQ__VirtualHost}
-      JamendoApi__ClientId: ${JamendoApi__ClientId}
+      <<: *dotnet-env
     volumes:
       - ${STORAGE_PATH}:/var/yuviron-server/storage
     depends_on:
@@ -276,6 +268,12 @@ services:
       - no-new-privileges:true
     networks:
       - default
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"const net = require('net'); const socket = net.connect(3000, '127.0.0.1'); socket.setTimeout(5000); socket.on('connect', () => process.exit(0)); socket.on('error', () => process.exit(1)); socket.on('timeout', () => process.exit(1));\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     mem_limit: ${CLIENT_APP_MEM_LIMIT:-256m}
     memswap_limit: ${CLIENT_APP_MEMSWAP_LIMIT:-256m}
     cpus: ${CLIENT_APP_CPUS:-0.25}
@@ -295,9 +293,9 @@ services:
       - no-new-privileges:true
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy
       client-app:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "${HTTP_PORT}:80"
       - "${HTTPS_PORT}:443"
