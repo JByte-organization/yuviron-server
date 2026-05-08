@@ -127,6 +127,7 @@ jobs:
     needs: detect-affected
     if: needs.detect-affected.outputs.has_apps == 'true'
     runs-on: [self-hosted, yuviron]
+    environment: dev
 
     strategy:
       fail-fast: false
@@ -253,6 +254,7 @@ jobs:
     needs: detect-affected
     if: needs.detect-affected.outputs.has_apps != 'true'
     runs-on: [self-hosted, yuviron]
+    environment: dev
 
     steps:
       - name: No affected frontend apps

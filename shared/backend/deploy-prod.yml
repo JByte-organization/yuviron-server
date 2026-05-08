@@ -11,6 +11,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: [self-hosted, yuviron]
+    environment: prod
 
     steps:
       - name: Sync backend source
