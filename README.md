@@ -1,15 +1,16 @@
-# Yuviron Server Infrastructure & CI/CD
+# Yuviron Server Infrastructure
 
-Инфраструктурный репозиторий для развёртывания **dev** и **prod** окружений Yuviron и автоматизации **CI/CD через GitHub Actions**.
+Инфраструктурный репозиторий для развёртывания **dev** и **prod** окружений Yuviron и автоматизации CI/CD через GitHub Actions.
 
-Ключевые изменения и рефакторинг (апрель 2026):
+Текущее состояние проекта:
 
 - Единый `infra/compose.yml` вместо набора `compose.base/dev/prod`.
 - Новый Python CLI: `scripts/cli.py` управляет всеми операциями (ранее — набор bash-скриптов).
 - Команды CLI вынесены в `scripts/commands/` (например, `backup`, `stack`, `certs`, `tools`).
-- Конфигурация, сгенерированная утилитами, хранится в `config/`.
+- Source of truth хранится в `config/` и `env/`, runtime-файлы генерируются в `generated/<env>/`.
 - Шаблоны примеров окружений: `env/example.env` и `env/common.env` (отныне трекаются).
 - Резервное копирование и восстановление реализованы как команды CLI: `./scripts/cli.py backup create|restore|verify`.
+- Docker disk cleanup доступен через `./scripts/cli.py tools docker-clean`.
 
 Репозиторий содержит:
 
@@ -17,8 +18,8 @@
 - Edge (nginx) конфигурацию и шаблоны
 - Скрипты и Python CLI (`scripts/cli.py`, `scripts/commands/`)
 - Инструменты preflight-проверки и smoke-тесты (`checks/`, `tests/`)
-- Конфигурационные шаблоны (`templates/`) и рендеринг в `config/`
-- Helpers и утилиты в `core/`
+- Конфигурационные шаблоны (`scripts/templates/`) и рендеринг в `generated/<env>/`
+- Helpers и утилиты в `scripts/core/`
 
 После настройки окружения будут доступны типичные хосты (зависит от DNS и routes):
 
@@ -131,6 +132,7 @@ CLI является единым интерфейсом для работы с�
 ```bash
 ./scripts/cli.py stack preflight dev
 ./scripts/cli.py stack preflight prod
+./scripts/cli.py stack preflight dev --isolated
 ```
 
 Проверяет:
@@ -141,6 +143,8 @@ CLI является единым интерфейсом для работы с�
 * права доступа
 * nginx конфигурацию
 * compose конфигурацию
+* свежесть generated-файлов через `generated/<env>/manifest.env`
+* соответствие upstream services из `routes.env` сервисам полной compose-конфигурации
 
 ---
 
@@ -165,17 +169,17 @@ CLI является единым интерфейсом для работы с�
 ## Перезапуск
 
 ```bash
-./scripts/cli.py stack down dev && ./scripts/cli.py stack up dev
-./scripts/cli.py stack down prod && ./scripts/cli.py stack up prod
+./scripts/cli.py stack down dev
+./scripts/cli.py stack up dev
 ```
 
 ---
 
-## Статус
+## Smoke
 
 ```bash
-./scripts/cli.py stack status dev
-./scripts/cli.py stack status prod
+./scripts/cli.py stack smoke dev
+./scripts/cli.py stack smoke prod
 ```
 
 ---
@@ -192,6 +196,7 @@ CLI является единым интерфейсом для работы с�
 
 ```bash
 ./scripts/cli.py backup verify
+./scripts/cli.py backup verify --full
 ```
 
 ## Полный цикл
@@ -207,13 +212,8 @@ CLI является единым интерфейсом для работы с�
 ## Генерация
 
 ```bash
-./scripts/cli.py certs generate
-```
-
-## Перегенерация
-
-```bash
-./scripts/cli.py certs regenerate
+./scripts/cli.py certs generate --env dev --domain yuviron.com
+./scripts/cli.py certs generate --env prod --domain yuviron.com
 ```
 
 ---
@@ -223,19 +223,68 @@ CLI является единым интерфейсом для работы с�
 ## Установка Docker
 
 ```bash
-./scripts/tools/docker_install.sh
+./scripts/cli.py tools docker-install
 ```
 
 ## Генерация конфигов
 
 ```bash
-python3 scripts/generate-config.py
+python3 scripts/generate-config.py --env dev --domain yuviron.com --apps admin,backoffice
 ```
 
 ## Инициализация
 
 ```bash
-python3 scripts/init.py
+python3 scripts/init.py --env dev --domain yuviron.com
+```
+
+## Docker disk cleanup
+
+```bash
+./scripts/cli.py tools docker-clean --mode report
+./scripts/cli.py tools docker-clean --mode build-cache --reserved-space 10gb
+```
+
+## Остальные tools
+
+```bash
+./scripts/cli.py tools check-frontend-fast
+./scripts/cli.py tools seq-hash
+./scripts/cli.py tools setup-cron
+./scripts/cli.py tools cleanup
+```
+
+`tools cleanup` — широкий legacy cleanup script с Docker/logs/apt/tmp/generated/certs/.tmp. Для обычной Docker-очистки используй `tools docker-clean`.
+
+---
+
+# Generated runtime files
+
+`scripts/init.py` и `scripts/generate-config.py` создают runtime-файлы в `generated/<env>/`:
+
+```text
+generated/<env>/
+├── apps.env
+├── compose.frontends.yml
+├── deploy.env
+├── manifest.env
+├── nginx.conf
+├── routes.env
+└── stack.env
+```
+
+Назначение:
+
+* `deploy.env` — итоговый env-file для Docker Compose
+* `routes.env` — финальные маршруты `route|host|service:port`
+* `compose.frontends.yml` — optional frontend services
+* `nginx.conf` — готовый nginx config
+* `manifest.env` — hashes source/generated файлов для проверки свежести
+
+Если preflight пишет, что source stale или modified, перегенерируй файлы:
+
+```bash
+python3 scripts/init.py --env dev --domain yuviron.com --no-up
 ```
 
 ---
@@ -247,8 +296,10 @@ python3 scripts/init.py
 ```bash
 cp env/example.env env/dev.env
 
+python3 scripts/init.py --env dev --domain yuviron.com --no-up
 ./scripts/cli.py stack preflight dev
 ./scripts/cli.py stack up dev
+./scripts/cli.py stack smoke dev
 ```
 
 ---
@@ -258,8 +309,10 @@ cp env/example.env env/dev.env
 ```bash
 cp env/example.env env/prod.env
 
+python3 scripts/init.py --env prod --domain yuviron.com --no-up
 ./scripts/cli.py stack preflight prod
 ./scripts/cli.py stack up prod
+./scripts/cli.py stack smoke prod
 ```
 
 ---
@@ -271,6 +324,7 @@ git pull
 
 ./scripts/cli.py stack preflight dev
 ./scripts/cli.py stack up dev
+./scripts/cli.py stack smoke dev
 ```
 
 ---
@@ -285,11 +339,54 @@ git pull
 
 ---
 
+## Docker disk cleanup
+
+Проверить, сколько места занимает Docker:
+
+```bash
+./scripts/cli.py tools docker-clean --mode report
+./scripts/cli.py tools docker-clean --mode report --verbose
+```
+
+Безопасная очистка без удаления named volumes и без полного сброса build cache:
+
+```bash
+./scripts/cli.py tools docker-clean --mode safe
+```
+
+Освободить место именно из build cache, но оставить кеш для быстрых пересборок:
+
+```bash
+./scripts/cli.py tools docker-clean --mode build-cache --reserved-space 10gb
+```
+
+Для CI/deploy без интерактивного подтверждения:
+
+```bash
+./scripts/cli.py tools docker-clean --mode build-cache --reserved-space 10gb --yes
+```
+
+Глубокая очистка, после которой пересборки будут медленнее:
+
+```bash
+./scripts/cli.py tools docker-clean --mode deep
+```
+
+Очистка unused anonymous volumes включается только явно:
+
+```bash
+./scripts/cli.py tools docker-clean --mode deep --volumes
+```
+
+Не используй `--volumes` перед backup/restore и не запускай deep-clean во время активной сборки.
+
+---
+
 ## Hard reset
 
 ```bash
 ./scripts/cli.py stack down dev
-docker system prune -f
+./scripts/cli.py tools docker-clean --mode safe
 
 ./scripts/cli.py stack up dev
 ```
@@ -344,17 +441,20 @@ client-app / backoffice / admin / backend
 
 # Архитектура nginx
 
-Вместо отдельных dev/prod nginx-конфигов используется **один шаблон**:
+Вместо отдельных dev/prod nginx-конфигов используется набор шаблонов:
 
 ```text
-edge/nginx/default.conf.template
+scripts/templates/01-global.conf.j2
+scripts/templates/02-ssl-defaults.conf.j2
+scripts/templates/03-routes.conf.j2
+scripts/templates/proxy-params.conf
 ```
-
-Итоговая конфигурация генерируется проектным рендерером на базе Jinja2.
 
 Шаблоны `scripts/templates/*.j2` рендерятся через Jinja2 с помощью `scripts/core/render_nginx.py`; `scripts/generate-config.py` записывает итог в `generated/<env>/nginx.conf`, который затем монтируется в nginx-контейнер как `/etc/nginx/nginx.conf` при старте стека.
 
-Различия между окружениями задаются через переменные окружения и сгенерированные файлы в `config/`.
+Различия между окружениями задаются через `env/<env>.env`, `env/common.env`, `config/routes.yml`, `config/apps.yml` и сгенерированные файлы в `generated/<env>/`.
+
+Финальные маршруты nginx берёт не напрямую из `config/routes.yml`, а из `generated/<env>/routes.env`.
 
 Такой подход позволяет:
 
@@ -392,6 +492,24 @@ Runner расположен на сервере:
 ```
 
 Все workflow внутри организации **JByte-organization** могут использовать этот runner.
+
+Актуальные shared workflow:
+
+```text
+shared/backend/deploy-dev.yml
+shared/backend/deploy-prod.yml
+shared/frontend/.github/workflows/deploy-dev.yml
+shared/frontend/.github/workflows/deploy-prod.yml
+```
+
+Текущий deploy flow:
+
+1. синхронизировать source repo в `src/yuviron-backend` или `src/yuviron-frontend`
+2. выполнить preflight
+3. собрать/поднять стек через `./scripts/cli.py stack up <env>`
+4. выполнить `./scripts/cli.py stack smoke <env>`
+5. показать compose status и хвосты логов
+6. после успешного deploy подрезать Docker build cache через `tools docker-clean`
 
 ---
 
@@ -454,18 +572,11 @@ cd yuviron-server
 
 # Установка Docker
 
-Для установки Docker доступен скрипт-утилит в репозитории:
-
-```text
-scripts/tools/docker_install.sh
-```
-
-Запуск:
+Для установки Docker доступна CLI-обёртка над `scripts/tools/docker_install.sh`:
 
 ```bash
-cd /opt/yuviron-server/scripts/tools
-chmod +x docker_install.sh
-./docker_install.sh
+cd /opt/yuviron-server
+./scripts/cli.py tools docker-install
 ```
 
 Скрипт автоматически:
@@ -497,6 +608,9 @@ cp env/example.env env/prod.env
 ```
 
 После этого откройте файлы и укажите реальные значения переменных.
+
+`env/common.env` и `env/<env>.env` объединяются генератором в `generated/<env>/deploy.env`.
+Именно `deploy.env`, а не исходный `env/dev.env` или `env/prod.env`, используется как `--env-file` для Docker Compose.
 
 ## Пример dev-конфигурации
 
@@ -577,12 +691,14 @@ MYSQL_SERVICE_NAME=mysql
 BACKEND_SERVICE_NAME=backend
 ```
 
-## Скрипты
+## Команды
 
 ```text
-scripts/cli.py backup create
-scripts/cli.py backup verify
-tools/setup-cron.sh
+./scripts/cli.py backup create
+./scripts/cli.py backup verify
+./scripts/cli.py backup verify --full
+./scripts/cli.py backup restore --env dev --archive backups/archives/<archive>.tar.gz
+./scripts/cli.py tools setup-cron
 ```
 
 ## Создание бэкапа
@@ -600,7 +716,7 @@ tools/setup-cron.sh
 ## Автоматизация (cron)
 
 ```bash
-./tools/setup-cron.sh
+./scripts/cli.py tools setup-cron
 ```
 
 ## Ротация
@@ -632,15 +748,16 @@ certs/
 
 Для dev и prod могут использоваться разные сертификаты.
 
-Используемые файлы монтируются в nginx через соответствующий compose override.
+Используемые файлы задаются в `generated/<env>/stack.env` и монтируются в nginx через единый `infra/compose.yml`.
 
-Если используется генерация сертификатов через скрипт, запуск:
+Генерация через CLI:
 
 ```bash
-cd /opt/yuviron-server/scripts
-chmod +x regen-yuviron-certs.sh
-./regen-yuviron-certs.sh
+./scripts/cli.py certs generate --env dev --domain yuviron.com
+./scripts/cli.py certs generate --env prod --domain yuviron.com
 ```
+
+Перед генерацией сертификатов должен существовать `generated/<env>/routes.env`, поэтому сначала запускается `scripts/init.py` или `scripts/generate-config.py`.
 
 Если используется локальный Root CA, его необходимо установить на клиентские машины разработчиков.
 
@@ -648,29 +765,19 @@ chmod +x regen-yuviron-certs.sh
 
 # Генерация SSL сертификатов через mkcert
 
-Для dev-окружения можно использовать **mkcert**.
-
-Скрипт:
-
-```text
-scripts/regen-yuviron-certs.sh
-```
-
-Запуск:
+CLI использует `mkcert` и SAN-список из `generated/<env>/routes.env`.
 
 ```bash
-cd /opt/yuviron-server/scripts
-chmod +x regen-yuviron-certs.sh
-./regen-yuviron-certs.sh
+./scripts/cli.py certs generate --env dev --domain yuviron.com
 ```
 
-Скрипт обычно выполняет:
+Команда выполняет:
 
 1. проверку mkcert
-2. установку mkcert
-3. создание Root CA
+2. предложение установить `mkcert` и `libnss3-tools`, если mkcert не найден
+3. создание/установку Root CA
 4. генерацию сертификатов
-5. копирование сертификатов в нужную директорию для nginx
+5. копирование `rootCA.pem` в `~/rootCA.crt`
 
 После выполнения может появиться файл:
 
@@ -678,16 +785,16 @@ chmod +x regen-yuviron-certs.sh
 ~/rootCA.crt
 ```
 
-Сертификат должен покрывать необходимые dev-домены, например:
+Сертификат покрывает hosts из `routes.env`, например:
 
 ```text
 dev.yuviron.com
 dev-backoffice.yuviron.com
 dev-admin.yuviron.com
 dev-api.yuviron.com
+dev-seq.yuviron.com
+dev-aspire.yuviron.com
 ```
-
-Если требуется, можно сгенерировать и другой набор сертификатов в зависимости от реальной схемы доменов.
 
 ---
 
@@ -906,9 +1013,18 @@ docker network create yuviron_shared
 * свободное место на диске
 * наличие сети `yuviron_shared`
 * валидность compose-конфигурации
-* рендеринг и синтаксис Jinja2-шаблонов nginx
+* свежесть generated-файлов по `generated/<env>/manifest.env`
+* наличие route hosts в `generated/<env>/nginx.conf`
+* соответствие upstream services из `routes.env` сервисам compose
+* синтаксис nginx через `nginx -t`
 
 Это позволяет обнаружить типовые проблемы **до запуска контейнеров**.
+
+Для проверки без вмешательства в основной compose project:
+
+```bash
+./scripts/cli.py stack preflight dev --isolated
+```
 
 ---
 
@@ -920,13 +1036,13 @@ docker network create yuviron_shared
 
 ```bash
 cd /opt/yuviron-server
-./scripts/up-dev.sh
+./scripts/cli.py stack up dev
 ```
 
 Остановка:
 
 ```bash
-./scripts/down-dev.sh
+./scripts/cli.py stack down dev
 ```
 
 ## Prod
@@ -935,13 +1051,13 @@ cd /opt/yuviron-server
 
 ```bash
 cd /opt/yuviron-server
-./scripts/up-prod.sh
+./scripts/cli.py stack up prod
 ```
 
 Остановка:
 
 ```bash
-./scripts/down-prod.sh
+./scripts/cli.py stack down prod
 ```
 
 ---
@@ -954,10 +1070,10 @@ cd /opt/yuviron-server
 
 ```bash
 docker compose \
-  --env-file ./env/dev.env \
+  --env-file ./generated/dev/deploy.env \
+  -f ./infra/compose.yml \
+  -f ./generated/dev/compose.frontends.yml \
   -p yuviron-dev \
-  -f ./infra/compose.base.yml \
-  -f ./infra/compose.dev.yml \
   up -d
 ```
 
@@ -965,10 +1081,10 @@ docker compose \
 
 ```bash
 docker compose \
-  --env-file ./env/prod.env \
+  --env-file ./generated/prod/deploy.env \
+  -f ./infra/compose.yml \
+  -f ./generated/prod/compose.frontends.yml \
   -p yuviron-prod \
-  -f ./infra/compose.base.yml \
-  -f ./infra/compose.prod.yml \
   up -d
 ```
 
@@ -1001,10 +1117,10 @@ docker ps
 
 ```bash
 docker compose \
-  --env-file ./env/dev.env \
+  --env-file ./generated/dev/deploy.env \
+  -f ./infra/compose.yml \
+  -f ./generated/dev/compose.frontends.yml \
   -p yuviron-dev \
-  -f ./infra/compose.base.yml \
-  -f ./infra/compose.dev.yml \
   ps
 ```
 
@@ -1012,23 +1128,27 @@ docker compose \
 
 ```bash
 docker compose \
-  --env-file ./env/prod.env \
+  --env-file ./generated/prod/deploy.env \
+  -f ./infra/compose.yml \
+  -f ./generated/prod/compose.frontends.yml \
   -p yuviron-prod \
-  -f ./infra/compose.base.yml \
-  -f ./infra/compose.prod.yml \
   ps
 ```
 
 Ожидаемо в активном состоянии могут быть контейнеры примерно такого типа:
 
 ```text
-edge nginx
+nginx
 mysql
 redis
+rabbitmq
 backend
+media-worker
 client-app
 backoffice
 admin
+seq
+aspire-dashboard
 ```
 
 Если используется отдельный `migrator`-контейнер, он может завершаться после успешного применения миграций и не отображаться в списке активных контейнеров.
@@ -1071,7 +1191,7 @@ Frontend собирается из монорепозитория через е�
 
 ```bash
 docker build \
-  -f infra/docker/frontend/Dockerfile \
+  -f infra/docker/frontend-next/Dockerfile \
   --build-arg APP_NAME=admin \
   ./src/yuviron-frontend
 ```
@@ -1105,7 +1225,7 @@ Frontend Dockerfile поддерживает параметр `APP_NAME` и мо
 
 ```bash
 docker build \
-  -f infra/docker/frontend/Dockerfile \
+  -f infra/docker/frontend-next/Dockerfile \
   --build-arg APP_NAME=admin \
   ./src/yuviron-frontend
 ```
@@ -1121,7 +1241,7 @@ docker build \
 Это позволяет:
 
 * запускать CI-задачи
-* выполнять preflight-check
+* выполнять `./scripts/cli.py stack preflight <env>`
 * собирать backend/frontend
 * выполнять deploy dev/prod
 * не использовать платные GitHub-hosted runners для тяжёлых задач деплоя
@@ -1256,11 +1376,13 @@ Online
 runs-on: [self-hosted, yuviron]
 ```
 
-Готовые workflow обычно находятся в директории с workflow-файлами репозитория.
-В текущей структуре этого репозитория см. каталог:
+Готовые shared workflow находятся в:
 
 ```text
-workflows/
+shared/backend/deploy-dev.yml
+shared/backend/deploy-prod.yml
+shared/frontend/.github/workflows/deploy-dev.yml
+shared/frontend/.github/workflows/deploy-prod.yml
 ```
 
 Пример шага workflow:
@@ -1291,7 +1413,7 @@ jobs:
 В более полной схеме workflow может делать:
 
 1. checkout/update исходников
-2. preflight-check
+2. `./scripts/cli.py stack preflight <env>`
 3. build
 4. affected detection
 5. deploy только нужных приложений
@@ -1346,36 +1468,42 @@ sudo chown -R nf:nf /opt/actions-runner
 # Структура репозитория
 
 ```text
-yuviron-server
-│
+yuviron-server/
 ├── certs/
-├── edge/
-│   ├── Dockerfile
-│   └── nginx/
-│       └── default.conf.template
-│
+├── config/
+│   ├── apps.yml
+│   ├── project.yml
+│   └── routes.yml
 ├── env/
-│   ├── env.example
+│   ├── common.env
 │   ├── dev.env
+│   ├── example.env
 │   └── prod.env
-│
+├── generated/
+│   └── <env>/
 ├── infra/
-│   ├── compose.base.yml
-│   ├── compose.dev.yml
-│   ├── compose.prod.yml
-│   └── docker/
-│       ├── backend/
-│       ├── frontend/
-│       └── migrator/
-│
+│   ├── compose.yml
+│   ├── docker/
+│   └── edge/
 ├── scripts/
+│   ├── checks/
+│   ├── commands/
+│   ├── core/
+│   ├── templates/
+│   ├── tests/
+│   ├── tools/
 │   ├── cli.py
-│   ├── init.py
 │   ├── generate-config.py
-│   └── tools/
-│
+│   └── init.py
+├── shared/
+│   ├── backend/
+│   └── frontend/
+├── src/
+│   ├── yuviron-backend/
+│   └── yuviron-frontend/
 ├── storage/
-├── workflows/
+├── logs/
+├── backups/
 └── README.md
 ```
 
@@ -1416,10 +1544,10 @@ docker logs <container>
 
 ```bash
 docker compose \
-  --env-file ./env/dev.env \
+  --env-file ./generated/dev/deploy.env \
+  -f ./infra/compose.yml \
+  -f ./generated/dev/compose.frontends.yml \
   -p yuviron-dev \
-  -f ./infra/compose.base.yml \
-  -f ./infra/compose.dev.yml \
   config
 ```
 
@@ -1427,10 +1555,10 @@ docker compose \
 
 ```bash
 docker compose \
-  --env-file ./env/prod.env \
+  --env-file ./generated/prod/deploy.env \
+  -f ./infra/compose.yml \
+  -f ./generated/prod/compose.frontends.yml \
   -p yuviron-prod \
-  -f ./infra/compose.base.yml \
-  -f ./infra/compose.prod.yml \
   config
 ```
 
@@ -1443,25 +1571,25 @@ docker exec -it <nginx-container> nginx -t
 Перезапуск dev:
 
 ```bash
-./scripts/down-dev.sh
-./scripts/up-dev.sh
+./scripts/cli.py stack down dev
+./scripts/cli.py stack up dev
 ```
 
 Перезапуск prod:
 
 ```bash
-./scripts/down-prod.sh
-./scripts/up-prod.sh
+./scripts/cli.py stack down prod
+./scripts/cli.py stack up prod
 ```
 
 Ручная остановка dev-стека:
 
 ```bash
 docker compose \
-  --env-file ./env/dev.env \
+  --env-file ./generated/dev/deploy.env \
+  -f ./infra/compose.yml \
+  -f ./generated/dev/compose.frontends.yml \
   -p yuviron-dev \
-  -f ./infra/compose.base.yml \
-  -f ./infra/compose.dev.yml \
   down
 ```
 
@@ -1469,10 +1597,10 @@ docker compose \
 
 ```bash
 docker compose \
-  --env-file ./env/prod.env \
+  --env-file ./generated/prod/deploy.env \
+  -f ./infra/compose.yml \
+  -f ./generated/prod/compose.frontends.yml \
   -p yuviron-prod \
-  -f ./infra/compose.base.yml \
-  -f ./infra/compose.prod.yml \
   down
 ```
 
