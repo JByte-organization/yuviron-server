@@ -156,19 +156,7 @@ services:
     security_opt:
       - no-new-privileges:true
     environment:
-      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
-      ConnectionStrings__Default: ${ConnectionStrings__Default}
-      ConnectionStrings__Redis: ${ConnectionStrings__Redis}
-      FILE_STORAGE_ROOT: ${FILE_STORAGE_ROOT}
-      Seq__ServerUrl: ${Seq__ServerUrl}
-      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL}
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT}
-      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS}
-      RabbitMQ__Host: ${RabbitMQ__Host}
-      RabbitMQ__Port: ${RabbitMQ__Port}
-      RabbitMQ__Username: ${RabbitMQ__Username}
-      RabbitMQ__Password: ${RabbitMQ__Password}
-      RabbitMQ__VirtualHost: ${RabbitMQ__VirtualHost}
+      <<: *dotnet-env
     depends_on:
       mysql:
         condition: service_healthy
