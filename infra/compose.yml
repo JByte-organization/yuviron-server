@@ -297,6 +297,12 @@ services:
     networks:
       - default
       - shared
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     mem_limit: ${NGINX_MEM_LIMIT:-128m}
     memswap_limit: ${NGINX_MEMSWAP_LIMIT:-128m}
     cpus: ${NGINX_CPUS:-0.25}

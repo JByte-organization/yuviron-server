@@ -6,6 +6,12 @@
         access_log /var/log/nginx/{{ route.log_name }}.access.log main;
         error_log  /var/log/nginx/{{ route.log_name }}.error.log warn;
 
+        location = /health {
+            access_log off;
+            default_type text/plain;
+            return 200 "edge-nginx-ok\n";
+        }
+
         return 301 https://$host$request_uri;
     }
 
