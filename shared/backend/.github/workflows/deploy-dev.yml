@@ -14,6 +14,32 @@ jobs:
     environment: dev
 
     steps:
+      - name: Capture deployed backend revision
+        id: deployed-revision
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server/src/yuviron-backend
+
+          previous_sha="$(git rev-parse --verify HEAD)"
+          rollback_dir="/tmp/yuviron-rollback/backend-dev-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          umask 077
+          mkdir -p "$rollback_dir"
+
+          for path in \
+            src/Yuviron.Api/appsettings.Development.json \
+            src/Yuviron.MediaWorker/appsettings.Development.json
+          do
+            if [ -f "$path" ]; then
+              mkdir -p "$rollback_dir/$(dirname "$path")"
+              cp "$path" "$rollback_dir/$path"
+            fi
+          done
+
+          echo "previous_sha=${previous_sha}" >> "$GITHUB_OUTPUT"
+          echo "rollback_dir=${rollback_dir}" >> "$GITHUB_OUTPUT"
+          echo "Previous backend revision: ${previous_sha}"
+
       - name: Sync backend source
         run: |
           set -Eeuo pipefail
@@ -150,6 +176,46 @@ jobs:
           set -Eeuo pipefail
           cd /opt/yuviron-server
           python3 ./scripts/cli.py stack smoke dev
+
+      - name: Rollback backend dev stack
+        if: failure() && steps.deployed-revision.outputs.previous_sha != ''
+        env:
+          PREVIOUS_SHA: ${{ steps.deployed-revision.outputs.previous_sha }}
+          ROLLBACK_DIR: ${{ steps.deployed-revision.outputs.rollback_dir }}
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server/src/yuviron-backend
+
+          echo "Rolling back backend source to ${PREVIOUS_SHA}"
+          git fetch --depth=1 origin "${PREVIOUS_SHA}" || true
+          git reset --hard "${PREVIOUS_SHA}"
+          git clean -fd
+
+          for path in \
+            src/Yuviron.Api/appsettings.Development.json \
+            src/Yuviron.MediaWorker/appsettings.Development.json
+          do
+            if [ -f "${ROLLBACK_DIR}/${path}" ]; then
+              mkdir -p "$(dirname "$path")"
+              cp "${ROLLBACK_DIR}/${path}" "$path"
+            else
+              echo "No rollback appsettings backup found for ${path}"
+            fi
+          done
+
+          cd /opt/yuviron-server
+          timeout 1200 python3 ./scripts/cli.py stack up dev
+          python3 ./scripts/cli.py stack smoke dev
+
+      - name: Cleanup backend rollback snapshot
+        if: always()
+        env:
+          ROLLBACK_DIR: ${{ steps.deployed-revision.outputs.rollback_dir }}
+        run: |
+          set -Eeuo pipefail
+          if [ -n "${ROLLBACK_DIR}" ] && [ -d "${ROLLBACK_DIR}" ]; then
+            rm -rf "${ROLLBACK_DIR}"
+          fi
 
       - name: Trim Docker build cache
         if: success()

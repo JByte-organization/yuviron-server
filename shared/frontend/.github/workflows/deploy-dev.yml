@@ -16,8 +16,19 @@ jobs:
       apps: ${{ steps.affected.outputs.apps }}
       has_apps: ${{ steps.affected.outputs.has_apps }}
       reason: ${{ steps.affected.outputs.reason }}
+      previous_sha: ${{ steps.deployed-revision.outputs.previous_sha }}
 
     steps:
+      - name: Capture deployed frontend revision
+        id: deployed-revision
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server/src/yuviron-frontend
+
+          previous_sha="$(git rev-parse --verify HEAD)"
+          echo "previous_sha=${previous_sha}" >> "$GITHUB_OUTPUT"
+          echo "Previous frontend revision: ${previous_sha}"
+
       - name: Sync frontend source
         run: |
           set -Eeuo pipefail
@@ -123,6 +134,19 @@ jobs:
           echo "Has apps: ${{ steps.affected.outputs.has_apps }}"
           echo "Reason: ${{ steps.affected.outputs.reason }}"
 
+      - name: Rollback frontend source after detection failure
+        if: failure() && steps.deployed-revision.outputs.previous_sha != ''
+        env:
+          PREVIOUS_SHA: ${{ steps.deployed-revision.outputs.previous_sha }}
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server/src/yuviron-frontend
+
+          echo "Rolling back frontend source to ${PREVIOUS_SHA}"
+          git fetch --depth=1 origin "${PREVIOUS_SHA}" || true
+          git reset --hard "${PREVIOUS_SHA}"
+          git clean -fdx
+
   deploy:
     needs: detect-affected
     if: needs.detect-affected.outputs.has_apps == 'true'
@@ -209,6 +233,23 @@ jobs:
         run: |
           set -Eeuo pipefail
           cd /opt/yuviron-server
+          python3 ./scripts/cli.py stack smoke dev
+
+      - name: Rollback frontend dev stack
+        if: failure() && needs.detect-affected.outputs.previous_sha != ''
+        env:
+          PREVIOUS_SHA: ${{ needs.detect-affected.outputs.previous_sha }}
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server/src/yuviron-frontend
+
+          echo "Rolling back frontend source to ${PREVIOUS_SHA}"
+          git fetch --depth=1 origin "${PREVIOUS_SHA}" || true
+          git reset --hard "${PREVIOUS_SHA}"
+          git clean -fdx
+
+          cd /opt/yuviron-server
+          timeout 1200 python3 ./scripts/cli.py stack up dev
           python3 ./scripts/cli.py stack smoke dev
 
       - name: Trim Docker build cache
