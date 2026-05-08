@@ -789,6 +789,16 @@ certs/
 ./scripts/cli.py certs generate --env prod --domain yuviron.com
 ```
 
+После замены файлов сертификата работающий nginx должен перечитать их:
+
+```bash
+./scripts/cli.py certs reload --env dev
+./scripts/cli.py certs reload --env prod
+```
+
+Команда сначала выполняет `nginx -t` внутри контейнера, затем `nginx -s reload`.
+Для автоматической ротации запускай её как post-renew hook или cron-задачу после обновления `CERT_FILE` и `KEY_FILE`.
+
 Перед генерацией сертификатов должен существовать `generated/<env>/routes.env`, поэтому сначала запускается `scripts/init.py` или `scripts/generate-config.py`.
 
 Если используется локальный Root CA, его необходимо установить на клиентские машины разработчиков.
@@ -810,6 +820,12 @@ CLI использует `mkcert` и SAN-список из `generated/<env>/rout
 3. создание/установку Root CA
 4. генерацию сертификатов
 5. копирование `rootCA.pem` в `~/rootCA.crt`
+
+Если стек уже запущен, после перевыпуска сертификата нужно применить его в nginx:
+
+```bash
+./scripts/cli.py certs reload --env dev
+```
 
 После выполнения может появиться файл:
 

@@ -12,7 +12,8 @@ if __package__ in {None, ""}:
     cli_path = scripts_dir / "cli.py"
     raise SystemExit(subprocess.call([str(cli_path), "certs", *sys.argv[1:]]))
 
-from core.docker import run
+from core.compose import create_compose_context
+from core.docker import run, run_compose
 from core.env import load_dotenv_if_exists, parse_routes_file
 from core.paths import resolve_root_dir
 from core.ui import confirm, log_info, log_ok, log_warn
@@ -99,6 +100,23 @@ def cmd_generate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_reload(args: argparse.Namespace) -> int:
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+    load_dotenv_if_exists(root_dir / ".env")
+
+    environment = resolve_prompted_environment(args.environment)
+    context = create_compose_context(root_dir, environment, ensure_generated=False)
+
+    log_info("Validating nginx configuration")
+    run_compose(context, "exec", "-T", "nginx", "nginx", "-t")
+
+    log_info("Reloading nginx")
+    run_compose(context, "exec", "-T", "nginx", "nginx", "-s", "reload")
+
+    log_ok("Nginx reloaded")
+    return 0
+
+
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     certs_parser = subparsers.add_parser("certs", help="TLS certificate operations")
     certs_sub = certs_parser.add_subparsers(dest="certs_action", required=True)
@@ -108,3 +126,8 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     generate_parser.add_argument("--domain")
     generate_parser.add_argument("--project-root", dest="project_root")
     generate_parser.set_defaults(handler=cmd_generate)
+
+    reload_parser = certs_sub.add_parser("reload", help="Validate and reload nginx TLS certificates")
+    reload_parser.add_argument("--env", dest="environment")
+    reload_parser.add_argument("--project-root", dest="project_root")
+    reload_parser.set_defaults(handler=cmd_reload)
