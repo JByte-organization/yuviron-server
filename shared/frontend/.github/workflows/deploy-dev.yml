@@ -2,12 +2,11 @@ name: Deploy frontend dev
 
 on:
   push:
-    branches:
-      - dev
+    branches: [dev]
 
 concurrency:
-  group: deploy-frontend-dev
-  cancel-in-progress: true
+  group: yuviron-dev-deploy
+  cancel-in-progress: false
 
 jobs:
   detect-affected:
@@ -119,6 +118,7 @@ jobs:
 
       - name: Print affected apps
         run: |
+          set -Eeuo pipefail
           echo "Affected apps: ${{ steps.affected.outputs.apps }}"
           echo "Has apps: ${{ steps.affected.outputs.has_apps }}"
           echo "Reason: ${{ steps.affected.outputs.reason }}"
@@ -130,6 +130,7 @@ jobs:
 
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         app: ${{ fromJson(needs.detect-affected.outputs.apps) }}
 
@@ -147,15 +148,22 @@ jobs:
 
       - name: Print deploy mode
         run: |
+          set -Eeuo pipefail
           echo "Deploy mode reason: ${DETECT_REASON}"
           echo "Current app: ${{ matrix.app }}"
           echo "Selective deploy mode."
 
+      - name: Docker disk usage before deploy
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server
+          python3 ./scripts/cli.py tools docker-clean --mode report
+
       - name: Preflight check
         run: |
-            set -Eeuo pipefail
-            cd /opt/yuviron-server
-            python3 ./scripts/cli.py stack preflight dev
+          set -Eeuo pipefail
+          cd /opt/yuviron-server
+          python3 ./scripts/cli.py stack preflight dev
 
       - name: Install frontend dependencies
         run: |
@@ -184,36 +192,62 @@ jobs:
           echo "Building frontend service: ${{ matrix.app }}"
 
           docker compose \
-            --env-file ./env/dev.env \
+            --env-file ./generated/dev/deploy.env \
             -p yuviron-dev \
-            -f ./infra/compose.base.yml \
-            -f ./infra/compose.dev.yml \
+            -f ./infra/compose.yml \
+            -f ./generated/dev/compose.frontends.yml \
             build "${{ matrix.app }}"
 
-      - name: Restart affected frontend service
+      - name: Start full dev stack
         run: |
           set -Eeuo pipefail
           cd /opt/yuviron-server
+          timeout 1200 python3 ./scripts/cli.py stack up dev
 
-          echo "Restarting frontend service: ${{ matrix.app }}"
+      - name: Smoke test dev stack
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server
+          python3 ./scripts/cli.py stack smoke dev
 
-          docker compose \
-            --env-file ./env/dev.env \
-            -p yuviron-dev \
-            -f ./infra/compose.base.yml \
-            -f ./infra/compose.dev.yml \
-            up -d --no-deps "${{ matrix.app }}"
+      - name: Trim Docker build cache
+        if: success()
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server
+          python3 ./scripts/cli.py tools docker-clean --mode build-cache --reserved-space 10gb --yes
+
+      - name: Docker disk usage after cleanup
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server
+          python3 ./scripts/cli.py tools docker-clean --mode report
 
       - name: Show running services
+        if: always()
         run: |
           set -Eeuo pipefail
           cd /opt/yuviron-server
+
           docker compose \
-            --env-file ./env/dev.env \
+            --env-file ./generated/dev/deploy.env \
             -p yuviron-dev \
-            -f ./infra/compose.base.yml \
-            -f ./infra/compose.dev.yml \
+            -f ./infra/compose.yml \
+            -f ./generated/dev/compose.frontends.yml \
             ps
+
+      - name: Show affected frontend logs
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          docker logs --tail=160 "yuviron-dev-${{ matrix.app }}" || true
+
+      - name: Show nginx logs
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          docker logs --tail=160 yuviron-dev-nginx || true
 
   no-changes:
     needs: detect-affected
@@ -223,5 +257,6 @@ jobs:
     steps:
       - name: No affected frontend apps
         run: |
+          set -Eeuo pipefail
           echo "No affected frontend apps detected. Skipping deploy."
           echo "Reason: ${{ needs.detect-affected.outputs.reason }}"

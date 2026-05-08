@@ -1,12 +1,12 @@
-name: Deploy backend prod
+name: Deploy backend and media worker prod
 
 on:
   push:
     branches: [main]
 
 concurrency:
-  group: deploy-backend-prod
-  cancel-in-progress: true
+  group: yuviron-prod-deploy
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -15,10 +15,10 @@ jobs:
     steps:
       - name: Sync backend source
         run: |
-          set -e
+          set -Eeuo pipefail
           cd /opt/yuviron-server/src/yuviron-backend
-          git fetch origin main
-          git reset --hard origin/main
+          git fetch origin prod
+          git reset --hard origin/prod
           git clean -fd
 
       - name: Generate Production appsettings
@@ -34,18 +34,33 @@ jobs:
           SEED_USER_PASSWORD: ${{ secrets.SEED_USER_PASSWORD }}
           SEED_PREMIUM_EMAIL: ${{ secrets.SEED_PREMIUM_EMAIL }}
           SEED_PREMIUM_PASSWORD: ${{ secrets.SEED_PREMIUM_PASSWORD }}
+          JAMENDO_CLIENT_ID: ${{ secrets.JAMENDO_CLIENT_ID }}
+          STREAM_SECRET: ${{ secrets.STREAM_SECRET }}
         run: |
-          set -e
+          set -Eeuo pipefail
+
           ENV_FILE="Production"
-          CONFIG_PATH="/opt/yuviron-server/src/yuviron-backend/src/Yuviron.Api/appsettings.${ENV_FILE}.json"
+          API_CONFIG_PATH="/opt/yuviron-server/src/yuviron-backend/src/Yuviron.Api/appsettings.${ENV_FILE}.json"
+          WORKER_CONFIG_PATH="/opt/yuviron-server/src/yuviron-backend/src/Yuviron.MediaWorker/appsettings.${ENV_FILE}.json"
 
-          mkdir -p "$(dirname "$CONFIG_PATH")"
+          mkdir -p "$(dirname "$API_CONFIG_PATH")"
+          mkdir -p "$(dirname "$WORKER_CONFIG_PATH")"
 
-          python3 - <<'PY' > "$CONFIG_PATH"
+          python3 - <<'PY' > "$API_CONFIG_PATH"
           import json
           import os
 
           config = {
+              "CorsSettings": {
+                  "AllowedOrigins": [
+                      "https://yuviron.com",
+                      "https://backoffice.yuviron.com",
+                      "https://admin.yuviron.com",
+                      "https://yuviron.com",
+                      "https://backoffice.yuviron.com",
+                      "https://admin.yuviron.com"
+                  ]
+              },
               "JwtSettings": {
                   "Secret": os.environ["JWT_SECRET"],
                   "Issuer": "YuvironApi",
@@ -75,55 +90,114 @@ jobs:
                       "Email": os.environ["SEED_PREMIUM_EMAIL"],
                       "Password": os.environ["SEED_PREMIUM_PASSWORD"]
                   }
+              },
+              "JamendoApi": {
+                  "ClientId": os.environ["JAMENDO_CLIENT_ID"]
+              },
+              "StreamSecurity": {
+                  "SecretKey": os.environ["STREAM_SECRET"]
               }
           }
 
           print(json.dumps(config, ensure_ascii=False, indent=2))
           PY
 
-          python3 -m json.tool "$CONFIG_PATH" >/dev/null
+          python3 - <<'PY' > "$WORKER_CONFIG_PATH"
+          import json
+          import os
+
+          config = {
+              "JamendoApi": {
+                  "ClientId": os.environ["JAMENDO_CLIENT_ID"]
+              }
+          }
+
+          print(json.dumps(config, ensure_ascii=False, indent=2))
+          PY
+
+          python3 -m json.tool "$API_CONFIG_PATH" >/dev/null
+          python3 -m json.tool "$WORKER_CONFIG_PATH" >/dev/null
+
+      - name: Cleanup stale migrator run containers before deploy
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          docker ps -aq \
+            --filter "name=yuviron-prod-migrator-run" \
+            | xargs -r docker rm -f
+
+      - name: Docker disk usage before deploy
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server
+          python3 ./scripts/cli.py tools docker-clean --mode report
 
       - name: Preflight check
         run: |
-          set -e
+          set -Eeuo pipefail
           cd /opt/yuviron-server
-          ./scripts/cli.py stack preflight prod /opt/yuviron-server
+          python3 ./scripts/cli.py stack preflight prod
 
-      - name: Build backend services
+      - name: Start full prod stack
         run: |
-          set -e
+          set -Eeuo pipefail
           cd /opt/yuviron-server
-          docker compose \
-            -p yuviron-prod \
-            -f ./infra/compose.base.yml \
-            -f ./infra/compose.prod.yml \
-            build migrator backend
+          timeout 1200 python3 ./scripts/cli.py stack up prod
 
-      - name: Apply migrations
+      - name: Smoke test prod stack
         run: |
-          set -e
+          set -Eeuo pipefail
           cd /opt/yuviron-server
-          docker compose \
-            -p yuviron-prod \
-            -f ./infra/compose.base.yml \
-            -f ./infra/compose.prod.yml \
-            run --rm migrator
+          python3 ./scripts/cli.py stack smoke prod
 
-      - name: Restart backend
+      - name: Trim Docker build cache
+        if: success()
         run: |
-          set -e
+          set -Eeuo pipefail
           cd /opt/yuviron-server
-          docker compose \
-            -p yuviron-prod \
-            -f ./infra/compose.base.yml \
-            -f ./infra/compose.prod.yml \
-            up -d --no-deps backend
+          python3 ./scripts/cli.py tools docker-clean --mode build-cache --reserved-space 10gb --yes
+
+      - name: Docker disk usage after cleanup
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server
+          python3 ./scripts/cli.py tools docker-clean --mode report
 
       - name: Show running services
+        if: always()
         run: |
+          set -Eeuo pipefail
           cd /opt/yuviron-server
           docker compose \
+            --env-file ./generated/prod/deploy.env \
+            -f ./infra/compose.yml \
+            -f ./generated/prod/compose.frontends.yml \
             -p yuviron-prod \
-            -f ./infra/compose.base.yml \
-            -f ./infra/compose.prod.yml \
             ps
+
+      - name: Show backend logs
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          docker logs --tail=160 yuviron-prod-backend || true
+
+      - name: Show media worker logs
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          docker logs --tail=160 yuviron-prod-media-worker || true
+
+      - name: Show nginx logs
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          docker logs --tail=160 yuviron-prod-nginx || true
+
+      - name: Cleanup stale migrator run containers after deploy
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          docker ps -aq \
+            --filter "name=yuviron-prod-migrator-run" \
+            | xargs -r docker rm -f
