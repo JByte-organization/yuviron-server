@@ -463,6 +463,8 @@ scripts/templates/proxy-params.conf
 
 В `infra/compose.yml` nginx ждёт готовности `backend` и `client-app` через `depends_on: condition: service_healthy`.
 Для `client-app` healthcheck проверяет TCP-порт Next.js внутри контейнера, не требуя отдельного `/api/health` endpoint во frontend-репозитории.
+Сам nginx также имеет Docker healthcheck: контейнер локально запрашивает `http://127.0.0.1/health`.
+Этот endpoint объявлен в HTTP server-блоке до редиректа на HTTPS, поэтому проверка не зависит от TLS-сертификата и внешнего `Host`.
 
 Такой подход позволяет:
 
@@ -1304,6 +1306,14 @@ docker build \
 * не пересобирать весь frontend без необходимости
 * ускорять обновление dev-окружения
 * уменьшать лишнюю нагрузку на сервер
+
+Для ручного обновления одного frontend-сервиса можно использовать:
+
+```bash
+./shared/frontend/scripts/deploy-frontend-service.sh admin dev
+```
+
+Скрипт использует актуальную compose-схему: `infra/compose.yml`, `generated/<env>/compose.frontends.yml` и `generated/<env>/deploy.env`.
 
 ---
 
