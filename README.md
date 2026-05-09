@@ -1113,6 +1113,223 @@ Tailscale используется как альтернативный private a
 
 ---
 
+# Установка Tailscale на Linux VM
+
+Tailscale устанавливается внутри Linux VM, а не на Windows host как основной VPN-слой проекта. Инструкция ниже подходит для Ubuntu Server / Debian-based VM.
+
+## Установка
+
+На Linux VM:
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+```
+
+Скрипт устанавливает:
+
+* `tailscaled` daemon
+* `tailscale` CLI
+* systemd service
+
+Включить и запустить daemon:
+
+```bash
+sudo systemctl enable --now tailscaled
+```
+
+Проверить сервис:
+
+```bash
+systemctl status tailscaled
+```
+
+## Авторизация VM в Tailnet
+
+Для этой инфраструктуры рекомендуется сразу включать Tailscale SSH и отключать автоматическую замену системного DNS resolver:
+
+```bash
+sudo tailscale up --accept-dns=false --ssh
+```
+
+Команда выдаст login URL:
+
+```text
+https://login.tailscale.com/...
+```
+
+Открой ссылку на доверенном устройстве, войди в Tailscale account и добавь VM в Tailnet. После авторизации VM появится в списке устройств.
+
+Проверить Tailnet IP:
+
+```bash
+tailscale ip
+```
+
+Ожидаемый формат:
+
+```text
+100.x.x.x
+```
+
+Проверить состояние Tailnet:
+
+```bash
+tailscale status
+```
+
+## SSH-подключение
+
+С другого устройства, где установлен и включён Tailscale:
+
+```bash
+ssh <LINUX_VM_USER>@<DEV_VM_TAILNET_IP>
+```
+
+Если MagicDNS доступен на клиентском устройстве, можно подключаться по имени узла:
+
+```bash
+ssh <LINUX_VM_USER>@dev-vm
+```
+
+Tailscale SSH управляется ACL policy. Для этой схемы доступ должен быть ограничен владельцем инфраструктуры и локальным пользователем `<LINUX_VM_USER>` на Linux VM.
+
+## Мобильный доступ
+
+Для мобильного доступа:
+
+1. установить Tailscale на телефон
+2. войти в тот же Tailnet
+3. включить VPN
+4. подключаться к VM через SSH-клиент
+
+Подходящие клиенты:
+
+* Termius
+* JuiceSSH
+* Blink Shell
+
+Схема подключения:
+
+```text
+Phone / Laptop
+      ↓
+Tailscale mesh
+      ↓
+Linux VM / dev-vm
+      ↓
+Docker containers
+      ↓
+edge nginx / backend / frontend apps
+```
+
+## Docker и сервисы внутри VM
+
+Tailscale работает на уровне network stack Linux VM. Это означает, что Tailnet-клиент может обращаться к сервисам на VM, если одновременно выполняются условия:
+
+* сервис опубликован на host-порт VM
+* сервис слушает `0.0.0.0` или VM interface
+* Linux firewall разрешает входящий трафик
+* Tailscale ACL разрешает нужный порт
+
+Для Yuviron это в первую очередь относится к `edge nginx` и dev HTTPS/HTTP портам. Базы данных, брокеры и внутренние сервисы не нужно открывать в Tailnet без отдельной причины.
+
+## SSH наружу
+
+После проверки доступа через Tailnet можно закрыть внешний SSH-доступ на Linux VM. Это нужно делать только если есть рабочий Tailscale SSH, консольный доступ к VM или другой recovery path.
+
+Пример для `ufw`:
+
+```bash
+sudo ufw deny 22/tcp
+```
+
+Более безопасный вариант для dev-инфраструктуры:
+
+* оставить SSH доступным через Tailnet
+* закрыть публичный `22/tcp` во внешнем firewall
+* управлять доступом через Tailscale ACL
+
+## Несколько VM
+
+Если позже появятся дополнительные VM:
+
+```text
+dev-vm
+prod-vm
+media-worker
+nas
+```
+
+Tailnet позволит работать с ними как с приватной инфраструктурной сетью:
+
+```bash
+ssh <LINUX_VM_USER>@dev-vm
+ssh <LINUX_VM_USER>@prod-vm
+```
+
+Для production-узлов ACL должны быть строже, чем для dev, и не должны автоматически копироваться из dev policy.
+
+---
+
+# Полезные команды Tailscale
+
+Статус Tailnet:
+
+```bash
+tailscale status
+```
+
+Tailnet IP текущей VM:
+
+```bash
+tailscale ip
+```
+
+Проверить текущую конфигурацию:
+
+```bash
+tailscale debug prefs
+```
+
+Перезапустить daemon:
+
+```bash
+sudo systemctl restart tailscaled
+```
+
+Повторно применить рекомендуемую конфигурацию VM:
+
+```bash
+sudo tailscale up --accept-dns=false --ssh
+```
+
+Выйти из Tailnet:
+
+```bash
+sudo tailscale logout
+```
+
+Проверить логи daemon:
+
+```bash
+journalctl -u tailscaled -n 100 --no-pager
+```
+
+Технические преимущества Tailscale для этой инфраструктуры:
+
+* WireGuard-based transport
+* NAT traversal
+* mesh networking
+* ACL-based access control
+* Tailscale SSH integration
+* optional MagicDNS / Split DNS
+* subnet routing и exit nodes, если они явно включены
+* Zero Trust access model
+
+В отличие от legacy RadminVPN-схемы, Tailscale лучше подходит для управляемого infrastructure access: ACL, SSH policy, мобильные клиенты, понятная модель устройств и меньше ручного route management.
+
+---
+
 # Tailscale DNS / MagicDNS Issue
 
 Реальная проблема была связана с некорректным DNS resolution внутри Linux VM.
