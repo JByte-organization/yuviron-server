@@ -11,6 +11,7 @@
 - Шаблоны примеров окружений: `env/example.env` и `env/common.env` (отныне трекаются).
 - Резервное копирование и восстановление реализованы как команды CLI: `./scripts/cli.py backup create|restore|verify`.
 - Docker disk cleanup доступен через `./scripts/cli.py tools docker-clean`.
+- Проект поддерживает оба сетевых слоя: RadminVPN для legacy-совместимости и Tailscale как предпочтительное современное решение для private networking, internal HTTPS и production-like изолированной инфраструктуры.
 
 Репозиторий содержит:
 
@@ -29,6 +30,8 @@
 https://dev.yuviron.com
 https://dev-backoffice.yuviron.com
 https://dev-admin.yuviron.com
+https://dev-aspire.yuviron.com/
+https://dev-seq.yuviron.com/
 https://dev-api.yuviron.com
 ```
 
@@ -37,6 +40,8 @@ https://dev-api.yuviron.com
 ```text
 https://dev-api.yuviron.com/swagger/
 https://dev-api.yuviron.com/health/
+https://dev-api.yuviron.com/health/ready
+https://dev-api.yuviron.com/health/live
 ```
 
 ## Prod
@@ -88,6 +93,7 @@ https://api.yuviron.com
 - **Backend, Migrator, MediaWorker** — серверные процессы
 - **Frontend apps** — `client-app`, `backoffice`, `admin` (разделены сборки: next/static)
 - **GitHub Actions + self-hosted runner** — CI/CD
+- **CoreDNS / RadminVPN / Tailscale** — приватный dev-доступ, legacy-совместимость и изолированный Tailnet-доступ к Linux VM
 
 Схема работы (упрощённо):
 
@@ -410,11 +416,24 @@ git pull
 
 # Dev-доступ для разработчиков
 
-В dev-окружении может использоваться доступ через **RadminVPN**, внутренний DNS и отдельную сетевую маршрутизацию.
+Dev-инфраструктура поддерживает два сетевых слоя доступа:
 
-В таком сценарии разработчик подключается к dev-среде через VPN, а трафик направляется на сервер разработки через Windows host и Ubuntu VM.
+* **RadminVPN** — legacy-совместимость для существующих рабочих мест и текущей Windows/CoreDNS схемы.
+* **Tailscale** — альтернативный приватный слой доступа к Linux VM на базе Zero Trust networking.
 
-Схема dev-доступа:
+Tailscale не является полной заменой RadminVPN в этой инфраструктуре. Совместимость с RadminVPN сохраняется, потому что часть команды и существующих маршрутов может продолжать использовать старую схему. При этом Tailscale рекомендуется как основной современный способ доступа, особенно для новых устройств, мобильного доступа и сценариев, где не хочется поддерживать `.bat` route scripts или вручную перенастраивать RadminVPN.
+
+Архитектурные границы:
+
+* CoreDNS остаётся на Windows host.
+* RadminVPN остаётся optional/legacy access method.
+* Tailscale работает как private access layer для Linux VM.
+* Tailscale daemon запускается изолированно внутри Linux VM.
+* Tailscale не устанавливается на Windows host как основной VPN-слой проекта.
+* Tailscale networking изолирован на уровне VM-инфраструктуры.
+* Входной трафик к приложениям по Tailnet направляется напрямую на `dev-vm`.
+
+Legacy-схема через RadminVPN:
 
 ```text
 Разработчик (RadminVPN)
@@ -423,24 +442,50 @@ DNS запрос (*.yuviron.com)
         ↓
 CoreDNS (Windows host)
         ↓
-26.240.80.131
+<RADMIN_VPN_IP>
         ↓
 Windows portproxy
         ↓
-Ubuntu VM (например 192.168.147.128)
+Ubuntu VM (например <UBUNTU_VM_LAN_IP>)
         ↓
 yuviron edge nginx
         ↓
 client-app / backoffice / admin / backend
 ```
 
-Такой режим особенно удобен, если:
+Схема через Tailscale:
+
+```text
+Разработчик / мобильное устройство (Tailscale)
+        ↓
+Tailnet
+        ↓
+Linux VM / dev-vm
+        ↓
+yuviron edge nginx
+        ↓
+client-app / backoffice / admin / backend
+```
+
+Такой режим особенно полезен, если:
 
 * dev-среда не публикуется напрямую в интернет
 * доступ к dev должен быть только у команды разработки
-* требуется единая точка входа через VPN
+* нужен прямой доступ с мобильных устройств
+* нужно уменьшить количество ручной сетевой настройки
+* нужно убрать зависимость от сложных `.bat` route scripts
+* нужна среда, более похожая на production private networking
 
-Если dev окружение будет доступно по другой схеме, блок с CoreDNS / portproxy можно адаптировать под конкретную сеть.
+Практический эффект от Tailscale:
+
+* проще onboarding новых устройств
+* чище и понятнее сетевой контур
+* меньше ручного route management
+* меньше конфликтов DNS при отключённом MagicDNS resolver на VM
+* изолированная VM-сетевая зона
+* прямой private-доступ к dev без публикации сервисов в интернет
+
+Если dev окружение будет доступно по другой схеме, блоки CoreDNS / portproxy / Tailnet ACL можно адаптировать под конкретную сеть.
 
 ---
 
@@ -566,6 +611,8 @@ User: обычный пользователь (НЕ root)
 * IP Windows host
 * внешний VPN IP / адрес, на который будет смотреть DNS
 * схему проброса портов 80/443
+* Tailnet IP для `dev-vm` и `host-pc`, если используется Tailscale
+* какой access layer используется для конкретного разработчика: Tailscale или RadminVPN legacy
 
 ---
 
@@ -919,11 +966,11 @@ C:\coredns\Corefile
 yuviron.com {
     template IN A {
         match .*\.yuviron\.com
-        answer "{{ .Name }} 60 IN A 26.240.80.131"
+        answer "{{ .Name }} 60 IN A <RADMIN_VPN_IP>"
     }
 
     hosts {
-        26.240.80.131 yuviron.com
+        <RADMIN_VPN_IP> yuviron.com
         fallthrough
     }
 }
@@ -935,7 +982,7 @@ yuviron.com {
 
 Эта конфигурация:
 
-* отправляет все `*.yuviron.com` на IP `26.240.80.131`
+* отправляет все `*.yuviron.com` на IP `<RADMIN_VPN_IP>`
 * резолвит корневой домен `yuviron.com`
 * все остальные DNS-запросы проксирует на публичные резолверы
 
@@ -973,11 +1020,11 @@ netsh advfirewall firewall add rule name="DNS UDP" dir=in action=allow protocol=
 Пример:
 
 ```powershell
-netsh interface portproxy add v4tov4 listenport=80 listenaddress=26.240.80.131 connectport=8080 connectaddress=192.168.147.128
+netsh interface portproxy add v4tov4 listenport=80 listenaddress=<RADMIN_VPN_IP> connectport=8080 connectaddress=<UBUNTU_VM_LAN_IP>
 ```
 
 ```powershell
-netsh interface portproxy add v4tov4 listenport=443 listenaddress=26.240.80.131 connectport=8443 connectaddress=192.168.147.128
+netsh interface portproxy add v4tov4 listenport=443 listenaddress=<RADMIN_VPN_IP> connectport=8443 connectaddress=<UBUNTU_VM_LAN_IP>
 ```
 
 Проверить:
@@ -988,7 +1035,7 @@ netsh interface portproxy show v4tov4
 
 Это означает:
 
-* Windows принимает HTTP/HTTPS на `26.240.80.131`
+* Windows принимает HTTP/HTTPS на `<RADMIN_VPN_IP>`
 * затем пересылает трафик на dev-порты Ubuntu VM (`8080/8443` по умолчанию)
 * Ubuntu VM отдаёт трафик в контейнер `edge nginx`
 
@@ -998,10 +1045,10 @@ netsh interface portproxy show v4tov4
 
 # Настройка DNS у разработчиков
 
-Если dev доступен через внутренний DNS, разработчику нужно указать DNS-сервер:
+Если dev доступен через RadminVPN/CoreDNS legacy-схему, разработчику нужно указать внутренний DNS-сервер:
 
 ```text
-26.240.80.131
+<RADMIN_VPN_IP>
 ```
 
 Очистить кеш DNS:
@@ -1020,6 +1067,174 @@ nslookup dev-api.yuviron.com
 ```
 
 Если всё настроено правильно, домены должны резолвиться в нужный IP.
+
+---
+
+# Tailscale как приватный слой доступа
+
+Tailscale используется как альтернативный private access layer для dev-инфраструктуры. Он не отменяет RadminVPN, а добавляет более современный путь доступа к Linux VM через Tailnet.
+
+В текущей схеме:
+
+* RadminVPN остаётся доступен для legacy-совместимости.
+* Tailscale является предпочтительным способом подключения для новых устройств.
+* Мобильные устройства могут обращаться к dev-проекту напрямую через Tailnet.
+* Не нужно поддерживать отдельные `.bat` route scripts для доступа к VM.
+* Не нужно вручную перенастраивать маршруты RadminVPN для каждого нового сценария.
+* CoreDNS остаётся размещённым на Windows host.
+* Tailscale daemon работает внутри Linux VM.
+* Tailscale networking ограничен инфраструктурным слоем Linux VM.
+
+Важно: Tailscale не должен описываться как полный replacement для RadminVPN. Это дополнительный private access layer, который уменьшает операционные сложности, но не ломает существующую RadminVPN-схему.
+
+---
+
+# Tailscale DNS / MagicDNS Issue
+
+Реальная проблема была связана с некорректным DNS resolution внутри Linux VM.
+
+После подключения VM к Tailnet Tailscale автоматически включил DNS management / MagicDNS и перезаписал `/etc/resolv.conf`:
+
+```bash
+nameserver 100.100.100.100
+nameserver fd7a:115c:a1e0::53
+```
+
+Из-за этого VM начала резолвить внешние адреса через Tailscale DNS. В текущей инфраструктурной схеме это приводило к некорректному resolution части публичных доменов.
+
+Симптом на уровне shell:
+
+```bash
+curl: (6) Could not resolve host
+```
+
+Любые ошибки приложений или CLI-инструментов, которым нужен доступ к внешним сервисам, в таком состоянии были следствием DNS failure. Root cause был не в авторизации конкретного инструмента, не в аккаунте и не в IDE, а в том, что VM не могла корректно резолвить нужные внешние адреса.
+
+---
+
+# DNS Resolution Fix
+
+Решение: отключить автоматическое DNS management со стороны Tailscale внутри Linux VM:
+
+```bash
+sudo tailscale up --accept-dns=false --ssh
+```
+
+Эта команда не отключает Tailscale.
+
+Она отключает только:
+
+* автоматическую замену системного resolver
+* использование MagicDNS как системного resolver
+
+После этого Tailscale продолжает предоставлять:
+
+* VPN connectivity
+* Tailnet communication
+* SSH connectivity
+* private networking
+
+После отключения DNS management:
+
+* VM снова использует обычные внешние DNS resolvers
+* публичные домены резолвятся через нормальный системный DNS path
+* CLI-инструменты и сервисы, зависящие от внешнего DNS, снова работают корректно
+
+Возможный side effect: MagicDNS hostnames могут перестать резолвиться на узлах, где отключён `accept-dns`:
+
+* `dev-vm`
+* `host-pc`
+
+При этом прямые Tailnet IP addresses продолжают работать:
+
+```text
+100.x.x.x
+```
+
+Для инфраструктурных scripts, ACL notes и troubleshooting лучше указывать Tailnet IP явно, если MagicDNS отключён или ведёт себя нестабильно.
+
+---
+
+# Tailscale ACL policy
+
+Шаблон Tailnet ACL policy:
+
+```json
+{
+  "hosts": {
+    "host-pc": "<HOST_PC_TAILNET_IP>",
+    "dev-vm": "<DEV_VM_TAILNET_IP>"
+  },
+
+  "tagOwners": {
+    "tag:dev-vm": ["<INFRA_OWNER_EMAIL>"]
+  },
+
+  "acls": [
+    {
+      "action": "accept",
+      "src": ["autogroup:member"],
+      "dst": ["host-pc:53"]
+    },
+    {
+      "action": "accept",
+      "src": ["autogroup:member"],
+      "dst": [
+        "dev-vm:80",
+        "dev-vm:443"
+      ]
+    },
+    {
+      "action": "accept",
+      "src": ["<INFRA_OWNER_EMAIL>"],
+      "dst": ["tag:dev-vm:22"]
+    },
+    {
+      "action": "accept",
+      "src": ["<INFRA_OWNER_EMAIL>"],
+      "dst": ["host-pc:22"]
+    }
+  ],
+
+  "ssh": [
+    {
+      "action": "accept",
+      "src": ["<INFRA_OWNER_EMAIL>"],
+      "dst": ["tag:dev-vm"],
+      "users": ["<LINUX_VM_USER>"]
+    }
+  ]
+}
+```
+
+Что разрешает policy:
+
+* участники Tailnet могут обращаться к DNS на Windows host: `host-pc:53`
+* участники Tailnet могут обращаться к dev web ports на VM: `dev-vm:80` и `dev-vm:443`
+* SSH к VM и Windows host ограничен владельцем инфраструктуры
+* Tailscale SSH разрешён только к tagged Linux VM и только для локального пользователя `<LINUX_VM_USER>`
+
+Если Tailnet IP меняются, блок `hosts` нужно обновить перед применением policy.
+Перед применением policy нужно заменить `<HOST_PC_TAILNET_IP>`, `<DEV_VM_TAILNET_IP>`, `<INFRA_OWNER_EMAIL>` и `<LINUX_VM_USER>` на реальные значения.
+
+---
+
+# SSH через Tailnet
+
+SSH-архитектура разделена по типам узлов:
+
+* **Linux VM (`dev-vm`)** использует Tailscale SSH.
+* **Windows host (`host-pc`)** использует обычный OpenSSH Server.
+* SSH traffic в обоих случаях проходит через Tailnet.
+* ACL rules ограничивают SSH-доступ только владельцем инфраструктуры.
+
+Tailscale SSH включается на Linux VM через:
+
+```bash
+sudo tailscale up --accept-dns=false --ssh
+```
+
+Windows host не должен рассматриваться как основной Tailscale VPN layer проекта. Он продолжает выполнять свои инфраструктурные обязанности, включая CoreDNS и standard OpenSSH Server, а основной приватный application access через Tailscale направляется на Linux VM.
 
 ---
 
@@ -1516,7 +1731,7 @@ sudo usermod -aG docker $USER
 Пример:
 
 ```bash
-sudo chown -R nf:nf /opt/actions-runner
+sudo chown -R <RUNNER_USER>:<RUNNER_USER> /opt/actions-runner
 ```
 
 Это гарантирует, что runner сможет:
@@ -1682,20 +1897,23 @@ docker compose \
 6. запускает инфраструктуру
 7. настраивает GitHub runner
 8. следит за CI/CD
-9. при необходимости настраивает CoreDNS и portproxy для dev
-10. передаёт разработчикам `rootCA.crt`, если используется локальный Root CA
+9. при необходимости настраивает CoreDNS и portproxy для RadminVPN legacy-схемы
+10. настраивает Tailscale ACL и Tailscale SSH для Linux VM, если используется Tailnet-доступ
+11. передаёт разработчикам `rootCA.crt`, если используется локальный Root CA
 
 ---
 
 ## Разработчик
 
-1. подключается к корпоративной сети / VPN, если это требуется
+1. подключается через Tailscale (рекомендуется) или RadminVPN (optional/legacy), если это требуется
 2. получает доступ к dev-доменам
 3. при необходимости устанавливает `rootCA.crt`
-4. указывает внутренний DNS-сервер, если используется отдельная dev DNS-схема
+4. указывает внутренний DNS-сервер, если используется отдельная RadminVPN/CoreDNS dev DNS-схема
 5. очищает DNS-кеш
 6. проверяет локальную сборку frontend перед push
 7. использует dev-домены для тестирования
+
+Разработчикам не нужно удалять RadminVPN, если он уже используется. Для новых подключений предпочтительнее Tailscale, потому что он проще для onboarding, работает с мобильными устройствами и не требует ручного route management.
 
 Пример dev-доменов:
 
@@ -1715,7 +1933,10 @@ https://dev-api.yuviron.com
 * runner не должен запускаться от `root`
 * доступ к Docker должен быть ограничен доверенными пользователями
 * `rootCA.crt` должен распространяться только среди участников команды разработки
-* dev-доступ через VPN и внутренний DNS предпочтительнее, если среда не должна быть общедоступной
+* dev-доступ через VPN/Tailnet и внутренний DNS предпочтительнее, если среда не должна быть общедоступной
+* RadminVPN сохраняется как optional/legacy access method; новые подключения лучше заводить через Tailscale
+* Tailscale ACL должен ограничивать SSH-доступ только владельцем инфраструктуры
+* на Linux VM нужно держать `--accept-dns=false`, если MagicDNS ломает внешний DNS resolution
 
 ---
 
