@@ -999,17 +999,41 @@ coredns.exe -conf Corefile
 
 ---
 
-# Открытие DNS порта
+# Windows Firewall: DNS для CoreDNS / Tailscale
 
-Чтобы DNS работал на Windows host, нужно открыть входящие порты 53:
+CoreDNS запускается на Windows host machine и обслуживает internal DNS для dev-доменов. Если Windows host используется как DNS endpoint внутри Tailnet, Windows Firewall должен разрешать входящий DNS-трафик на порт `53`.
+
+Нужно открыть оба протокола:
+
+* **UDP 53** — стандартные DNS-запросы
+* **TCP 53** — большие DNS-ответы и fallback resolution
+
+PowerShell:
 
 ```powershell
-netsh advfirewall firewall add rule name="DNS TCP" dir=in action=allow protocol=TCP localport=53
+New-NetFirewallRule `
+  -DisplayName "CoreDNS UDP 53 Tailscale" `
+  -Direction Inbound `
+  -Action Allow `
+  -Protocol UDP `
+  -LocalPort 53
 ```
 
 ```powershell
-netsh advfirewall firewall add rule name="DNS UDP" dir=in action=allow protocol=UDP localport=53
+New-NetFirewallRule `
+  -DisplayName "CoreDNS TCP 53 Tailscale" `
+  -Direction Inbound `
+  -Action Allow `
+  -Protocol TCP `
+  -LocalPort 53
 ```
+
+Без этих firewall rules:
+
+* internal DNS resolution внутри Tailnet может не работать
+* `yuviron.com` / `dev.yuviron.com` могут перестать резолвиться
+* мобильные устройства могут потерять доступ к internal domains
+* Split DNS functionality может сломаться
 
 ---
 
