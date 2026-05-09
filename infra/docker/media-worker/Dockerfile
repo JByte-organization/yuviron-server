@@ -10,13 +10,16 @@ COPY src/yuviron-backend/src/Yuviron.Domain/Yuviron.Domain.csproj ./src/Yuviron.
 COPY src/yuviron-backend/src/Yuviron.Infrastructure/Yuviron.Infrastructure.csproj ./src/Yuviron.Infrastructure/
 COPY src/yuviron-backend/src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj ./src/Yuviron.MediaWorker/
 
-RUN dotnet restore ./src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj
+RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
+    dotnet restore ./src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj
 
 COPY src/yuviron-backend/ ./
 
-RUN dotnet publish ./src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj \
+RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
+    dotnet publish ./src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj \
     -c Release \
     -o /app/publish \
+    --no-restore \
     /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:9.0

@@ -10,16 +10,19 @@ COPY src/yuviron-backend/src/Yuviron.Domain/Yuviron.Domain.csproj ./src/Yuviron.
 COPY src/yuviron-backend/src/Yuviron.Infrastructure/Yuviron.Infrastructure.csproj ./src/Yuviron.Infrastructure/
 COPY src/yuviron-backend/src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj ./src/Yuviron.MediaWorker/
 
-RUN dotnet tool install --global dotnet-ef --version 9.*
+RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
+    dotnet tool install --global dotnet-ef --version 9.*
 ENV PATH="${PATH}:/root/.dotnet/tools"
 ENV DOTNET_NOLOGO=1
 ENV DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
 
-RUN dotnet restore ./src/Yuviron.Api/Yuviron.Api.csproj
+RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
+    dotnet restore ./src/Yuviron.Api/Yuviron.Api.csproj
 
 COPY src/yuviron-backend/ ./
 
-RUN dotnet build ./src/Yuviron.Api/Yuviron.Api.csproj -c Release
+RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
+    dotnet build ./src/Yuviron.Api/Yuviron.Api.csproj -c Release --no-restore
 
 CMD ["dotnet", "ef", "database", "update", "--project", "src/Yuviron.Infrastructure/Yuviron.Infrastructure.csproj", "--startup-project", "src/Yuviron.Api/Yuviron.Api.csproj"]

@@ -1,0 +1,13 @@
+.git
+.tmp
+backups
+certs
+generated
+logs
+storage
+
+**/bin
+**/obj
+**/node_modules
+
+src/yuviron-frontend

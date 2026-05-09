@@ -534,6 +534,7 @@ RAM: 8 GB
 Disk: 40+ GB
 Docker: 24+
 Docker Compose Plugin
+Docker BuildKit/buildx enabled
 Architecture: x64
 ```
 
