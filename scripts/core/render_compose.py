@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 import yaml
 
 from .models import FrontendApp
+
+
+def frontend_resource_env_prefix(app: FrontendApp) -> str:
+    return re.sub(r"[^A-Za-z0-9]+", "_", app.service_name).strip("_").upper()
 
 
 def render_env_file(env_map: Dict[str, str]) -> str:
@@ -32,6 +37,7 @@ def render_routes_env(route_lines: List[Tuple[str, str, str, str]]) -> str:
 def build_frontend_service(app: FrontendApp, root_dir: Path) -> dict:
     frontend_context = str((root_dir / "src" / "yuviron-frontend").resolve())
     dockerfile = str((root_dir / "infra" / "docker" / "frontend-next" / "Dockerfile").resolve())
+    resource_prefix = frontend_resource_env_prefix(app)
     healthcheck_command = (
         "node -e \"const net = require('net'); "
         "const socket = net.connect(3000, '127.0.0.1'); "
@@ -62,9 +68,9 @@ def build_frontend_service(app: FrontendApp, root_dir: Path) -> dict:
                 "retries": 5,
                 "start_period": "30s",
             },
-            "mem_limit": "${CLIENT_APP_MEM_LIMIT:-256m}",
-            "memswap_limit": "${CLIENT_APP_MEMSWAP_LIMIT:-256m}",
-            "cpus": "${CLIENT_APP_CPUS:-0.25}",
+            "mem_limit": f"${{{resource_prefix}_MEM_LIMIT:-256m}}",
+            "memswap_limit": f"${{{resource_prefix}_MEMSWAP_LIMIT:-256m}}",
+            "cpus": f"${{{resource_prefix}_CPUS:-0.25}}",
         }
     }
 

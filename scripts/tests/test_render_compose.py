@@ -40,15 +40,27 @@ class RenderComposeTests(unittest.TestCase):
                             default_enabled=True,
                             host_strategy="subdomain",
                         ),
+                        FrontendApp(
+                            key="backoffice",
+                            service_name="backoffice",
+                            app_name="backoffice",
+                            port=3000,
+                            required=False,
+                            default_enabled=True,
+                            host_strategy="subdomain",
+                        ),
                     ],
                     root,
                 )
             )
 
-        self.assertEqual(["client-app", "admin"], list(payload["services"].keys()))
+        self.assertEqual(["client-app", "admin", "backoffice"], list(payload["services"].keys()))
         self.assertEqual("client-app", payload["services"]["client-app"]["build"]["args"]["APP_NAME"])
         self.assertEqual("${COMPOSE_PROJECT_NAME}-client", payload["services"]["client-app"]["container_name"])
         self.assertEqual("10001:10001", payload["services"]["client-app"]["user"])
+        self.assertEqual("${CLIENT_APP_MEM_LIMIT:-256m}", payload["services"]["client-app"]["mem_limit"])
+        self.assertEqual("${ADMIN_MEM_LIMIT:-256m}", payload["services"]["admin"]["mem_limit"])
+        self.assertEqual("${BACKOFFICE_MEM_LIMIT:-256m}", payload["services"]["backoffice"]["mem_limit"])
 
     def test_generated_frontend_services_match_hardening_profile(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -76,9 +88,9 @@ class RenderComposeTests(unittest.TestCase):
         self.assertEqual(["/tmp"], admin["tmpfs"])
         self.assertEqual(["ALL"], admin["cap_drop"])
         self.assertEqual(["no-new-privileges:true"], admin["security_opt"])
-        self.assertEqual("${CLIENT_APP_MEM_LIMIT:-256m}", admin["mem_limit"])
-        self.assertEqual("${CLIENT_APP_MEMSWAP_LIMIT:-256m}", admin["memswap_limit"])
-        self.assertEqual("${CLIENT_APP_CPUS:-0.25}", admin["cpus"])
+        self.assertEqual("${ADMIN_MEM_LIMIT:-256m}", admin["mem_limit"])
+        self.assertEqual("${ADMIN_MEMSWAP_LIMIT:-256m}", admin["memswap_limit"])
+        self.assertEqual("${ADMIN_CPUS:-0.25}", admin["cpus"])
         self.assertEqual("CMD-SHELL", admin["healthcheck"]["test"][0])
         self.assertIn("net.connect(3000, '127.0.0.1')", admin["healthcheck"]["test"][1])
         self.assertEqual(5, admin["healthcheck"]["retries"])

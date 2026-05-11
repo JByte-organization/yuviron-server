@@ -312,7 +312,7 @@ generated/<env>/
 
 * `deploy.env` — итоговый env-file для Docker Compose
 * `routes.env` — финальные маршруты `route|host|service:port`
-* `compose.frontends.yml` — frontend services из `config/apps.yml` (`client-app`, `admin`, `backoffice` и т.п.) с единым hardening-профилем, лимитами и TCP healthcheck
+* `compose.frontends.yml` — frontend services из `config/apps.yml` (`client-app`, `admin`, `backoffice` и т.п.) с единым hardening-профилем, per-service resource limits и TCP healthcheck
 * `nginx.conf` — готовый nginx config
 * `stack.env` — runtime-значения стека, включая `COMPOSE_PROJECT_NAME`, пути storage/certs и host-порты nginx
 * `manifest.env` — hashes source/generated файлов для проверки свежести
@@ -533,10 +533,10 @@ scripts/templates/proxy-params.conf
 Различия между окружениями задаются через `env/<env>.env`, `env/common.env`, `config/routes.yml`, `config/apps.yml` и сгенерированные файлы в `generated/<env>/`.
 
 Финальные маршруты nginx берёт не напрямую из `config/routes.yml`, а из `generated/<env>/routes.env`.
-Перед рендерингом генератор nginx валидирует route name, host, upstream и `client_max_body_size`; Jinja2 работает в режиме `StrictUndefined`, чтобы ошибка в шаблоне или контексте падала на генерации, а не превращалась в битый nginx config.
+Перед рендерингом генератор nginx валидирует route name, host, upstream, `client_max_body_size`, а также публичные rate-limit значения `NGINX_PUBLIC_RATE_LIMIT` и `NGINX_PUBLIC_RATE_BURST`; Jinja2 работает в режиме `StrictUndefined`, чтобы ошибка в шаблоне или контексте падала на генерации, а не превращалась в битый nginx config.
 
 В итоговой compose-схеме nginx ждёт готовности `backend` и сгенерированного `client-app` через `depends_on: condition: service_healthy`.
-Все Next.js frontend services используют одинаковый runtime-профиль: `user: 10001:10001`, `read_only: true`, `tmpfs: /tmp`, `cap_drop: ALL`, `security_opt: no-new-privileges:true`, лимиты `CLIENT_APP_*` и TCP healthcheck порта `3000` внутри контейнера.
+Все Next.js frontend services используют одинаковый runtime-профиль: `user: 10001:10001`, `read_only: true`, `tmpfs: /tmp`, `cap_drop: ALL`, `security_opt: no-new-privileges:true` и TCP healthcheck порта `3000` внутри контейнера. Resource limits задаются отдельно для каждого frontend service: `client-app` использует `CLIENT_APP_*`, `admin` — `ADMIN_*`, `backoffice` — `BACKOFFICE_*`.
 Для frontend healthcheck не требуется отдельный `/api/health` endpoint во frontend-репозитории.
 Сам nginx также имеет Docker healthcheck: контейнер локально проверяет `http://127.0.0.1/health`, срок действия `/etc/nginx/certs/cert.pem` и HTTPS/TLS endpoint на `127.0.0.1:443`.
 `/health` объявлен в default HTTP/HTTPS server-блоках до `return 444`, поэтому проверка не зависит от внешнего `Host`, но всё равно ловит проблемы TLS listener и истёкший сертификат.
@@ -718,6 +718,43 @@ HTTPS_PORT=8443
 ./scripts/init.py --env dev --domain yuviron.com --no-up
 ```
 
+## Nginx rate limit
+
+Публичный rate limit для основного API location настраивается через env:
+
+```env
+NGINX_PUBLIC_RATE_LIMIT=20r/s
+NGINX_PUBLIC_RATE_BURST=40
+```
+
+`NGINX_PUBLIC_RATE_LIMIT` попадает в `limit_req_zone ... rate=...`, а `NGINX_PUBLIC_RATE_BURST` — в `limit_req ... burst=...`.
+Значения по умолчанию лежат в `env/common.env`; для dev/prod override можно указать те же ключи в `env/dev.env` или `env/prod.env` и затем перегенерировать runtime-файлы.
+
+Формат валидируется генератором: rate должен выглядеть как `20r/s` или `30r/m`, burst должен быть положительным целым числом.
+
+## Frontend resource limits
+
+Frontend services получают resource limits из env-переменных, построенных по имени сервиса из `config/apps.yml`:
+
+```env
+CLIENT_APP_MEM_LIMIT=256m
+CLIENT_APP_MEMSWAP_LIMIT=256m
+CLIENT_APP_CPUS=0.25
+
+ADMIN_MEM_LIMIT=256m
+ADMIN_MEMSWAP_LIMIT=256m
+ADMIN_CPUS=0.25
+
+BACKOFFICE_MEM_LIMIT=256m
+BACKOFFICE_MEMSWAP_LIMIT=256m
+BACKOFFICE_CPUS=0.25
+```
+
+Например, service `client-app` превращается в prefix `CLIENT_APP`, а service `backoffice` — в `BACKOFFICE`.
+Для нового frontend service правило такое же: `some-app` будет использовать `SOME_APP_MEM_LIMIT`, `SOME_APP_MEMSWAP_LIMIT` и `SOME_APP_CPUS`.
+
+Значения по умолчанию лежат в `env/common.env`; окружение может переопределить их в `env/<env>.env`.
+
 ## Пример dev-конфигурации
 
 ```env
@@ -756,7 +793,7 @@ HTTP_PORT=80
 HTTPS_PORT=443
 ```
 
-Главное условие — **ключи должны совпадать с `env/example.env`**.
+Для env-specific секретов и connection strings ориентируйся на ключи из `env/example.env`; общие инфраструктурные knobs, такие как resource limits и nginx rate limit, по умолчанию живут в `env/common.env` и могут быть переопределены в `env/<env>.env`.
 
 ---
 
