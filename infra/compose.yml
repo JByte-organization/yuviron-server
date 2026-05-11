@@ -291,6 +291,7 @@ services:
       - ../generated/${ENVIRONMENT}/nginx.conf:/etc/nginx/nginx.conf:ro
       - ../scripts/templates/proxy-params.conf:/etc/nginx/proxy-params.conf:ro
       - ../logs/${ENVIRONMENT}/nginx:/var/log/nginx
+      - ../certs/acme-challenge:/var/www/certbot:ro
       - ${CERT_FILE}:/etc/nginx/certs/cert.pem:ro
       - ${KEY_FILE}:/etc/nginx/certs/key.pem:ro
     command: ["nginx", "-g", "daemon off;"]

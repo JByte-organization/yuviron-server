@@ -56,6 +56,7 @@ def _cli_env() -> dict[str, str]:
 def ensure_dirs(env: str) -> None:
     (GENERATED_DIR / env).mkdir(parents=True, exist_ok=True)
     CERTS_DIR.mkdir(parents=True, exist_ok=True)
+    (CERTS_DIR / "acme-challenge").mkdir(parents=True, exist_ok=True)
     (STORAGE_DIR / env).mkdir(parents=True, exist_ok=True)
     (STORAGE_DIR / env / "seq").mkdir(parents=True, exist_ok=True)
     log_ok("Директории готовы")

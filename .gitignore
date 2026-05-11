@@ -10,6 +10,8 @@ generated
 certs/*.pem
 certs/*.crt
 certs/*-key.pem
+certs/acme-challenge/
+certs/letsencrypt/
 
 # storage
 storage/**
