@@ -3,7 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from .docker import ComposeContext
-from .env import ensure_generated_env, resolve_config_value, resolve_frontends_compose, resolve_runtime_env
+from .env import (
+    ensure_generated_basic_auth_file,
+    ensure_generated_env,
+    resolve_config_value,
+    resolve_frontends_compose,
+    resolve_runtime_env,
+)
 from .validators import ensure_command, fail
 
 
@@ -19,6 +25,8 @@ def create_compose_context(root_dir: Path, env_name: str, *, ensure_generated: b
 
     if ensure_generated:
         ensure_generated_env(root_dir, env_name)
+    else:
+        ensure_generated_basic_auth_file(root_dir, env_name)
 
     runtime_env = resolve_runtime_env(root_dir, env_name, tmp_dir)
     frontends_compose = resolve_frontends_compose(root_dir, env_name)

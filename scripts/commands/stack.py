@@ -58,6 +58,7 @@ class PreflightContext:
         "SEQ_STORAGE_PATH",
         "SHARED_NETWORK",
         "COMPOSE_PROJECT_NAME",
+        "NGINX_BASIC_AUTH_FILE",
     )
 
     def __post_init__(self) -> None:

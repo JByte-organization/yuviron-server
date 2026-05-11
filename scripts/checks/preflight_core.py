@@ -5,7 +5,14 @@ import shutil
 from pathlib import Path
 
 from core.docker import run
-from core.env import generated_exists, parse_env_file, parse_routes_file, resolve_runtime_env
+from core.env import (
+    ensure_generated_basic_auth_file,
+    generated_exists,
+    parse_env_file,
+    parse_routes_file,
+    resolve_runtime_env,
+)
+from core.htpasswd import resolve_htpasswd_path
 from core.ui import log_info, log_ok
 from core.validators import ensure_command, fail
 
@@ -64,6 +71,7 @@ def check_docker_access(ctx: object) -> None:
 
 
 def ensure_preflight_generated(ctx: object) -> None:
+    ensure_generated_basic_auth_file(ctx.root_dir, ctx.environment)
     if generated_exists(ctx.root_dir, ctx.environment):
         return
 
@@ -106,15 +114,25 @@ def load_env_file(ctx: object) -> None:
 
 def check_runtime_files(ctx: object) -> None:
     log_info("Checking runtime files from generated env")
+    ensure_generated_basic_auth_file(ctx.root_dir, ctx.environment)
 
     cert_file = ctx.runtime_values.get("CERT_FILE", "")
     key_file = ctx.runtime_values.get("KEY_FILE", "")
+    basic_auth_file = ctx.runtime_values.get("NGINX_BASIC_AUTH_FILE", "")
 
     if not cert_file or not key_file:
         fail("CERT_FILE or KEY_FILE is missing from runtime env")
 
     ctx.assert_file(Path(cert_file))
     ctx.assert_file(Path(key_file))
+    resolved_basic_auth_file = resolve_htpasswd_path(
+        ctx.root_dir,
+        basic_auth_file,
+        ctx.generated_dir / "htpasswd",
+    )
+    ctx.assert_file(resolved_basic_auth_file)
+    if resolved_basic_auth_file.stat().st_size == 0:
+        fail(f"Basic auth file is empty: {resolved_basic_auth_file}")
 
     log_ok("Runtime files exist")
 

@@ -302,6 +302,8 @@ generated/<env>/
 ├── apps.env
 ├── compose.frontends.yml
 ├── deploy.env
+├── htpasswd
+├── htpasswd.credentials
 ├── manifest.env
 ├── nginx.conf
 ├── routes.env
@@ -314,6 +316,8 @@ generated/<env>/
 * `routes.env` — финальные маршруты `route|host|service:port`
 * `compose.frontends.yml` — frontend services из `config/apps.yml` (`client-app`, `admin`, `backoffice` и т.п.) с единым hardening-профилем, per-service resource limits и TCP healthcheck
 * `nginx.conf` — готовый nginx config
+* `htpasswd` — Basic Auth users для внутренних management routes (`seq`, `aspire` и т.п.), монтируется в nginx как `/etc/nginx/htpasswd`
+* `htpasswd.credentials` — одноразово созданные plaintext-credentials для первого входа; файл не перезаписывается, если `htpasswd` уже существует
 * `stack.env` — runtime-значения стека, включая `COMPOSE_PROJECT_NAME`, пути storage/certs и host-порты nginx
 * `manifest.env` — hashes source/generated файлов для проверки свежести
 
