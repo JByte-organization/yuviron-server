@@ -25,9 +25,15 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
 FROM mcr.microsoft.com/dotnet/aspnet:9.0
 
 RUN apt-get update && apt-get install -y --no-install-recommends wget ffmpeg \
+    && groupadd --gid 10001 app \
+    && useradd --uid 10001 --gid app --home-dir /tmp --shell /usr/sbin/nologin --no-create-home app \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=build /app/publish ./
+COPY --chown=10001:10001 --from=build /app/publish ./
 
+ENV HOME=/tmp
+ENV DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp
+
+USER 10001:10001
 ENTRYPOINT ["dotnet", "Yuviron.Api.dll"]

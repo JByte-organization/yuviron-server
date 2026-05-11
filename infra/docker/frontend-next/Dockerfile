@@ -31,10 +31,16 @@ ENV NODE_ENV=production
 ARG APP_NAME
 ENV APP_NAME=${APP_NAME}
 
-COPY --from=build /repo/apps/${APP_NAME}/.next/standalone ./
-COPY --from=build /repo/apps/${APP_NAME}/.next/static ./apps/${APP_NAME}/.next/static
-COPY --from=build /repo/apps/${APP_NAME}/public ./apps/${APP_NAME}/public
+RUN addgroup -S -g 10001 app \
+    && adduser -S -D -H -u 10001 -G app app
 
+COPY --chown=10001:10001 --from=build /repo/apps/${APP_NAME}/.next/standalone ./
+COPY --chown=10001:10001 --from=build /repo/apps/${APP_NAME}/.next/static ./apps/${APP_NAME}/.next/static
+COPY --chown=10001:10001 --from=build /repo/apps/${APP_NAME}/public ./apps/${APP_NAME}/public
+
+ENV HOME=/tmp
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
+
+USER 10001:10001
 CMD ["sh", "-c", "node apps/${APP_NAME}/server.js"]

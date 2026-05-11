@@ -11,8 +11,8 @@ COPY src/yuviron-backend/src/Yuviron.Infrastructure/Yuviron.Infrastructure.cspro
 COPY src/yuviron-backend/src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj ./src/Yuviron.MediaWorker/
 
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
-    dotnet tool install --global dotnet-ef --version 9.*
-ENV PATH="${PATH}:/root/.dotnet/tools"
+    dotnet tool install --tool-path /usr/local/dotnet-tools dotnet-ef --version 9.*
+ENV PATH="${PATH}:/usr/local/dotnet-tools"
 ENV DOTNET_NOLOGO=1
 ENV DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
@@ -25,4 +25,12 @@ COPY src/yuviron-backend/ ./
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
     dotnet build ./src/Yuviron.Api/Yuviron.Api.csproj -c Release --no-restore
 
-CMD ["dotnet", "ef", "database", "update", "--project", "src/Yuviron.Infrastructure/Yuviron.Infrastructure.csproj", "--startup-project", "src/Yuviron.Api/Yuviron.Api.csproj"]
+RUN groupadd --gid 10001 app \
+    && useradd --uid 10001 --gid app --home-dir /tmp --shell /usr/sbin/nologin --no-create-home app \
+    && chmod -R a+rX /src /usr/local/dotnet-tools
+
+ENV HOME=/tmp
+ENV DOTNET_CLI_HOME=/tmp
+
+USER 10001:10001
+CMD ["dotnet", "ef", "database", "update", "--project", "src/Yuviron.Infrastructure/Yuviron.Infrastructure.csproj", "--startup-project", "src/Yuviron.Api/Yuviron.Api.csproj", "--no-build"]
