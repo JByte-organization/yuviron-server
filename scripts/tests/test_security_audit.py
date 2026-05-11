@@ -43,6 +43,18 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertNotIn("cap_drop", services["seq"])
         self.assertEqual("0:0", services["seq"]["user"])
 
+    def test_nginx_healthcheck_covers_http_https_and_cert_expiry(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
+        healthcheck = compose["services"]["nginx"]["healthcheck"]["test"][1]
+        ssl_defaults = (root / "scripts" / "templates" / "02-ssl-defaults.conf.j2").read_text(encoding="utf-8")
+
+        self.assertIn("http://127.0.0.1/health", healthcheck)
+        self.assertIn("openssl x509 -checkend 0", healthcheck)
+        self.assertIn("openssl s_client", healthcheck)
+        self.assertIn("127.0.0.1:443", healthcheck)
+        self.assertGreaterEqual(ssl_defaults.count("location = /health"), 2)
+
     def test_non_nginx_published_port_is_error(self) -> None:
         report = security.AuditReport()
 

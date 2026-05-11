@@ -526,8 +526,8 @@ scripts/templates/proxy-params.conf
 В итоговой compose-схеме nginx ждёт готовности `backend` и сгенерированного `client-app` через `depends_on: condition: service_healthy`.
 Все Next.js frontend services используют одинаковый runtime-профиль: `user: 10001:10001`, `read_only: true`, `tmpfs: /tmp`, `cap_drop: ALL`, `security_opt: no-new-privileges:true`, лимиты `CLIENT_APP_*` и TCP healthcheck порта `3000` внутри контейнера.
 Для frontend healthcheck не требуется отдельный `/api/health` endpoint во frontend-репозитории.
-Сам nginx также имеет Docker healthcheck: контейнер локально запрашивает `http://127.0.0.1/health`.
-Этот endpoint объявлен в HTTP server-блоке до редиректа на HTTPS, поэтому проверка не зависит от TLS-сертификата и внешнего `Host`.
+Сам nginx также имеет Docker healthcheck: контейнер локально проверяет `http://127.0.0.1/health`, срок действия `/etc/nginx/certs/cert.pem` и HTTPS/TLS endpoint на `127.0.0.1:443`.
+`/health` объявлен в default HTTP/HTTPS server-блоках до `return 444`, поэтому проверка не зависит от внешнего `Host`, но всё равно ловит проблемы TLS listener и истёкший сертификат.
 
 Такой подход позволяет:
 
