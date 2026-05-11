@@ -181,7 +181,7 @@ def main() -> None:
     write_text(stack_env_path, render_stack_env(stack_values))
     write_text(deploy_env_path, render_env_file(merged_env_map))
     write_text(frontends_compose_path, render_frontends_compose(selected_apps, root_dir))
-    write_text(nginx_conf_path, render_nginx_conf_modular(route_lines, template_dir))
+    write_text(nginx_conf_path, render_nginx_conf_modular(route_lines, template_dir, merged_env_map))
 
     source_hashes = {
         "SOURCE_COMMON_ENV_SHA256": hash_file(common_env_path),

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
-from typing import Iterable, Tuple
+from typing import Iterable, Mapping, Tuple
 
 from jinja2 import Environment, StrictUndefined
 
@@ -12,6 +13,12 @@ from .models import (
     is_valid_target,
 )
 from .validators import fail
+
+
+DEFAULT_NGINX_PUBLIC_RATE_LIMIT = "30r/m"
+DEFAULT_NGINX_PUBLIC_RATE_BURST = "20"
+NGINX_RATE_LIMIT_PATTERN = re.compile(r"^[1-9][0-9]*r/[sm]$")
+NGINX_RATE_BURST_PATTERN = re.compile(r"^[1-9][0-9]*$")
 
 
 def _render_template(template_text: str, context: dict) -> str:
@@ -57,9 +64,36 @@ def _validate_nginx_route(
     return route_name, route_host, route_upstream, route_max_body_size
 
 
+def _env_value(env_values: Mapping[str, str] | None, key: str, default: str) -> object:
+    if env_values is None:
+        return default
+    return env_values.get(key, default)
+
+
+def _validate_nginx_rate_limit(field_name: str, value: object) -> str:
+    if not isinstance(value, str):
+        fail(f"Invalid nginx {field_name}: expected string")
+    if value != value.strip():
+        fail(f"Invalid nginx {field_name}: surrounding whitespace is not allowed")
+    if not NGINX_RATE_LIMIT_PATTERN.fullmatch(value):
+        fail(f"Invalid nginx {field_name}: {value!r}. Expected format like '20r/s' or '30r/m'")
+    return value
+
+
+def _validate_nginx_rate_burst(field_name: str, value: object) -> str:
+    if not isinstance(value, str):
+        fail(f"Invalid nginx {field_name}: expected string")
+    if value != value.strip():
+        fail(f"Invalid nginx {field_name}: surrounding whitespace is not allowed")
+    if not NGINX_RATE_BURST_PATTERN.fullmatch(value):
+        fail(f"Invalid nginx {field_name}: {value!r}. Expected a positive integer")
+    return value
+
+
 def render_nginx_conf_modular(
     route_lines: Iterable[Tuple[str, str, str, str]],
     template_dir: str | Path,
+    env_values: Mapping[str, str] | None = None,
 ) -> str:
     """
     Render nginx config from modular templates in order (01-*, 02-*, 03-*).
@@ -67,6 +101,7 @@ def render_nginx_conf_modular(
     Args:
         route_lines: Iterable of (route_name, route_host, route_upstream, route_max_body_size) tuples
         template_dir: Directory containing modular templates (01-*.j2, 02-*.j2, etc)
+        env_values: Optional resolved environment values for nginx template settings.
     
     Returns:
         Complete nginx configuration as a string
@@ -92,7 +127,17 @@ def render_nginx_conf_modular(
             "client_max_body_size": route_max_body_size,
         })
 
-    context = {"routes": routes}
+    context = {
+        "routes": routes,
+        "nginx_public_rate_limit": _validate_nginx_rate_limit(
+            "NGINX_PUBLIC_RATE_LIMIT",
+            _env_value(env_values, "NGINX_PUBLIC_RATE_LIMIT", DEFAULT_NGINX_PUBLIC_RATE_LIMIT),
+        ),
+        "nginx_public_rate_burst": _validate_nginx_rate_burst(
+            "NGINX_PUBLIC_RATE_BURST",
+            _env_value(env_values, "NGINX_PUBLIC_RATE_BURST", DEFAULT_NGINX_PUBLIC_RATE_BURST),
+        ),
+    }
 
     # Collect and render all modular templates in order
     template_files = sorted(template_dir.glob("*.j2"))

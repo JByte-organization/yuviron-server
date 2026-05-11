@@ -11,7 +11,7 @@ http {
 
     # -- Rate limiting zones --------------------------------------------
     # 10m = ~160 000 IP-адресов в памяти
-    limit_req_zone $binary_remote_addr zone=api_general:10m  rate=30r/m;
+    limit_req_zone $binary_remote_addr zone=api_general:10m  rate={{ nginx_public_rate_limit }};
     limit_req_zone $binary_remote_addr zone=api_auth:10m     rate=10r/m;
     limit_req_zone $binary_remote_addr zone=api_upload:10m   rate=5r/m;
     # -------------------------------------------------------------------

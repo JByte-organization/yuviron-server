@@ -39,7 +39,7 @@
 
         location / {
             {% if route.name == "api" %}
-            limit_req zone=api_general burst=20 nodelay;
+            limit_req zone=api_general burst={{ nginx_public_rate_burst }} nodelay;
             limit_req_status 429;
             {% endif %}
 
