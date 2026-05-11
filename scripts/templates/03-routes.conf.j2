@@ -3,8 +3,8 @@
         listen 80;
         server_name {{ route.host }};
 
-        access_log /var/log/nginx/{{ route.log_name }}.access.log main;
-        error_log  /var/log/nginx/{{ route.log_name }}.error.log warn;
+        access_log /dev/stdout main;
+        error_log  /dev/stderr warn;
 
         location = /health {
             access_log off;
@@ -27,8 +27,8 @@
         listen 443 ssl;
         server_name {{ route.host }};
 
-        access_log /var/log/nginx/{{ route.log_name }}.access.log main;
-        error_log  /var/log/nginx/{{ route.log_name }}.error.log warn;
+        access_log /dev/stdout main;
+        error_log  /dev/stderr warn;
 
         ssl_certificate /etc/nginx/certs/cert.pem;
         ssl_certificate_key /etc/nginx/certs/key.pem;

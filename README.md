@@ -301,7 +301,7 @@ generated/<env>/
 
 * `deploy.env` — итоговый env-file для Docker Compose
 * `routes.env` — финальные маршруты `route|host|service:port`
-* `compose.frontends.yml` — optional frontend services (`admin`, `backoffice` и т.п.) с тем же hardening-профилем, лимитами и TCP healthcheck, что и `client-app`
+* `compose.frontends.yml` — frontend services из `config/apps.yml` (`client-app`, `admin`, `backoffice` и т.п.) с единым hardening-профилем, лимитами и TCP healthcheck
 * `nginx.conf` — готовый nginx config
 * `stack.env` — runtime-значения стека, включая `COMPOSE_PROJECT_NAME`, пути storage/certs и host-порты nginx
 * `manifest.env` — hashes source/generated файлов для проверки свежести
@@ -426,8 +426,8 @@ git pull
 * Использовать `verify`, а не только `create`
 * Не запускать CLI от root без необходимости
 
-Исключение в compose: `seq` запускается с `user: "0:0"`, потому что образ `datalust/seq` должен писать в bind-mounted `/data`.
-Это осознанное исключение; если используемый образ Seq начнёт стабильно поддерживать non-root запуск, можно заранее `chown`-нуть storage-директорию и убрать root-user.
+Исключение в compose: `seq` запускается с `user: "0:0"` и без `cap_drop: ALL`, потому что образ `datalust/seq` должен писать в bind-mounted `/data` и не проходит startup smoke с полностью сброшенными capabilities.
+Это осознанное исключение; если используемый образ Seq начнёт стабильно поддерживать non-root/cap-drop запуск, можно заранее `chown`-нуть storage-директорию и убрать root-user.
 
 ---
 
@@ -523,8 +523,8 @@ scripts/templates/proxy-params.conf
 
 Финальные маршруты nginx берёт не напрямую из `config/routes.yml`, а из `generated/<env>/routes.env`.
 
-В `infra/compose.yml` nginx ждёт готовности `backend` и `client-app` через `depends_on: condition: service_healthy`.
-Все Next.js frontend services используют одинаковый runtime-профиль: `read_only: true`, `tmpfs: /tmp`, `cap_drop: ALL`, `security_opt: no-new-privileges:true`, лимиты `CLIENT_APP_*` и TCP healthcheck порта `3000` внутри контейнера.
+В итоговой compose-схеме nginx ждёт готовности `backend` и сгенерированного `client-app` через `depends_on: condition: service_healthy`.
+Все Next.js frontend services используют одинаковый runtime-профиль: `user: 10001:10001`, `read_only: true`, `tmpfs: /tmp`, `cap_drop: ALL`, `security_opt: no-new-privileges:true`, лимиты `CLIENT_APP_*` и TCP healthcheck порта `3000` внутри контейнера.
 Для frontend healthcheck не требуется отдельный `/api/health` endpoint во frontend-репозитории.
 Сам nginx также имеет Docker healthcheck: контейнер локально запрашивает `http://127.0.0.1/health`.
 Этот endpoint объявлен в HTTP server-блоке до редиректа на HTTPS, поэтому проверка не зависит от TLS-сертификата и внешнего `Host`.

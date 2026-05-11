@@ -16,7 +16,41 @@ from core.render_compose import render_frontends_compose
 
 
 class RenderComposeTests(unittest.TestCase):
-    def test_optional_frontend_services_match_client_app_hardening_profile(self) -> None:
+    def test_frontend_compose_includes_required_and_optional_selected_apps(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            payload = yaml.safe_load(
+                render_frontends_compose(
+                    [
+                        FrontendApp(
+                            key="client",
+                            service_name="client-app",
+                            app_name="client-app",
+                            port=3000,
+                            required=True,
+                            default_enabled=True,
+                            host_strategy="root",
+                        ),
+                        FrontendApp(
+                            key="admin",
+                            service_name="admin",
+                            app_name="admin",
+                            port=3000,
+                            required=False,
+                            default_enabled=True,
+                            host_strategy="subdomain",
+                        ),
+                    ],
+                    root,
+                )
+            )
+
+        self.assertEqual(["client-app", "admin"], list(payload["services"].keys()))
+        self.assertEqual("client-app", payload["services"]["client-app"]["build"]["args"]["APP_NAME"])
+        self.assertEqual("${COMPOSE_PROJECT_NAME}-client", payload["services"]["client-app"]["container_name"])
+        self.assertEqual("10001:10001", payload["services"]["client-app"]["user"])
+
+    def test_generated_frontend_services_match_hardening_profile(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             payload = yaml.safe_load(
@@ -37,6 +71,7 @@ class RenderComposeTests(unittest.TestCase):
             )
 
         admin = payload["services"]["admin"]
+        self.assertEqual("10001:10001", admin["user"])
         self.assertIs(admin["read_only"], True)
         self.assertEqual(["/tmp"], admin["tmpfs"])
         self.assertEqual(["ALL"], admin["cap_drop"])
