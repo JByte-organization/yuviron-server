@@ -53,7 +53,6 @@ SENSITIVE_ENV_KEYS = (
     "MYSQL_ROOT_PASSWORD",
     "MYSQL_PASSWORD",
     "RABBITMQ_DEFAULT_PASS",
-    "RabbitMQ__Password",
     "ASPIRE_FRONTEND_BROWSER_TOKEN",
     "ASPIRE_OTLP_API_KEY",
 )
@@ -182,7 +181,7 @@ def _load_compose_services(root_dir: Path, environment: str, env_values: dict[st
     else:
         report.warn(
             "compose",
-            f"Generated frontend compose file is missing, optional frontend services were not audited: {generated_frontends}",
+            f"Generated frontend compose file is missing, frontend services were not audited: {generated_frontends}",
         )
 
     services: dict[str, dict[str, Any]] = {}
@@ -325,6 +324,7 @@ def _audit_default_passwords(env_values: dict[str, str], environment: str, repor
 def _audit_cert_files(env_values: dict[str, str], report: AuditReport) -> None:
     cert_file = env_values.get("CERT_FILE", "")
     key_file = env_values.get("KEY_FILE", "")
+    nginx_cert_group_id = env_values.get("NGINX_CERT_GROUP_ID", "")
 
     if not cert_file:
         report.error("tls-files", "CERT_FILE is missing from runtime env")
@@ -334,17 +334,49 @@ def _audit_cert_files(env_values: dict[str, str], report: AuditReport) -> None:
     if not key_file:
         report.error("tls-files", "KEY_FILE is missing from runtime env")
     else:
-        _audit_single_tls_file(Path(key_file), "private key", report, private_key=True)
+        _audit_single_tls_file(
+            Path(key_file),
+            "private key",
+            report,
+            private_key=True,
+            allowed_group_id=nginx_cert_group_id,
+        )
 
 
-def _audit_single_tls_file(path: Path, label: str, report: AuditReport, *, private_key: bool = False) -> None:
+def _audit_single_tls_file(
+    path: Path,
+    label: str,
+    report: AuditReport,
+    *,
+    private_key: bool = False,
+    allowed_group_id: str = "",
+) -> None:
     if not path.is_file():
         report.error("tls-files", f"{label} file is missing: {path}")
         return
 
-    mode = stat.S_IMODE(path.stat().st_mode)
-    if private_key and mode & 0o077:
-        report.error("tls-files", f"private key is readable by group/others: {path} mode {mode:03o}")
+    file_stat = path.stat()
+    mode = stat.S_IMODE(file_stat.st_mode)
+    if private_key and mode & 0o007:
+        report.error("tls-files", f"private key is readable by others: {path} mode {mode:03o}")
+    elif private_key and mode & 0o020:
+        report.error("tls-files", f"private key is writable by group: {path} mode {mode:03o}")
+    elif private_key and mode & 0o010:
+        report.error("tls-files", f"private key is executable by group: {path} mode {mode:03o}")
+    elif private_key and mode & 0o040:
+        if not allowed_group_id:
+            report.error("tls-files", f"private key is group-readable but NGINX_CERT_GROUP_ID is missing: {path}")
+            return
+        try:
+            expected_gid = int(allowed_group_id)
+        except ValueError:
+            report.error("tls-files", f"NGINX_CERT_GROUP_ID is invalid: {allowed_group_id}")
+            return
+        if file_stat.st_gid != expected_gid:
+            report.error(
+                "tls-files",
+                f"private key group {file_stat.st_gid} does not match NGINX_CERT_GROUP_ID={expected_gid}: {path}",
+            )
     elif not private_key and mode & 0o022:
         report.warn("tls-files", f"certificate file is writable by group/others: {path} mode {mode:03o}")
 

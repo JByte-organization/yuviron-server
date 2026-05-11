@@ -142,6 +142,7 @@ class CertsGenerateTests(unittest.TestCase):
             )
             self.assertEqual("fullchain\n", (root_dir / "certs" / "prod-example.com.pem").read_text())
             self.assertEqual("privkey\n", (root_dir / "certs" / "prod-example.com-key.pem").read_text())
+            self.assertEqual(0o640, (root_dir / "certs" / "prod-example.com-key.pem").stat().st_mode & 0o777)
 
     def test_force_renewal_uses_explicit_certbot_issue_mode(self) -> None:
         self.assertEqual("--force-renewal", certs._certbot_issue_mode(True))
@@ -266,6 +267,7 @@ class CertsGenerateTests(unittest.TestCase):
             )
             self.assertEqual("new-fullchain\n", (root_dir / "certs" / "prod-example.com.pem").read_text())
             self.assertEqual("new-privkey\n", (root_dir / "certs" / "prod-example.com-key.pem").read_text())
+            self.assertEqual(0o640, (root_dir / "certs" / "prod-example.com-key.pem").stat().st_mode & 0o777)
 
 
 if __name__ == "__main__":

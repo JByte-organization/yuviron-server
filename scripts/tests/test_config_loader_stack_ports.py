@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import unittest
@@ -22,6 +23,7 @@ class ConfigLoaderStackPortsTests(unittest.TestCase):
 
         self.assertEqual(values["HTTP_PORT"], "8080")
         self.assertEqual(values["HTTPS_PORT"], "8443")
+        self.assertEqual(values["NGINX_CERT_GROUP_ID"], str(os.getgid()))
 
     def test_prod_uses_standard_default_edge_ports(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

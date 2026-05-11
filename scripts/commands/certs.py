@@ -29,6 +29,8 @@ from core.validators import ensure_command, fail, resolve_prompted_environment, 
 DEFAULT_ROOT = Path(__file__).resolve().parents[2]
 CERT_PROVIDERS = ("mkcert", "letsencrypt")
 ACME_CHALLENGE_PREFIX = "/.well-known/acme-challenge/"
+TLS_CERT_MODE = 0o644
+TLS_KEY_MODE = 0o640
 
 
 @dataclass(frozen=True)
@@ -97,6 +99,11 @@ def _files_equal(left: Path, right: Path) -> bool:
     return left.read_bytes() == right.read_bytes()
 
 
+def _set_tls_file_permissions(cert_file: Path, key_file: Path) -> None:
+    cert_file.chmod(TLS_CERT_MODE)
+    key_file.chmod(TLS_KEY_MODE)
+
+
 def _sync_letsencrypt_live_files(paths: LetsEncryptPaths) -> bool:
     if not paths.fullchain_file.is_file() or not paths.privkey_file.is_file():
         fail(f"Let's Encrypt output files not found in {paths.fullchain_file.parent}")
@@ -109,8 +116,8 @@ def _sync_letsencrypt_live_files(paths: LetsEncryptPaths) -> bool:
     if changed:
         shutil.copy2(paths.fullchain_file, paths.cert_file)
         shutil.copy2(paths.privkey_file, paths.key_file)
-        paths.cert_file.chmod(0o644)
-        paths.key_file.chmod(0o600)
+
+    _set_tls_file_permissions(paths.cert_file, paths.key_file)
 
     return changed
 
@@ -170,6 +177,8 @@ def _generate_mkcert(certs_dir: Path, environment: str, domain: str, domains: li
             *domains,
         ]
     )
+
+    _set_tls_file_permissions(cert_file, key_file)
 
     root_ca_src = caroot / "rootCA.pem"
     root_ca_dst = Path.home() / "rootCA.crt"

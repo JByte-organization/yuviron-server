@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -254,6 +255,7 @@ def render_stack_values(root_dir: Path, env_name: str, domain: str) -> Dict[str,
         "COMPOSE_PROJECT_NAME": compose_project_name,
         "CERT_FILE": str(cert_file),
         "KEY_FILE": str(key_file),
+        "NGINX_CERT_GROUP_ID": str(os.getgid()),
         "STORAGE_PATH": str(storage_path),
         "SEQ_STORAGE_PATH": str(seq_storage_path),
         "RESTART_POLICY": restart_policy,
