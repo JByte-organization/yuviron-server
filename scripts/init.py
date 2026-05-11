@@ -11,6 +11,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from core.docker import ensure_shared_network, read_var_from_env_file, run
+from core.htpasswd import resolve_htpasswd_path
 from core.ui import (
     BCYAN,
     BGREEN,
@@ -78,6 +79,13 @@ def show_summary(env: str, domain: str) -> None:
     for path in required_files:
         require_file(path)
 
+    htpasswd_file = resolve_htpasswd_path(
+        ROOT_DIR,
+        read_var_from_env_file(GENERATED_DIR / env / "deploy.env", "NGINX_BASIC_AUTH_FILE"),
+        GENERATED_DIR / env / "htpasswd",
+    )
+    require_file(htpasswd_file)
+
     print_section("Сводка")
     print()
     print(f"  Окружение  {env_badge(env)}  {DIM}{''}{RESET}\n")
@@ -90,6 +98,10 @@ def show_summary(env: str, domain: str) -> None:
     log_kv("nginx.conf:", f"generated/{env}/nginx.conf", DIM)
     log_kv("compose.frontends.yml:", f"generated/{env}/compose.frontends.yml", DIM)
     log_kv("manifest.env:", f"generated/{env}/manifest.env", DIM)
+    log_kv("htpasswd:", str(htpasswd_file), DIM)
+    credentials_file = htpasswd_file.with_name("htpasswd.credentials")
+    if credentials_file.is_file():
+        log_kv("basic auth creds:", str(credentials_file), BYELLOW)
 
     print()
     hr("─", DIM)

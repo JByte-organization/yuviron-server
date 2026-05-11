@@ -24,6 +24,11 @@ from core.config_loader import (  # noqa: E402
     resolve_selected_apps,
 )
 from core.env import hash_file, merge_env_maps  # noqa: E402
+from core.htpasswd import (  # noqa: E402
+    DEFAULT_BASIC_AUTH_USER,
+    ensure_htpasswd_file,
+    resolve_htpasswd_path,
+)
 from core.models import (  # noqa: E402
     GenerationContext,
     VALID_ENVIRONMENTS,
@@ -149,6 +154,17 @@ def main() -> None:
     route_lines = resolve_routes(ctx, apps, routes_cfg)
     stack_values = render_stack_values(root_dir, env_name, base_domain)
     merged_env_map = merge_env_maps(common_env_path, env_file_path, stack_values)
+    raw_basic_auth_file = (
+        str(output_dir / "htpasswd")
+        if args.output_dir
+        else merged_env_map.get("NGINX_BASIC_AUTH_FILE", "")
+    )
+    htpasswd_path = resolve_htpasswd_path(
+        root_dir,
+        raw_basic_auth_file,
+        output_dir / "htpasswd",
+    )
+    merged_env_map["NGINX_BASIC_AUTH_FILE"] = str(htpasswd_path)
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -160,6 +176,10 @@ def main() -> None:
     nginx_conf_path = output_dir / "nginx.conf"
     manifest_env_path = output_dir / "manifest.env"
     template_dir = root_dir / "scripts" / "templates"
+    generated_basic_auth = ensure_htpasswd_file(
+        htpasswd_path,
+        username=merged_env_map.get("NGINX_BASIC_AUTH_USER", DEFAULT_BASIC_AUTH_USER),
+    )
 
     write_text(apps_env_path, render_apps_env(selected_apps, optional_apps))
     write_text(routes_env_path, render_routes_env(route_lines))
@@ -207,6 +227,8 @@ def main() -> None:
         manifest_env_path,
     ):
         print(f"  {path}")
+    if generated_basic_auth is not None:
+        print(f"  {generated_basic_auth.credentials_file}")
 
 
 if __name__ == "__main__":

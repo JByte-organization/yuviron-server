@@ -48,6 +48,31 @@ def generated_exists(root_dir: Path, env_name: str) -> bool:
     return all(path.is_file() for path in required)
 
 
+def ensure_generated_basic_auth_file(root_dir: Path, env_name: str) -> bool:
+    base = generated_dir(root_dir, env_name)
+    deploy_env = base / "deploy.env"
+    if not deploy_env.is_file():
+        return False
+
+    from .htpasswd import (
+        DEFAULT_BASIC_AUTH_USER,
+        ensure_htpasswd_file,
+        resolve_htpasswd_path,
+    )
+
+    values = parse_env_file(deploy_env)
+    htpasswd_path = resolve_htpasswd_path(
+        root_dir,
+        values.get("NGINX_BASIC_AUTH_FILE", ""),
+        base / "htpasswd",
+    )
+    ensure_htpasswd_file(
+        htpasswd_path,
+        username=values.get("NGINX_BASIC_AUTH_USER", DEFAULT_BASIC_AUTH_USER),
+    )
+    return htpasswd_path.is_file()
+
+
 _VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
@@ -193,6 +218,7 @@ def resolve_config_value(root_dir: Path, env_name: str, key: str, default: str =
 
 
 def ensure_generated_env(root_dir: Path, env_name: str) -> None:
+    ensure_generated_basic_auth_file(root_dir, env_name)
     if generated_exists(root_dir, env_name):
         return
 
