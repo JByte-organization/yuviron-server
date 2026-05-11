@@ -27,7 +27,6 @@ from core.env import hash_file, merge_env_maps  # noqa: E402
 from core.models import (  # noqa: E402
     GenerationContext,
     VALID_ENVIRONMENTS,
-    is_valid_route_host,
 )
 from core.render_compose import (  # noqa: E402
     render_apps_env,
@@ -61,20 +60,6 @@ def manifest_hash_key(prefix: str, filename: str) -> str:
     return f"{prefix}_{token}_SHA256"
 
 
-def resolve_host(env_name: str, base_domain: str, route_name: str, host_strategy: str) -> str:
-    if host_strategy == "root":
-        host = f"dev.{base_domain}" if env_name == "dev" else base_domain
-    elif host_strategy == "subdomain":
-        host = f"dev-{route_name}.{base_domain}" if env_name == "dev" else f"{route_name}.{base_domain}"
-    else:
-        fail(f"Unsupported host strategy: {host_strategy}")
-        raise AssertionError("unreachable")
-
-    if not is_valid_route_host(host):
-        fail(f"Generated route host is invalid for route '{route_name}': {host}")
-    return host
-
-
 def resolve_routes(ctx: GenerationContext, apps, routes_cfg):
     selected_set = set(ctx.selected_app_keys)
     lines = []
@@ -90,11 +75,11 @@ def resolve_routes(ctx: GenerationContext, apps, routes_cfg):
 
     if "client" not in routes_cfg:
         client = apps["client"]
-        host = resolve_host(ctx.env_name, ctx.base_domain, "client", client.host_strategy)
+        host = ctx.resolve_host("client", client.host_strategy)
         add_route("client", host, f"{client.service_name}:{client.port}")
 
     if "api" not in routes_cfg:
-        host = resolve_host(ctx.env_name, ctx.base_domain, "api", "subdomain")
+        host = ctx.resolve_host("api", "subdomain")
         add_route("api", host, "backend:5073", "50m")
 
     for route_name, route in routes_cfg.items():
@@ -111,7 +96,7 @@ def resolve_routes(ctx: GenerationContext, apps, routes_cfg):
             host_strategy = route.host_strategy or app.host_strategy
             add_route(
                 route_name,
-                resolve_host(ctx.env_name, ctx.base_domain, route_name, host_strategy),
+                ctx.resolve_host(route_name, host_strategy),
                 f"{app.service_name}:{app.port}",
                 route.client_max_body_size or DEFAULT_MAX_BODY_SIZE,
             )
@@ -120,13 +105,13 @@ def resolve_routes(ctx: GenerationContext, apps, routes_cfg):
         host_strategy = route.host_strategy or "subdomain"
         add_route(
             route_name,
-            resolve_host(ctx.env_name, ctx.base_domain, route_name, host_strategy),
+            ctx.resolve_host(route_name, host_strategy),
             route.target or "",
             route.client_max_body_size or DEFAULT_MAX_BODY_SIZE,
         )
 
     for name, target in parse_extra_routes(",".join(ctx.extra_routes_raw)):
-        add_route(name, resolve_host(ctx.env_name, ctx.base_domain, name, "subdomain"), target)
+        add_route(name, ctx.resolve_host(name, "subdomain"), target)
 
     return lines
 

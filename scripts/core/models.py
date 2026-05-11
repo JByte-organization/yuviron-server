@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
 
+from .validators import fail
+
 VALID_ENVIRONMENTS = {"dev", "prod"}
 ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 NAME_PATTERN = re.compile(r"^[a-z0-9-]+$")
@@ -65,3 +67,20 @@ class GenerationContext:
     output_dir: Path
     selected_app_keys: Tuple[str, ...]
     extra_routes_raw: Tuple[str, ...]
+
+    def resolve_host(self, route_name: str, host_strategy: str) -> str:
+        if host_strategy == "root":
+            host = f"dev.{self.base_domain}" if self.env_name == "dev" else self.base_domain
+        elif host_strategy == "subdomain":
+            host = (
+                f"dev-{route_name}.{self.base_domain}"
+                if self.env_name == "dev"
+                else f"{route_name}.{self.base_domain}"
+            )
+        else:
+            fail(f"Unsupported host strategy: {host_strategy}")
+            raise AssertionError("unreachable")
+
+        if not is_valid_route_host(host):
+            fail(f"Generated route host is invalid for route '{route_name}': {host}")
+        return host
