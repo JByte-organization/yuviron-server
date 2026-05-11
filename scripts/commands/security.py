@@ -22,6 +22,7 @@ if __package__ in {None, ""}:
     raise SystemExit(subprocess.call([str(cli_path), "security", *sys.argv[1:]]))
 
 from core.env import parse_env_file, parse_routes_file, resolve_runtime_env
+from core.models import MANAGEMENT_ROUTE_NAMES
 from core.paths import resolve_root_dir
 from core.ui import log_err, log_info, log_ok, log_warn
 from core.validators import fail, resolve_prompted_environment
@@ -31,18 +32,6 @@ DEFAULT_ROOT = Path(__file__).resolve().parents[2]
 
 ERROR = "ERROR"
 WARN = "WARN"
-
-MANAGEMENT_ROUTE_NAMES = {
-    "adminer",
-    "alertmanager",
-    "aspire",
-    "cadvisor",
-    "grafana",
-    "phpmyadmin",
-    "prometheus",
-    "rabbitmq",
-    "seq",
-}
 
 STATEFUL_SERVICES = {"mysql", "redis", "rabbitmq", "seq"}
 ROOT_ALLOWED_SERVICES = {"seq"}

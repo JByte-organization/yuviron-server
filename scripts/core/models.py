@@ -8,6 +8,17 @@ from typing import Optional, Tuple
 from .validators import fail
 
 VALID_ENVIRONMENTS = {"dev", "prod"}
+MANAGEMENT_ROUTE_NAMES = {
+    "adminer",
+    "alertmanager",
+    "aspire",
+    "cadvisor",
+    "grafana",
+    "phpmyadmin",
+    "prometheus",
+    "rabbitmq",
+    "seq",
+}
 ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 NAME_PATTERN = re.compile(r"^[a-z0-9-]+$")
 TARGET_HOST_PATTERN = r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,251}[A-Za-z0-9])?"

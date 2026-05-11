@@ -38,6 +38,11 @@
         client_max_body_size {{ route.client_max_body_size }};
 
         location / {
+            {% if route.basic_auth %}
+            auth_basic "Yuviron internal";
+            auth_basic_user_file /etc/nginx/htpasswd;
+            {% endif %}
+
             {% if route.name == "api" %}
             limit_req zone=api_general burst={{ nginx_public_rate_burst }} nodelay;
             limit_req_status 429;

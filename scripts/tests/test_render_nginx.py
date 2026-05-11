@@ -22,6 +22,16 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("server_name api.example.com;", rendered)
         self.assertIn("proxy_pass http://backend:5073;", rendered)
         self.assertIn("client_max_body_size 50m;", rendered)
+        self.assertNotIn("auth_basic_user_file", rendered)
+
+    def test_render_enables_basic_auth_for_management_routes(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [("seq", "seq.example.com", "seq:80", "5m")],
+            SCRIPTS_ROOT / "templates",
+        )
+
+        self.assertIn('auth_basic "Yuviron internal";', rendered)
+        self.assertIn("auth_basic_user_file /etc/nginx/htpasswd;", rendered)
 
     def test_render_uses_public_rate_limit_env_values(self) -> None:
         rendered = render_nginx_conf_modular(

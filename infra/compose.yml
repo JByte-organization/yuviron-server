@@ -296,6 +296,7 @@ services:
       - ../certs/acme-challenge:/var/www/certbot:ro
       - ${CERT_FILE}:/etc/nginx/certs/cert.pem:ro
       - ${KEY_FILE}:/etc/nginx/certs/key.pem:ro
+      - ${NGINX_BASIC_AUTH_FILE}:/etc/nginx/htpasswd:ro
     command: ["nginx", "-g", "daemon off;"]
     networks:
       - default

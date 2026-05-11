@@ -89,6 +89,15 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertIn("127.0.0.1:443", healthcheck)
         self.assertGreaterEqual(ssl_defaults.count("location = /health"), 2)
 
+    def test_nginx_mounts_generated_basic_auth_file(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
+
+        self.assertIn(
+            "${NGINX_BASIC_AUTH_FILE}:/etc/nginx/htpasswd:ro",
+            compose["services"]["nginx"]["volumes"],
+        )
+
     def test_non_nginx_published_port_is_error(self) -> None:
         report = security.AuditReport()
 

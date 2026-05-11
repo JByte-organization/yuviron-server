@@ -8,6 +8,7 @@ from jinja2 import Environment, StrictUndefined
 
 from .models import (
     CLIENT_MAX_BODY_SIZE_PATTERN,
+    MANAGEMENT_ROUTE_NAMES,
     NAME_PATTERN,
     is_valid_route_host,
     is_valid_target,
@@ -122,6 +123,7 @@ def render_nginx_conf_modular(
         routes.append({
             "name": route_name,
             "host": route_host,
+            "basic_auth": route_name in MANAGEMENT_ROUTE_NAMES,
             "log_name": f"{route_name}-{route_host.replace('.', '_')}",
             "upstream": route_upstream,
             "client_max_body_size": route_max_body_size,
