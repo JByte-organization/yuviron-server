@@ -82,10 +82,11 @@ class PreflightContext:
         self.frontends_compose_file = self.generated_dir / "compose.frontends.yml"
 
         self.edge_dockerfile = self.edge_dir / "Dockerfile"
-        self.backend_dockerfile = self.infra_dir / "docker" / "backend" / "Dockerfile"
-        self.migrator_dockerfile = self.infra_dir / "docker" / "migrator" / "Dockerfile"
+        self.dotnet_dockerfile = self.infra_dir / "docker" / "dotnet" / "Dockerfile"
+        self.backend_dockerfile = self.dotnet_dockerfile
+        self.migrator_dockerfile = self.dotnet_dockerfile
         self.frontend_next_dockerfile = self.infra_dir / "docker" / "frontend-next" / "Dockerfile"
-        self.media_worker_dockerfile = self.infra_dir / "docker" / "media-worker" / "Dockerfile"
+        self.media_worker_dockerfile = self.dotnet_dockerfile
         self.frontend_static_dockerfile = self.infra_dir / "docker" / "frontend-static" / "Dockerfile"
 
         self.frontend_root = self.root_dir / "src" / "yuviron-frontend"
@@ -346,6 +347,78 @@ def _check_backend_readiness(context: ComposeContext, services: set[str]) -> Non
     log_ok("Backend readiness endpoint is reachable")
 
 
+def _https_route_url(route_host: str, https_port: str, path: str) -> str:
+    normalized_path = path if path.startswith("/") else f"/{path}"
+    if https_port == "443":
+        return f"https://{route_host}{normalized_path}"
+    return f"https://{route_host}:{https_port}{normalized_path}"
+
+
+def _warn_nonstandard_public_ports(env_values: dict[str, str], routes_file: Path) -> None:
+    http_port = env_values.get("HTTP_PORT", "")
+    https_port = env_values.get("HTTPS_PORT", "")
+
+    if http_port == "80" and https_port == "443":
+        return
+
+    routes = parse_routes_file(routes_file)
+    first_host = routes[0][1] if routes else "<route-host>"
+    examples: list[str] = []
+    if https_port and https_port != "443":
+        examples.append(_https_route_url(first_host, https_port, "/"))
+    if http_port and http_port != "80":
+        examples.append(f"http://{first_host}:{http_port}/")
+
+    suffix = f" Example: {', '.join(examples)}" if examples else ""
+    log_warn(
+        "Edge ports are non-standard "
+        f"(HTTP_PORT={http_port or '<unset>'}, HTTPS_PORT={https_port or '<unset>'}). "
+        "Browser URLs without an explicit port use 80/443 and require HTTPS_PORT=443 "
+        "or an external portproxy/reverse proxy."
+        f"{suffix}"
+    )
+
+
+def _check_nginx_route_health(context: ComposeContext, routes_file: Path, https_port: str) -> None:
+    log_info("Checking HTTPS /health endpoint for every route host")
+
+    routes = parse_routes_file(routes_file)
+    for route_name, route_host, _route_upstream in routes:
+        url = _https_route_url(route_host, https_port, "/health")
+
+        result = run(
+            [
+                "curl",
+                "-k",
+                "-sS",
+                "--resolve",
+                f"{route_host}:{https_port}:127.0.0.1",
+                "--connect-timeout",
+                "5",
+                "--max-time",
+                "15",
+                "-w",
+                "\n%{http_code}",
+                url,
+            ],
+            capture_output=True,
+            check=False,
+        )
+
+        lines = (result.stdout or "").splitlines()
+        code = lines[-1].strip() if lines else ""
+        body = "\n".join(lines[:-1]).strip()
+        if result.returncode != 0:
+            details = (result.stderr or "").strip()
+            fail(f"Route '{route_name}' health endpoint is not reachable: {url}\n{details}")
+        if code != "200":
+            fail(f"Route '{route_name}' health endpoint returned HTTP {code or '<empty>'}: {url}")
+        if body != "edge-nginx-ok":
+            fail(f"Route '{route_name}' health endpoint returned unexpected body: {url}")
+
+        log_ok(f"Route '{route_name}' /health responded with HTTP 200: {url}")
+
+
 def _check_nginx_https(context: ComposeContext, routes_file: Path, https_port: str) -> None:
     log_info("Checking HTTPS routes from routes.env")
 
@@ -353,7 +426,7 @@ def _check_nginx_https(context: ComposeContext, routes_file: Path, https_port: s
     for route_name, route_host, _route_upstream in routes:
         path = smoke_route_path(route_name)
         expected = smoke_expected_codes(route_name)
-        url = f"https://{route_host}:{https_port}{path}"
+        url = _https_route_url(route_host, https_port, path)
 
         result = run(
             [
@@ -506,6 +579,7 @@ def cmd_smoke(args: argparse.Namespace) -> int:
         print(":: Smoke")
         print("─" * 91)
     log_info(f"Starting smoke test for environment: {environment}")
+    _warn_nonstandard_public_ports(env_values, routes_file)
 
     log_info("Validating compose config")
     run_compose(context, "config", capture_output=True)
@@ -515,6 +589,7 @@ def cmd_smoke(args: argparse.Namespace) -> int:
     _check_stack_running(services)
     _check_service_healths(context, services)
     _check_backend_readiness(context, services)
+    _check_nginx_route_health(context, routes_file, https_port)
     _check_nginx_https(context, routes_file, https_port)
     _show_compose_ps(context)
 

@@ -83,7 +83,7 @@ https://api.yuviron.com
 # Архитектура инфраструктуры
 
 Инфраструктура теперь описана единым файлом `infra/compose.yml`. Различия между окружениями задаются через env-файлы и сгенерированные конфиги.
-Общие переменные окружения для `.NET`-сервисов в compose вынесены в YAML anchor `x-dotnet-env`, чтобы `backend` и `media-worker` не расходились при изменениях.
+Общие переменные окружения, build args и hardening-профиль для `.NET`-сервисов вынесены в YAML anchors `x-dotnet-*`, чтобы `backend`, `migrator` и `media-worker` не расходились при изменениях.
 
 Ключевые компоненты:
 
@@ -1787,7 +1787,15 @@ aspire-dashboard
 
 ---
 
-# Frontend сборка
+# Сборка приложений
+
+## .NET services
+
+Backend, migrator и media-worker собираются через единый multi-stage Dockerfile `infra/docker/dotnet/Dockerfile`.
+В `infra/compose.yml` для них выбираются разные targets: `backend`, `migrator`, `media-worker`.
+Версия .NET, UID/GID runtime-пользователя и общие security-настройки задаются через `x-dotnet-*` anchors и build args.
+
+## Frontend
 
 Frontend собирается из монорепозитория через единый Dockerfile с параметром `APP_NAME`.
 

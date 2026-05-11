@@ -14,6 +14,25 @@ x-dotnet-env: &dotnet-env
   RabbitMQ__VirtualHost: ${RabbitMQ__VirtualHost}
   JamendoApi__ClientId: ${JamendoApi__ClientId}
 
+x-dotnet-build: &dotnet-build
+  context: ..
+  dockerfile: infra/docker/dotnet/Dockerfile
+
+x-dotnet-build-args: &dotnet-build-args
+  DOTNET_VERSION: ${DOTNET_VERSION:-9.0}
+  DOTNET_APP_UID: ${DOTNET_APP_UID:-10001}
+  DOTNET_APP_GID: ${DOTNET_APP_GID:-10001}
+
+x-dotnet-hardening: &dotnet-hardening
+  user: "${DOTNET_APP_UID:-10001}:${DOTNET_APP_GID:-10001}"
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+
 services:
   mysql:
     image: mysql:8.4
@@ -158,18 +177,15 @@ services:
     cpus: ${ASPIRE_CPUS:-0.25}
 
   migrator:
+    <<: *dotnet-hardening
     build:
-      context: ..
-      dockerfile: infra/docker/migrator/Dockerfile
+      <<: *dotnet-build
+      target: migrator
+      args:
+        <<: *dotnet-build-args
+        APP_PROJECT: src/Yuviron.Api/Yuviron.Api.csproj
+        MIGRATOR_STARTUP_PROJECT: src/Yuviron.Api/Yuviron.Api.csproj
     container_name: ${COMPOSE_PROJECT_NAME}-migrator
-    user: "10001:10001"
-    read_only: true
-    tmpfs:
-      - /tmp
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
     environment:
       <<: *dotnet-env
     depends_on:
@@ -183,19 +199,16 @@ services:
     restart: "no"
 
   backend:
+    <<: *dotnet-hardening
     build:
-      context: ..
-      dockerfile: infra/docker/backend/Dockerfile
+      <<: *dotnet-build
+      target: backend
+      args:
+        <<: *dotnet-build-args
+        APP_PROJECT: src/Yuviron.Api/Yuviron.Api.csproj
+        RUNTIME_PACKAGES: "wget ffmpeg"
     container_name: ${COMPOSE_PROJECT_NAME}-backend
-    user: "10001:10001"
     restart: ${RESTART_POLICY}
-    read_only: true
-    tmpfs:
-      - /tmp
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
     environment:
       <<: *dotnet-env
       ASPNETCORE_HTTP_PORTS: 5073
@@ -224,19 +237,16 @@ services:
     cpus: ${BACKEND_CPUS:-1.0}
 
   media-worker:
+    <<: *dotnet-hardening
     build:
-      context: ..
-      dockerfile: infra/docker/media-worker/Dockerfile
+      <<: *dotnet-build
+      target: media-worker
+      args:
+        <<: *dotnet-build-args
+        APP_PROJECT: src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj
+        RUNTIME_PACKAGES: ffmpeg
     container_name: ${COMPOSE_PROJECT_NAME}-media-worker
-    user: "10001:10001"
     restart: ${RESTART_POLICY}
-    read_only: true
-    tmpfs:
-      - /tmp
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
     environment:
       <<: *dotnet-env
     volumes:

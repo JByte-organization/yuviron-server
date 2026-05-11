@@ -26,9 +26,7 @@ def check_required_paths(ctx: object) -> None:
 
     ctx.assert_file(ctx.compose_file)
     ctx.assert_file(ctx.edge_dockerfile)
-    ctx.assert_file(ctx.backend_dockerfile)
-    ctx.assert_file(ctx.migrator_dockerfile)
-    ctx.assert_file(ctx.media_worker_dockerfile)
+    ctx.assert_file(ctx.dotnet_dockerfile)
     ctx.assert_file(ctx.frontend_next_dockerfile)
     ctx.assert_file(ctx.frontend_static_dockerfile)
     ctx.assert_file(ctx.frontend_package_json)

@@ -43,6 +43,40 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertNotIn("cap_drop", services["seq"])
         self.assertEqual("0:0", services["seq"]["user"])
 
+    def test_dotnet_services_use_shared_dockerfile_and_hardening(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
+        services = compose["services"]
+
+        expected_targets = {
+            "migrator": "migrator",
+            "backend": "backend",
+            "media-worker": "media-worker",
+        }
+
+        for service_name, target in expected_targets.items():
+            service = services[service_name]
+
+            self.assertEqual("infra/docker/dotnet/Dockerfile", service["build"]["dockerfile"])
+            self.assertEqual(target, service["build"]["target"])
+            self.assertEqual("${DOTNET_VERSION:-9.0}", service["build"]["args"]["DOTNET_VERSION"])
+            self.assertEqual("${DOTNET_APP_UID:-10001}", service["build"]["args"]["DOTNET_APP_UID"])
+            self.assertEqual("${DOTNET_APP_GID:-10001}", service["build"]["args"]["DOTNET_APP_GID"])
+            self.assertEqual("${DOTNET_APP_UID:-10001}:${DOTNET_APP_GID:-10001}", service["user"])
+            self.assertIs(service["read_only"], True)
+            self.assertEqual(["/tmp"], service["tmpfs"])
+            self.assertEqual(["ALL"], service["cap_drop"])
+            self.assertEqual(["no-new-privileges:true"], service["security_opt"])
+
+    def test_dotnet_migrator_uses_writable_msbuild_extensions_path(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        dockerfile = (root / "infra" / "docker" / "dotnet" / "Dockerfile").read_text(encoding="utf-8")
+
+        self.assertIn("cp -R /src/src/Yuviron.Infrastructure/obj/. /tmp/ef-obj/", dockerfile)
+        self.assertIn("MSBuildProjectExtensionsPath=/tmp/ef-obj/", dockerfile)
+        self.assertIn("--msbuildprojectextensionspath /tmp/ef-obj", dockerfile)
+        self.assertIn("--configuration Release", dockerfile)
+
     def test_nginx_healthcheck_covers_http_https_and_cert_expiry(self) -> None:
         root = SCRIPTS_ROOT.parent
         compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
