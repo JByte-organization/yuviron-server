@@ -22,6 +22,7 @@ backups
 # python
 __pycache__/
 *.pyc
+.tmp/
 
 src/*
 logs/*

@@ -91,7 +91,7 @@ https://api.yuviron.com
 - **Edge Nginx** — маршрутизация входящих запросов
 - **MySQL, Redis, RabbitMQ** — сервисы данных
 - **Backend, Migrator, MediaWorker** — серверные процессы
-- **Frontend apps** — `client-app`, `backoffice`, `admin` (разделены сборки: next/static)
+- **Frontend apps** — `client-app`, `backoffice`, `admin` (единый Next.js Dockerfile, общий hardening-профиль)
 - **GitHub Actions + self-hosted runner** — CI/CD
 - **CoreDNS / RadminVPN / Tailscale** — приватный dev-доступ, legacy-совместимость и изолированный Tailnet-доступ к Linux VM
 
@@ -126,7 +126,7 @@ CLI является единым интерфейсом для работы с�
 ./scripts/cli.py <group> <action> [env]
 ```
 
-* `group` — логическая группа (stack, backup, certs, tools)
+* `group` — логическая группа (stack, backup, certs, security, tools)
 * `action` — операция
 * `env` — окружение (`dev`, `prod`)
 
@@ -188,6 +188,22 @@ CLI является единым интерфейсом для работы с�
 ./scripts/cli.py stack smoke dev
 ./scripts/cli.py stack smoke prod
 ```
+
+---
+
+# 🔎 SECURITY
+
+## Audit
+
+```bash
+./scripts/cli.py security audit dev
+./scripts/cli.py security audit prod
+./scripts/cli.py security audit prod --strict
+```
+
+Проверяет Docker/infra hardening без запуска контейнеров: `read_only`, `cap_drop`, root containers, published ports, дефолтные секреты, наличие `cert/key`, права `storage`, management routes и возможные секреты среди git-tracked файлов. Audit читает итоговую compose-схему целиком: `infra/compose.yml` вместе с `generated/<env>/compose.frontends.yml`.
+
+По умолчанию команда возвращает non-zero только при `ERROR`; `--strict` считает warning'и ошибками.
 
 ---
 
@@ -285,7 +301,7 @@ generated/<env>/
 
 * `deploy.env` — итоговый env-file для Docker Compose
 * `routes.env` — финальные маршруты `route|host|service:port`
-* `compose.frontends.yml` — optional frontend services
+* `compose.frontends.yml` — optional frontend services (`admin`, `backoffice` и т.п.) с тем же hardening-профилем, лимитами и TCP healthcheck, что и `client-app`
 * `nginx.conf` — готовый nginx config
 * `stack.env` — runtime-значения стека, включая `COMPOSE_PROJECT_NAME`, пути storage/certs и host-порты nginx
 * `manifest.env` — hashes source/generated файлов для проверки свежести
@@ -508,7 +524,8 @@ scripts/templates/proxy-params.conf
 Финальные маршруты nginx берёт не напрямую из `config/routes.yml`, а из `generated/<env>/routes.env`.
 
 В `infra/compose.yml` nginx ждёт готовности `backend` и `client-app` через `depends_on: condition: service_healthy`.
-Для `client-app` healthcheck проверяет TCP-порт Next.js внутри контейнера, не требуя отдельного `/api/health` endpoint во frontend-репозитории.
+Все Next.js frontend services используют одинаковый runtime-профиль: `read_only: true`, `tmpfs: /tmp`, `cap_drop: ALL`, `security_opt: no-new-privileges:true`, лимиты `CLIENT_APP_*` и TCP healthcheck порта `3000` внутри контейнера.
+Для frontend healthcheck не требуется отдельный `/api/health` endpoint во frontend-репозитории.
 Сам nginx также имеет Docker healthcheck: контейнер локально запрашивает `http://127.0.0.1/health`.
 Этот endpoint объявлен в HTTP server-блоке до редиректа на HTTPS, поэтому проверка не зависит от TLS-сертификата и внешнего `Host`.
 

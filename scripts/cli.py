@@ -12,6 +12,7 @@ if __package__ in {None, ""}:
 
 from commands import backup as backup_cmd
 from commands import certs as certs_cmd
+from commands import security as security_cmd
 from commands import stack as stack_cmd
 from commands import tools as tools_cmd
 from core.ui import log_err
@@ -28,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     stack_cmd.register(subparsers)
     backup_cmd.register(subparsers)
     certs_cmd.register(subparsers)
+    security_cmd.register(subparsers)
     tools_cmd.register(subparsers)
 
     return parser

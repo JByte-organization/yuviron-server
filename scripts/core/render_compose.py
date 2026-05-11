@@ -32,6 +32,14 @@ def render_routes_env(route_lines: List[Tuple[str, str, str, str]]) -> str:
 def build_frontend_service(app: FrontendApp, root_dir: Path) -> dict:
     frontend_context = str((root_dir / "src" / "yuviron-frontend").resolve())
     dockerfile = str((root_dir / "infra" / "docker" / "frontend-next" / "Dockerfile").resolve())
+    healthcheck_command = (
+        "node -e \"const net = require('net'); "
+        "const socket = net.connect(3000, '127.0.0.1'); "
+        "socket.setTimeout(5000); "
+        "socket.on('connect', () => process.exit(0)); "
+        "socket.on('error', () => process.exit(1)); "
+        "socket.on('timeout', () => process.exit(1));\""
+    )
     return {
         app.service_name: {
             "build": {
@@ -41,14 +49,21 @@ def build_frontend_service(app: FrontendApp, root_dir: Path) -> dict:
             },
             "container_name": f"${{COMPOSE_PROJECT_NAME}}-{app.service_name}",
             "restart": "${RESTART_POLICY}",
+            "read_only": True,
+            "tmpfs": ["/tmp"],
+            "cap_drop": ["ALL"],
+            "security_opt": ["no-new-privileges:true"],
             "networks": ["default"],
             "healthcheck": {
-                "test": ["CMD-SHELL", 'wget -q --spider http://127.0.0.1:3000/ || exit 1'],
+                "test": ["CMD-SHELL", healthcheck_command],
                 "interval": "15s",
                 "timeout": "5s",
-                "retries": 10,
-                "start_period": "20s",
+                "retries": 5,
+                "start_period": "30s",
             },
+            "mem_limit": "${CLIENT_APP_MEM_LIMIT:-256m}",
+            "memswap_limit": "${CLIENT_APP_MEMSWAP_LIMIT:-256m}",
+            "cpus": "${CLIENT_APP_CPUS:-0.25}",
         }
     }
 
