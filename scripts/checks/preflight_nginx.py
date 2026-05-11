@@ -2,18 +2,16 @@ from __future__ import annotations
 
 from core.docker import run, run_compose
 from core.env import parse_routes_file
+from core.models import is_valid_target
 from core.ui import log_info, log_ok
 from core.validators import fail
 
 
 def _service_from_upstream(route_name: str, upstream: str) -> str:
-    if ":" not in upstream:
+    if not is_valid_target(upstream):
         fail(f"Route '{route_name}' has invalid upstream '{upstream}'. Expected service:port")
 
-    service, port = upstream.rsplit(":", 1)
-    if not service or not port:
-        fail(f"Route '{route_name}' has invalid upstream '{upstream}'. Expected service:port")
-
+    service, _port = upstream.rsplit(":", 1)
     return service
 
 

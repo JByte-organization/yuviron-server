@@ -8,11 +8,12 @@ import yaml
 
 from .env import parse_env_file
 from .models import (
+    CLIENT_MAX_BODY_SIZE_PATTERN,
     NAME_PATTERN,
-    TARGET_PATTERN,
     FrontendApp,
     Route,
     VALID_ENVIRONMENTS,
+    is_valid_target,
 )
 from .validators import ensure_file, ensure_mapping, fail
 
@@ -54,7 +55,7 @@ def parse_extra_routes(raw: str) -> List[Tuple[str, str]]:
         name, target = item.split("=", 1)
         if not NAME_PATTERN.fullmatch(name):
             fail(f"Invalid extra route name: {name}")
-        if not TARGET_PATTERN.fullmatch(target):
+        if not is_valid_target(target):
             fail(f"Invalid extra route target: {target}")
         if name in seen:
             fail(f"Duplicate extra route: {name}")
@@ -148,7 +149,7 @@ def load_routes(path: Path) -> Dict[str, Route]:
 
         if target is not None:
             target = str(target).strip()
-            if not TARGET_PATTERN.fullmatch(target):
+            if not is_valid_target(target):
                 fail(f"Invalid target in route '{name}': {target}")
 
         if host_strategy is not None:
@@ -158,8 +159,7 @@ def load_routes(path: Path) -> Dict[str, Route]:
 
         if client_max_body_size is not None:
             client_max_body_size = str(client_max_body_size).strip()
-            import re
-            if not re.fullmatch(r"\d+[kmgKMG]?", client_max_body_size):
+            if not CLIENT_MAX_BODY_SIZE_PATTERN.fullmatch(client_max_body_size):
                 fail(f"Invalid client_max_body_size in route '{name}': {client_max_body_size}")
 
         if not isinstance(environments, list) or not environments:

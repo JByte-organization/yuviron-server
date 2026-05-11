@@ -24,7 +24,11 @@ from core.config_loader import (  # noqa: E402
     resolve_selected_apps,
 )
 from core.env import hash_file, merge_env_maps  # noqa: E402
-from core.models import GenerationContext, VALID_ENVIRONMENTS  # noqa: E402
+from core.models import (  # noqa: E402
+    GenerationContext,
+    VALID_ENVIRONMENTS,
+    is_valid_route_host,
+)
 from core.render_compose import (  # noqa: E402
     render_apps_env,
     render_env_file,
@@ -59,11 +63,16 @@ def manifest_hash_key(prefix: str, filename: str) -> str:
 
 def resolve_host(env_name: str, base_domain: str, route_name: str, host_strategy: str) -> str:
     if host_strategy == "root":
-        return f"dev.{base_domain}" if env_name == "dev" else base_domain
-    if host_strategy == "subdomain":
-        return f"dev-{route_name}.{base_domain}" if env_name == "dev" else f"{route_name}.{base_domain}"
-    fail(f"Unsupported host strategy: {host_strategy}")
-    raise AssertionError("unreachable")
+        host = f"dev.{base_domain}" if env_name == "dev" else base_domain
+    elif host_strategy == "subdomain":
+        host = f"dev-{route_name}.{base_domain}" if env_name == "dev" else f"{route_name}.{base_domain}"
+    else:
+        fail(f"Unsupported host strategy: {host_strategy}")
+        raise AssertionError("unreachable")
+
+    if not is_valid_route_host(host):
+        fail(f"Generated route host is invalid for route '{route_name}': {host}")
+    return host
 
 
 def resolve_routes(ctx: GenerationContext, apps, routes_cfg):

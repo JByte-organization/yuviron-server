@@ -2,13 +2,60 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Iterable, Tuple
-from jinja2 import Environment
+
+from jinja2 import Environment, StrictUndefined
+
+from .models import (
+    CLIENT_MAX_BODY_SIZE_PATTERN,
+    NAME_PATTERN,
+    is_valid_route_host,
+    is_valid_target,
+)
+from .validators import fail
 
 
 def _render_template(template_text: str, context: dict) -> str:
-    env = Environment()
+    env = Environment(autoescape=False, undefined=StrictUndefined)
     template = env.from_string(template_text)
     return template.render(**context)
+
+
+def _require_safe_nginx_value(route_name: str, field_name: str, value: object) -> str:
+    if not isinstance(value, str):
+        fail(f"Invalid nginx {field_name} for route {route_name!r}: expected string")
+    if value != value.strip():
+        fail(f"Invalid nginx {field_name} for route {route_name!r}: surrounding whitespace is not allowed")
+    return value
+
+
+def _validate_nginx_route(
+    route_name: str,
+    route_host: str,
+    route_upstream: str,
+    route_max_body_size: str,
+) -> tuple[str, str, str, str]:
+    route_name = _require_safe_nginx_value(route_name, "route name", route_name)
+    if not NAME_PATTERN.fullmatch(route_name):
+        fail(f"Invalid nginx route name: {route_name!r}")
+
+    route_host = _require_safe_nginx_value(route_name, "route host", route_host)
+    if not is_valid_route_host(route_host):
+        fail(f"Invalid nginx route host for route '{route_name}': {route_host!r}")
+
+    route_upstream = _require_safe_nginx_value(route_name, "upstream", route_upstream)
+    if not is_valid_target(route_upstream):
+        fail(f"Invalid nginx upstream for route '{route_name}': {route_upstream!r}")
+
+    route_max_body_size = _require_safe_nginx_value(
+        route_name,
+        "client_max_body_size",
+        route_max_body_size,
+    )
+    if not CLIENT_MAX_BODY_SIZE_PATTERN.fullmatch(route_max_body_size):
+        fail(f"Invalid nginx client_max_body_size for route '{route_name}': {route_max_body_size!r}")
+
+    return route_name, route_host, route_upstream, route_max_body_size
+
 
 def render_nginx_conf_modular(
     route_lines: Iterable[Tuple[str, str, str, str]],
@@ -31,6 +78,12 @@ def render_nginx_conf_modular(
     # Build routes context
     routes: list[dict[str, str]] = []
     for route_name, route_host, route_upstream, route_max_body_size in route_lines:
+        route_name, route_host, route_upstream, route_max_body_size = _validate_nginx_route(
+            route_name,
+            route_host,
+            route_upstream,
+            route_max_body_size,
+        )
         routes.append({
             "name": route_name,
             "host": route_host,
