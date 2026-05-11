@@ -2,9 +2,15 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.request
+import uuid
+from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 
 if __package__ in {None, ""}:
@@ -14,29 +20,117 @@ if __package__ in {None, ""}:
 
 from core.compose import create_compose_context
 from core.docker import run, run_compose
-from core.env import load_dotenv_if_exists, parse_routes_file
+from core.env import load_dotenv_if_exists, parse_env_file, parse_routes_file
 from core.paths import resolve_root_dir
 from core.ui import confirm, log_info, log_ok, log_warn
 from core.validators import ensure_command, fail, resolve_prompted_environment, resolve_prompted_required
 
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[2]
+CERT_PROVIDERS = ("mkcert", "letsencrypt")
+ACME_CHALLENGE_PREFIX = "/.well-known/acme-challenge/"
 
 
-def cmd_generate(args: argparse.Namespace) -> int:
-    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
-    load_dotenv_if_exists(root_dir / ".env")
+@dataclass(frozen=True)
+class LetsEncryptPaths:
+    cert_name: str
+    config_dir: Path
+    work_dir: Path
+    logs_dir: Path
+    challenge_dir: Path
+    cert_file: Path
+    key_file: Path
+    fullchain_file: Path
+    privkey_file: Path
 
-    environment = resolve_prompted_environment(args.environment)
-    domain = resolve_prompted_required(args.domain, "Enter domain (example.com): ", "domain")
 
-    routes_file = root_dir / "generated" / environment / "routes.env"
-    if not routes_file.is_file():
-        fail(f"Routes file not found: {routes_file}. Run ./scripts/init.py first")
+def _collect_route_domains(routes_file: Path) -> list[str]:
+    routes = parse_routes_file(routes_file)
+    domains: list[str] = []
+    for _route_name, route_host, _route_upstream in routes:
+        if route_host and route_host not in domains:
+            domains.append(route_host)
 
-    certs_dir = root_dir / "certs"
-    certs_dir.mkdir(parents=True, exist_ok=True)
+    if not domains:
+        fail(f"No route hosts found in {routes_file}")
 
+    return domains
+
+
+def _certificate_paths(certs_dir: Path, environment: str, domain: str) -> tuple[Path, Path]:
+    cert_file = certs_dir / f"{environment}-{domain}.pem"
+    key_file = certs_dir / f"{environment}-{domain}-key.pem"
+    return cert_file, key_file
+
+
+def _letsencrypt_paths(root_dir: Path, certs_dir: Path, environment: str, domain: str) -> LetsEncryptPaths:
+    cert_name = f"{environment}-{domain}"
+    letsencrypt_dir = certs_dir / "letsencrypt"
+    config_dir = letsencrypt_dir / "config"
+    work_dir = letsencrypt_dir / "work"
+    logs_dir = root_dir / "logs" / environment / "letsencrypt"
+    challenge_dir = certs_dir / "acme-challenge"
+    cert_file, key_file = _certificate_paths(certs_dir, environment, domain)
+    live_dir = config_dir / "live" / cert_name
+
+    return LetsEncryptPaths(
+        cert_name=cert_name,
+        config_dir=config_dir,
+        work_dir=work_dir,
+        logs_dir=logs_dir,
+        challenge_dir=challenge_dir,
+        cert_file=cert_file,
+        key_file=key_file,
+        fullchain_file=live_dir / "fullchain.pem",
+        privkey_file=live_dir / "privkey.pem",
+    )
+
+
+def _ensure_letsencrypt_dirs(paths: LetsEncryptPaths) -> None:
+    for path in [paths.config_dir, paths.work_dir, paths.logs_dir, paths.challenge_dir]:
+        path.mkdir(parents=True, exist_ok=True)
+
+
+def _files_equal(left: Path, right: Path) -> bool:
+    if not left.is_file() or not right.is_file():
+        return False
+    return left.read_bytes() == right.read_bytes()
+
+
+def _sync_letsencrypt_live_files(paths: LetsEncryptPaths) -> bool:
+    if not paths.fullchain_file.is_file() or not paths.privkey_file.is_file():
+        fail(f"Let's Encrypt output files not found in {paths.fullchain_file.parent}")
+
+    changed = (
+        not _files_equal(paths.fullchain_file, paths.cert_file)
+        or not _files_equal(paths.privkey_file, paths.key_file)
+    )
+
+    if changed:
+        shutil.copy2(paths.fullchain_file, paths.cert_file)
+        shutil.copy2(paths.privkey_file, paths.key_file)
+        paths.cert_file.chmod(0o644)
+        paths.key_file.chmod(0o600)
+
+    return changed
+
+
+def _certbot_issue_mode(force_renewal: bool) -> str:
+    return "--force-renewal" if force_renewal else "--keep-until-expiring"
+
+
+def _certbot_common_args(paths: LetsEncryptPaths) -> list[str]:
+    return [
+        "--config-dir",
+        str(paths.config_dir),
+        "--work-dir",
+        str(paths.work_dir),
+        "--logs-dir",
+        str(paths.logs_dir),
+    ]
+
+
+def _generate_mkcert(certs_dir: Path, environment: str, domain: str, domains: list[str]) -> None:
     if shutil.which("mkcert") is None:
         log_warn("mkcert not found.")
         log_info("Required: mkcert + libnss3-tools")
@@ -59,19 +153,9 @@ def cmd_generate(args: argparse.Namespace) -> int:
         caroot_result = run(["mkcert", "-CAROOT"], capture_output=True)
         caroot = Path(caroot_result.stdout.strip())
 
-    routes = parse_routes_file(routes_file)
-    domains: list[str] = []
-    for _route_name, route_host, _route_upstream in routes:
-        if route_host and route_host not in domains:
-            domains.append(route_host)
+    cert_file, key_file = _certificate_paths(certs_dir, environment, domain)
 
-    if not domains:
-        fail(f"No route hosts found in {routes_file}")
-
-    cert_file = certs_dir / f"{environment}-{domain}.pem"
-    key_file = certs_dir / f"{environment}-{domain}-key.pem"
-
-    log_info("Generating certificate")
+    log_info("Generating certificate with mkcert")
     log_info(f"cert: {cert_file}")
     log_info(f"key:  {key_file}")
     log_info(f"SANs: {' '.join(domains)}")
@@ -97,14 +181,66 @@ def cmd_generate(args: argparse.Namespace) -> int:
     log_info(f"Cert:    {cert_file}")
     log_info(f"Key:     {key_file}")
     log_info(f"Root CA: {root_ca_dst}")
-    return 0
 
 
-def cmd_reload(args: argparse.Namespace) -> int:
-    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
-    load_dotenv_if_exists(root_dir / ".env")
+def _resolve_letsencrypt_email(value: str | None) -> str:
+    email = (
+        value
+        or os.getenv("LETSENCRYPT_EMAIL")
+        or os.getenv("CERTBOT_EMAIL")
+        or ""
+    ).strip()
+    return resolve_prompted_required(email, "Enter Let's Encrypt account email: ", "email")
 
-    environment = resolve_prompted_environment(args.environment)
+
+def _warn_if_nonstandard_http_port(root_dir: Path, environment: str) -> None:
+    stack_env = root_dir / "generated" / environment / "stack.env"
+    http_port = parse_env_file(stack_env).get("HTTP_PORT", "")
+    if http_port and http_port != "80":
+        log_warn(
+            "Let's Encrypt HTTP-01 validation uses public port 80. "
+            f"Current {stack_env} has HTTP_PORT={http_port}; make sure port 80 still reaches nginx."
+        )
+
+
+def _warn_if_nginx_config_needs_regeneration(root_dir: Path, environment: str) -> None:
+    nginx_conf = root_dir / "generated" / environment / "nginx.conf"
+    if (
+        nginx_conf.is_file()
+        and ACME_CHALLENGE_PREFIX not in nginx_conf.read_text(encoding="utf-8")
+    ):
+        log_warn(
+            f"{nginx_conf} does not include the ACME challenge location. "
+            "Regenerate nginx config and restart nginx before requesting Let's Encrypt certificates."
+        )
+
+
+def _ensure_nginx_running(root_dir: Path, environment: str):
+    context = create_compose_context(root_dir, environment, ensure_generated=False)
+    result = run_compose(
+        context,
+        "ps",
+        "--status",
+        "running",
+        "--services",
+        "nginx",
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        fail("Could not inspect nginx service status. Is Docker Compose available?")
+
+    services = {line.strip() for line in (result.stdout or "").splitlines() if line.strip()}
+    if "nginx" not in services:
+        fail(
+            "nginx service is not running. Start the stack before requesting Let's Encrypt "
+            "certificates, because certbot webroot validation needs public HTTP access."
+        )
+
+    return context
+
+
+def _reload_nginx(root_dir: Path, environment: str) -> None:
     context = create_compose_context(root_dir, environment, ensure_generated=False)
 
     log_info("Validating nginx configuration")
@@ -114,6 +250,245 @@ def cmd_reload(args: argparse.Namespace) -> int:
     run_compose(context, "exec", "-T", "nginx", "nginx", "-s", "reload")
 
     log_ok("Nginx reloaded")
+
+
+def _acme_probe_path(challenge_dir: Path, token: str) -> Path:
+    return challenge_dir / ".well-known" / "acme-challenge" / token
+
+
+def _write_acme_http_probe(challenge_dir: Path, token: str, content: str) -> Path:
+    probe_path = _acme_probe_path(challenge_dir, token)
+    probe_path.parent.mkdir(parents=True, exist_ok=True)
+    probe_path.write_text(content, encoding="utf-8")
+    return probe_path
+
+
+def _public_challenge_url(domain: str, token: str) -> str:
+    return f"http://{domain}{ACME_CHALLENGE_PREFIX}{token}"
+
+
+def _check_public_http_challenge(domains: list[str], challenge_dir: Path, timeout: int = 10) -> None:
+    token = f"yuviron-certbot-check-{uuid.uuid4().hex}"
+    expected = f"{token}\n"
+    probe_path = _write_acme_http_probe(challenge_dir, token, expected)
+
+    try:
+        for domain in domains:
+            url = _public_challenge_url(domain, token)
+            log_info(f"Checking public ACME challenge URL: {url}")
+            try:
+                with urllib.request.urlopen(url, timeout=timeout) as response:
+                    body = response.read().decode("utf-8")
+                    status = getattr(response, "status", response.getcode())
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                fail(f"ACME challenge URL is not reachable: {url}\n{exc}")
+
+            if status != 200:
+                fail(f"ACME challenge URL returned HTTP {status}: {url}")
+            if body != expected:
+                fail(
+                    "ACME challenge URL returned unexpected body: "
+                    f"{url}. Check nginx webroot mapping for {challenge_dir}."
+                )
+    finally:
+        with suppress(FileNotFoundError):
+            probe_path.unlink()
+
+
+def _letsencrypt_preflight(
+    root_dir: Path,
+    environment: str,
+    domains: list[str],
+    paths: LetsEncryptPaths,
+    skip_public_check: bool,
+) -> None:
+    _ensure_nginx_running(root_dir, environment)
+    _warn_if_nonstandard_http_port(root_dir, environment)
+    _warn_if_nginx_config_needs_regeneration(root_dir, environment)
+
+    if skip_public_check:
+        log_warn("Skipping public ACME challenge check")
+        return
+
+    _check_public_http_challenge(domains, paths.challenge_dir)
+
+
+def _generate_letsencrypt(
+    root_dir: Path,
+    certs_dir: Path,
+    environment: str,
+    domain: str,
+    domains: list[str],
+    email: str,
+    force_renewal: bool,
+    skip_public_check: bool,
+) -> bool:
+    wildcard_domains = [item for item in domains if item.startswith("*.")]
+    if wildcard_domains:
+        fail(
+            "Let's Encrypt webroot mode does not support wildcard domains: "
+            + ", ".join(wildcard_domains)
+        )
+
+    if shutil.which("certbot") is None:
+        log_warn("certbot not found.")
+        log_info("Required: certbot")
+        log_info("Install manually:  sudo apt install -y certbot")
+
+    ensure_command("certbot")
+    paths = _letsencrypt_paths(root_dir, certs_dir, environment, domain)
+    _ensure_letsencrypt_dirs(paths)
+    _letsencrypt_preflight(root_dir, environment, domains, paths, skip_public_check)
+
+    domain_args: list[str] = []
+    for route_domain in domains:
+        domain_args.extend(["-d", route_domain])
+
+    log_info("Generating certificate with Let's Encrypt")
+    log_info(f"cert: {paths.cert_file}")
+    log_info(f"key:  {paths.key_file}")
+    log_info(f"webroot: {paths.challenge_dir}")
+    log_info(f"SANs: {' '.join(domains)}")
+
+    run(
+        [
+            "certbot",
+            "certonly",
+            "--webroot",
+            "--webroot-path",
+            str(paths.challenge_dir),
+            *_certbot_common_args(paths),
+            "--cert-name",
+            paths.cert_name,
+            "--email",
+            email,
+            "--agree-tos",
+            "--non-interactive",
+            _certbot_issue_mode(force_renewal),
+            "--expand",
+            "--preferred-challenges",
+            "http",
+            *domain_args,
+        ]
+    )
+
+    changed = _sync_letsencrypt_live_files(paths)
+
+    if changed:
+        log_ok("Certificate files updated")
+    else:
+        log_ok("Certificate files already up to date")
+    log_info(f"Cert:    {paths.cert_file}")
+    log_info(f"Key:     {paths.key_file}")
+    return changed
+
+
+def cmd_generate(args: argparse.Namespace) -> int:
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+    load_dotenv_if_exists(root_dir / ".env")
+
+    environment = resolve_prompted_environment(args.environment)
+    domain = resolve_prompted_required(args.domain, "Enter domain (example.com): ", "domain")
+    provider = (getattr(args, "provider", None) or "mkcert").strip().lower()
+    if provider not in CERT_PROVIDERS:
+        fail(f"Unknown certificate provider: {provider}")
+
+    routes_file = root_dir / "generated" / environment / "routes.env"
+    if not routes_file.is_file():
+        fail(f"Routes file not found: {routes_file}. Run ./scripts/init.py first")
+
+    certs_dir = root_dir / "certs"
+    certs_dir.mkdir(parents=True, exist_ok=True)
+
+    domains = _collect_route_domains(routes_file)
+    if provider == "mkcert":
+        _generate_mkcert(certs_dir, environment, domain, domains)
+    else:
+        email = _resolve_letsencrypt_email(getattr(args, "email", None))
+        changed = _generate_letsencrypt(
+            root_dir,
+            certs_dir,
+            environment,
+            domain,
+            domains,
+            email,
+            bool(getattr(args, "force_renewal", False)),
+            bool(getattr(args, "skip_public_check", False)),
+        )
+        if changed and not bool(getattr(args, "no_reload", False)):
+            _reload_nginx(root_dir, environment)
+        elif not changed:
+            log_info("Nginx reload skipped: certificate files did not change")
+
+    return 0
+
+
+def cmd_renew(args: argparse.Namespace) -> int:
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+    load_dotenv_if_exists(root_dir / ".env")
+
+    environment = resolve_prompted_environment(args.environment)
+    domain = resolve_prompted_required(args.domain, "Enter domain (example.com): ", "domain")
+
+    routes_file = root_dir / "generated" / environment / "routes.env"
+    if not routes_file.is_file():
+        fail(f"Routes file not found: {routes_file}. Run ./scripts/init.py first")
+
+    certs_dir = root_dir / "certs"
+    certs_dir.mkdir(parents=True, exist_ok=True)
+    domains = _collect_route_domains(routes_file)
+    paths = _letsencrypt_paths(root_dir, certs_dir, environment, domain)
+    _ensure_letsencrypt_dirs(paths)
+
+    if shutil.which("certbot") is None:
+        log_warn("certbot not found.")
+        log_info("Required: certbot")
+        log_info("Install manually:  sudo apt install -y certbot")
+
+    ensure_command("certbot")
+    _letsencrypt_preflight(
+        root_dir,
+        environment,
+        domains,
+        paths,
+        bool(getattr(args, "skip_public_check", False)),
+    )
+
+    command = [
+        "certbot",
+        "renew",
+        *_certbot_common_args(paths),
+        "--cert-name",
+        paths.cert_name,
+        "--non-interactive",
+        "--preferred-challenges",
+        "http",
+    ]
+    if bool(getattr(args, "force_renewal", False)):
+        command.append("--force-renewal")
+
+    log_info("Renewing Let's Encrypt certificate")
+    log_info(f"cert name: {paths.cert_name}")
+    run(command)
+
+    changed = _sync_letsencrypt_live_files(paths)
+    if changed:
+        log_ok("Certificate files updated")
+        if not bool(getattr(args, "no_reload", False)):
+            _reload_nginx(root_dir, environment)
+    else:
+        log_ok("Certificate files already up to date")
+        log_info("Nginx reload skipped: certificate files did not change")
+
+    return 0
+
+
+def cmd_reload(args: argparse.Namespace) -> int:
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+    load_dotenv_if_exists(root_dir / ".env")
+
+    environment = resolve_prompted_environment(args.environment)
+    _reload_nginx(root_dir, environment)
     return 0
 
 
@@ -121,11 +496,25 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     certs_parser = subparsers.add_parser("certs", help="TLS certificate operations")
     certs_sub = certs_parser.add_subparsers(dest="certs_action", required=True)
 
-    generate_parser = certs_sub.add_parser("generate", help="Generate certificates with mkcert")
+    generate_parser = certs_sub.add_parser("generate", help="Generate TLS certificates")
     generate_parser.add_argument("--env", dest="environment")
     generate_parser.add_argument("--domain")
+    generate_parser.add_argument("--provider", choices=CERT_PROVIDERS, default="mkcert")
+    generate_parser.add_argument("--email", help="Let's Encrypt account email")
+    generate_parser.add_argument("--force-renewal", action="store_true", help="Force Let's Encrypt re-issue")
+    generate_parser.add_argument("--no-reload", action="store_true", help="Do not reload nginx after Let's Encrypt update")
+    generate_parser.add_argument("--skip-public-check", action="store_true", help="Skip public ACME HTTP probe")
     generate_parser.add_argument("--project-root", dest="project_root")
     generate_parser.set_defaults(handler=cmd_generate)
+
+    renew_parser = certs_sub.add_parser("renew", help="Renew Let's Encrypt certificates")
+    renew_parser.add_argument("--env", dest="environment")
+    renew_parser.add_argument("--domain")
+    renew_parser.add_argument("--force-renewal", action="store_true")
+    renew_parser.add_argument("--no-reload", action="store_true")
+    renew_parser.add_argument("--skip-public-check", action="store_true")
+    renew_parser.add_argument("--project-root", dest="project_root")
+    renew_parser.set_defaults(handler=cmd_renew)
 
     reload_parser = certs_sub.add_parser("reload", help="Validate and reload nginx TLS certificates")
     reload_parser.add_argument("--env", dest="environment")
