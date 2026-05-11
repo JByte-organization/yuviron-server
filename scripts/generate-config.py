@@ -171,7 +171,7 @@ def main() -> None:
     write_text(routes_env_path, render_routes_env(route_lines))
     write_text(stack_env_path, render_stack_env(stack_values))
     write_text(deploy_env_path, render_env_file(merged_env_map))
-    write_text(frontends_compose_path, render_frontends_compose(optional_apps, root_dir))
+    write_text(frontends_compose_path, render_frontends_compose(selected_apps, root_dir))
     write_text(nginx_conf_path, render_nginx_conf_modular(route_lines, template_dir))
 
     source_hashes = {

@@ -47,7 +47,8 @@ def build_frontend_service(app: FrontendApp, root_dir: Path) -> dict:
                 "dockerfile": dockerfile,
                 "args": {"APP_NAME": app.app_name},
             },
-            "container_name": f"${{COMPOSE_PROJECT_NAME}}-{app.service_name}",
+            "container_name": f"${{COMPOSE_PROJECT_NAME}}-{app.key}",
+            "user": "10001:10001",
             "restart": "${RESTART_POLICY}",
             "read_only": True,
             "tmpfs": ["/tmp"],
@@ -68,9 +69,9 @@ def build_frontend_service(app: FrontendApp, root_dir: Path) -> dict:
     }
 
 
-def render_frontends_compose(optional_apps: List[FrontendApp], root_dir: Path) -> str:
+def render_frontends_compose(frontend_apps: List[FrontendApp], root_dir: Path) -> str:
     payload: dict = {"services": {}}
-    for app in optional_apps:
+    for app in frontend_apps:
         payload["services"].update(build_frontend_service(app, root_dir))
     return yaml.safe_dump(payload, sort_keys=False)
 

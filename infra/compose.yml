@@ -10,7 +10,7 @@ x-dotnet-env: &dotnet-env
   RabbitMQ__Host: ${RabbitMQ__Host}
   RabbitMQ__Port: ${RabbitMQ__Port}
   RabbitMQ__Username: ${RabbitMQ__Username}
-  RabbitMQ__Password: ${RabbitMQ__Password}
+  RabbitMQ__Password: ${RABBITMQ_DEFAULT_PASS}
   RabbitMQ__VirtualHost: ${RabbitMQ__VirtualHost}
   JamendoApi__ClientId: ${JamendoApi__ClientId}
 
@@ -18,7 +18,10 @@ services:
   mysql:
     image: mysql:8.4
     container_name: ${COMPOSE_PROJECT_NAME}-mysql
+    user: "999:999"
     restart: ${RESTART_POLICY}
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
     environment:
@@ -46,7 +49,10 @@ services:
   redis:
     image: redis:7-alpine
     container_name: ${COMPOSE_PROJECT_NAME}-redis
+    user: "999:1000"
     restart: ${RESTART_POLICY}
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
     command: ["redis-server", "--appendonly", "yes"]
@@ -66,7 +72,10 @@ services:
   rabbitmq:
     image: rabbitmq:3-management
     container_name: ${COMPOSE_PROJECT_NAME}-rabbitmq
+    user: "999:999"
     restart: ${RESTART_POLICY}
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
     environment:
@@ -98,7 +107,7 @@ services:
     image: datalust/seq:2025.2
     container_name: ${COMPOSE_PROJECT_NAME}-seq
     # Seq currently needs root to write to the bind-mounted /data directory.
-    # Keep this exception explicit so it is not mistaken for an accidental root container.
+    # It also fails startup with cap_drop: ALL, so keep this weaker profile explicit.
     user: "0:0"
     restart: ${RESTART_POLICY}
     security_opt:
@@ -153,6 +162,12 @@ services:
       context: ..
       dockerfile: infra/docker/migrator/Dockerfile
     container_name: ${COMPOSE_PROJECT_NAME}-migrator
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
     environment:
@@ -172,6 +187,7 @@ services:
       context: ..
       dockerfile: infra/docker/backend/Dockerfile
     container_name: ${COMPOSE_PROJECT_NAME}-backend
+    user: "10001:10001"
     restart: ${RESTART_POLICY}
     read_only: true
     tmpfs:
@@ -212,6 +228,7 @@ services:
       context: ..
       dockerfile: infra/docker/media-worker/Dockerfile
     container_name: ${COMPOSE_PROJECT_NAME}-media-worker
+    user: "10001:10001"
     restart: ${RESTART_POLICY}
     read_only: true
     tmpfs:
@@ -239,44 +256,20 @@ services:
     memswap_limit: ${MEDIA_WORKER_MEMSWAP_LIMIT:-768m}
     cpus: ${MEDIA_WORKER_CPUS:-0.75}
 
-  client-app:
-    build:
-      context: ../src/yuviron-frontend
-      dockerfile: ../../infra/docker/frontend-next/Dockerfile
-      args:
-        APP_NAME: client-app
-    container_name: ${COMPOSE_PROJECT_NAME}-client
-    restart: ${RESTART_POLICY}
-    read_only: true
-    tmpfs:
-      - /tmp
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    networks:
-      - default
-    healthcheck:
-      test: ["CMD-SHELL", "node -e \"const net = require('net'); const socket = net.connect(3000, '127.0.0.1'); socket.setTimeout(5000); socket.on('connect', () => process.exit(0)); socket.on('error', () => process.exit(1)); socket.on('timeout', () => process.exit(1));\""]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    mem_limit: ${CLIENT_APP_MEM_LIMIT:-256m}
-    memswap_limit: ${CLIENT_APP_MEMSWAP_LIMIT:-256m}
-    cpus: ${CLIENT_APP_CPUS:-0.25}
-
   nginx:
     build:
       context: ./edge
       dockerfile: Dockerfile
     container_name: ${COMPOSE_PROJECT_NAME}-nginx
+    user: "10001:10001"
+    group_add:
+      - "${NGINX_CERT_GROUP_ID:-10001}"
     restart: ${RESTART_POLICY}
     read_only: true
     tmpfs:
-      - /var/cache/nginx
-      - /var/run
-      - /tmp
+      - /tmp:uid=10001,gid=10001,mode=1777
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
     depends_on:
@@ -290,7 +283,6 @@ services:
     volumes:
       - ../generated/${ENVIRONMENT}/nginx.conf:/etc/nginx/nginx.conf:ro
       - ../scripts/templates/proxy-params.conf:/etc/nginx/proxy-params.conf:ro
-      - ../logs/${ENVIRONMENT}/nginx:/var/log/nginx
       - ../certs/acme-challenge:/var/www/certbot:ro
       - ${CERT_FILE}:/etc/nginx/certs/cert.pem:ro
       - ${KEY_FILE}:/etc/nginx/certs/key.pem:ro
