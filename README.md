@@ -18,7 +18,7 @@
 - Docker-инфраструктуру (композиция сервисов в `infra/compose.yml`)
 - Edge (nginx) конфигурацию и шаблоны
 - Скрипты и Python CLI (`scripts/cli.py`, `scripts/commands/`)
-- Инструменты preflight-проверки и smoke-тесты (`checks/`, `tests/`)
+- Инструменты preflight-проверки и smoke-тесты (`scripts/checks/`, `scripts/tests/`)
 - Конфигурационные шаблоны (`scripts/templates/`) и рендеринг в `generated/<env>/`
 - Helpers и утилиты в `scripts/core/`
 
@@ -151,6 +151,7 @@ CLI является единым интерфейсом для работы с�
 * nginx конфигурацию
 * compose конфигурацию
 * свежесть generated-файлов через `generated/<env>/manifest.env`
+* валидность значений маршрутов для nginx: host, upstream `service:port`, диапазон портов и `client_max_body_size`
 * соответствие upstream services из `routes.env` сервисам полной compose-конфигурации
 
 ---
@@ -188,6 +189,16 @@ CLI является единым интерфейсом для работы с�
 ./scripts/cli.py stack smoke dev
 ./scripts/cli.py stack smoke prod
 ```
+
+Проверяет уже запущенный стек:
+
+* валидность итоговой compose-конфигурации
+* наличие обязательных сервисов `mysql`, `redis`, `rabbitmq`, `backend`, `nginx`
+* health/status core services и readiness backend внутри контейнера
+* HTTPS `/health` для каждого host из `generated/<env>/routes.env` через локальный `curl --resolve ... 127.0.0.1`
+* smoke paths по типу маршрута: для `api` — `/health/ready`, для остальных маршрутов — `/`
+
+Если `HTTP_PORT`/`HTTPS_PORT` нестандартные, smoke предупреждает, что браузерные URL без явного порта требуют `HTTPS_PORT=443` или внешний portproxy/reverse proxy.
 
 ---
 
@@ -522,6 +533,7 @@ scripts/templates/proxy-params.conf
 Различия между окружениями задаются через `env/<env>.env`, `env/common.env`, `config/routes.yml`, `config/apps.yml` и сгенерированные файлы в `generated/<env>/`.
 
 Финальные маршруты nginx берёт не напрямую из `config/routes.yml`, а из `generated/<env>/routes.env`.
+Перед рендерингом генератор nginx валидирует route name, host, upstream и `client_max_body_size`; Jinja2 работает в режиме `StrictUndefined`, чтобы ошибка в шаблоне или контексте падала на генерации, а не превращалась в битый nginx config.
 
 В итоговой compose-схеме nginx ждёт готовности `backend` и сгенерированного `client-app` через `depends_on: condition: service_healthy`.
 Все Next.js frontend services используют одинаковый runtime-профиль: `user: 10001:10001`, `read_only: true`, `tmpfs: /tmp`, `cap_drop: ALL`, `security_opt: no-new-privileges:true`, лимиты `CLIENT_APP_*` и TCP healthcheck порта `3000` внутри контейнера.
@@ -1615,6 +1627,7 @@ docker network create yuviron_shared
 * наличие сети `yuviron_shared`
 * валидность compose-конфигурации
 * свежесть generated-файлов по `generated/<env>/manifest.env`
+* валидность route hosts, upstreams и client body limits перед nginx validation
 * наличие route hosts в `generated/<env>/nginx.conf`
 * соответствие upstream services из `routes.env` сервисам compose
 * синтаксис nginx через `nginx -t`
@@ -1764,6 +1777,8 @@ aspire-dashboard
 * `https://dev-backoffice.yuviron.com` → `backoffice`
 * `https://dev-admin.yuviron.com` → `admin`
 * `https://dev-api.yuviron.com` → `backend`
+* `https://dev-seq.yuviron.com` → `seq`
+* `https://dev-aspire.yuviron.com` → `aspire-dashboard`
 
 Если ты обращаешься к Ubuntu VM напрямую без внешнего portproxy/reverse proxy, dev HTTPS будет доступен на порту `8443`, например `https://dev.yuviron.com:8443`.
 При portproxy с `listenport=443` внешний URL остаётся без порта.
