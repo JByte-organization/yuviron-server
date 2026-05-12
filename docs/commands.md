@@ -203,6 +203,8 @@ generated/<env>/Corefile
 
 Каждый route host получает A/hosts-запись на указанный `--ip`. Остальные DNS-запросы форвардятся на `8.8.8.8` и `1.1.1.1`.
 
+Corefile не редактируется вручную. После изменения routes/apps/domain нужно перегенерировать runtime config и снова выполнить `dns generate`.
+
 ---
 
 ## 🛠 TOOLS

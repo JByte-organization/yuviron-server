@@ -81,7 +81,7 @@ client-app / backoffice / admin / backend
 
 ## Настройка CoreDNS для dev-окружения
 
-Если dev-среда работает через Windows host с отдельным DNS, можно использовать **CoreDNS**.
+Если dev-среда работает через Windows host с отдельным DNS, можно использовать **CoreDNS**. Corefile не нужно редактировать руками: он должен генерироваться из `generated/<env>/routes.env`, чтобы DNS всегда совпадал с nginx routes.
 
 Создать директорию:
 
@@ -91,13 +91,7 @@ C:\coredns
 
 Распаковать туда `coredns.exe`.
 
-Создать файл:
-
-```text
-C:\coredns\Corefile
-```
-
-Corefile можно сгенерировать из runtime routes проекта:
+Сгенерировать Corefile из runtime routes проекта:
 
 ```bash
 ./scripts/cli.py dns generate --env dev --domain yuviron.com --ip 100.81.228.68
@@ -111,31 +105,18 @@ generated/dev/Corefile
 
 После генерации файл можно перенести или синхронизировать в `C:\coredns\Corefile` на Windows host.
 
-Пример конфигурации:
+Сгенерированная конфигурация:
 
-```txt
-yuviron.com {
-    template IN A {
-        match .*\.yuviron\.com
-        answer "{{ .Name }} 60 IN A <RADMIN_VPN_IP>"
-    }
+* берёт актуальный список hosts из `generated/dev/routes.env`
+* отправляет route hosts на IP из `--ip`
+* все остальные DNS-запросы форвардятся на upstream public resolvers
 
-    hosts {
-        <RADMIN_VPN_IP> yuviron.com
-        fallthrough
-    }
-}
+После изменения `config/routes.yml`, `config/apps.yml`, набора apps или base domain сначала перегенерируй runtime config, затем Corefile:
 
-. {
-    forward . 8.8.8.8 1.1.1.1
-}
+```bash
+python3 scripts/init.py --env dev --domain yuviron.com --no-up
+./scripts/cli.py dns generate --env dev --domain yuviron.com --ip 100.81.228.68
 ```
-
-Эта конфигурация:
-
-* отправляет все `*.yuviron.com` на IP `<RADMIN_VPN_IP>`
-* резолвит корневой домен `yuviron.com`
-* все остальные DNS-запросы проксирует на публичные резолверы
 
 ---
 
