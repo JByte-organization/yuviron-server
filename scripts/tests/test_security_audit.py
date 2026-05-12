@@ -190,6 +190,30 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertEqual(0, len(dev_report.errors))
         self.assertGreaterEqual(len(dev_report.warnings), 3)
 
+    def test_env_policy_flags_prod_runtime_misconfiguration(self) -> None:
+        report = security.AuditReport()
+
+        security._audit_env_policy(
+            {
+                "MYSQL_ROOT_PASSWORD": "root",
+                "Swagger__Enabled": "true",
+                "ASPNETCORE_ENVIRONMENT": "Development",
+                "ASPIRE_FRONTEND_BROWSER_TOKEN": "short",
+                "JWT_SECRET": "short",
+                "CLIENT_SECRET": "short",
+            },
+            "prod",
+            report,
+        )
+
+        messages = "\n".join(finding.message for finding in report.errors)
+        self.assertIn("MYSQL_ROOT_PASSWORD", messages)
+        self.assertIn("Swagger__Enabled", messages)
+        self.assertIn("ASPNETCORE_ENVIRONMENT", messages)
+        self.assertIn("ASPIRE_FRONTEND_BROWSER_TOKEN", messages)
+        self.assertIn("JWT_SECRET", messages)
+        self.assertIn("CLIENT_SECRET", messages)
+
     def test_group_readable_tls_key_is_allowed_for_nginx_cert_group_only(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

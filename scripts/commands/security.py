@@ -22,6 +22,8 @@ if __package__ in {None, ""}:
     raise SystemExit(subprocess.call([str(cli_path), "security", *sys.argv[1:]]))
 
 from core.env import parse_env_file, parse_routes_file, resolve_runtime_env
+from core.env_validation import ERROR as ENV_ERROR
+from core.env_validation import is_token_key, validate_runtime_env
 from core.models import MANAGEMENT_ROUTE_NAMES
 from core.paths import resolve_root_dir
 from core.ui import log_err, log_info, log_ok, log_warn
@@ -288,7 +290,7 @@ def _weak_secret_reason(key: str, value: str, environment: str) -> str:
         return "template-like password value"
     if environment == "prod" and "dev" in lowered:
         return "dev-looking value in prod"
-    if environment == "prod" and len(stripped) < 16:
+    if environment == "prod" and not is_token_key(key) and len(stripped) < 16:
         return "short production secret"
     return ""
 
@@ -308,6 +310,15 @@ def _audit_default_passwords(env_values: dict[str, str], environment: str, repor
             report.error("default-secrets", message)
         else:
             report.warn("default-secrets", message)
+
+
+def _audit_env_policy(env_values: dict[str, str], environment: str, report: AuditReport) -> None:
+    for issue in validate_runtime_env(env_values, environment):
+        message = f"{issue.key}: {issue.message}"
+        if issue.severity == ENV_ERROR:
+            report.error("env-policy", message)
+        else:
+            report.warn("env-policy", message)
 
 
 def _audit_cert_files(env_values: dict[str, str], report: AuditReport) -> None:
@@ -581,6 +592,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
 
     _run_check(report, "Auditing container hardening", lambda: _audit_container_hardening(services, environment, report))
     _run_check(report, "Auditing published ports", lambda: _audit_published_ports(services, report))
+    _run_check(report, "Auditing env policy", lambda: _audit_env_policy(env_values, environment, report))
     _run_check(report, "Auditing default secrets", lambda: _audit_default_passwords(env_values, environment, report))
     _run_check(report, "Auditing TLS files", lambda: _audit_cert_files(env_values, report))
     _run_check(report, "Auditing storage permissions", lambda: _audit_storage_paths(env_values, report))

@@ -554,6 +554,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
 
         preflight_core.load_env_file(ctx)
         preflight_core.check_required_env_vars(ctx)
+        preflight_core.check_env_policy(ctx)
         preflight_core.check_runtime_files(ctx)
         preflight_core.check_storage_writable(ctx)
         preflight_core.check_disk_space(ctx)

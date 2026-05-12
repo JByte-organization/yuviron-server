@@ -112,6 +112,19 @@ cp env/example.env env/prod.env
 `env/common.env` и `env/<env>.env` объединяются генератором в `generated/<env>/deploy.env`.
 Именно `deploy.env`, а не исходный `env/dev.env` или `env/prod.env`, используется как `--env-file` для Docker Compose.
 
+### Env validation policy
+
+`stack preflight` и `security audit` проверяют итоговый `generated/<env>/deploy.env`, то есть уже объединённые common/env-specific значения.
+
+Для `prod` следующие значения считаются ошибкой:
+
+* `MYSQL_ROOT_PASSWORD=root`
+* `Swagger__Enabled=true` или другое truthy-значение (`1`, `yes`, `on`)
+* `ASPNETCORE_ENVIRONMENT=Development`
+* secret-like env keys с короткими значениями: ключи с `TOKEN`, `API_KEY` или `SECRET` должны иметь минимум 32 символа
+
+Для `dev` dev-значения вроде `MYSQL_ROOT_PASSWORD=root`, `Swagger__Enabled=true` и `ASPNETCORE_ENVIRONMENT=Development` допустимы, но короткие secret-like значения дают warning. Минимум для non-prod secret-like значений — 16 символов.
+
 ### Edge-порты
 
 `HTTP_PORT` и `HTTPS_PORT` задают host-порты, на которые Docker публикует nginx:

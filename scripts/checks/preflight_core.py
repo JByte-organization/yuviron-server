@@ -12,8 +12,9 @@ from core.env import (
     parse_routes_file,
     resolve_runtime_env,
 )
+from core.env_validation import ERROR, validate_runtime_env
 from core.htpasswd import resolve_htpasswd_path
-from core.ui import log_info, log_ok
+from core.ui import log_info, log_ok, log_warn
 from core.validators import ensure_command, fail
 
 
@@ -218,6 +219,23 @@ def check_required_env_vars(ctx: object) -> None:
         fail(f"Missing required env vars: {' '.join(missing)}")
 
     log_ok("Required env vars are present")
+
+
+def check_env_policy(ctx: object) -> None:
+    log_info("Checking env safety policy")
+
+    issues = validate_runtime_env(ctx.runtime_values, ctx.environment)
+    warnings = [issue for issue in issues if issue.severity != ERROR]
+    errors = [issue for issue in issues if issue.severity == ERROR]
+
+    for issue in warnings:
+        log_warn(f"{issue.key}: {issue.message}")
+
+    if errors:
+        details = "\n".join(f"- {issue.key}: {issue.message}" for issue in errors)
+        fail(f"Unsafe env values for {ctx.environment}:\n{details}")
+
+    log_ok("Env safety policy passed")
 
 
 def _storage_dir_mode() -> int:

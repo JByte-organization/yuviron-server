@@ -30,6 +30,7 @@
 
 * Docker
 * env-файлы
+* env safety policy для prod/dev
 * сеть
 * права доступа
 * nginx конфигурацию
@@ -183,6 +184,7 @@ Seq запускается non-root: одноразовый `seq-init` без с
 * наличие обязательных файлов и директорий
 * доступ к Docker
 * наличие env-файла
+* безопасные runtime env-значения: prod запрещает `MYSQL_ROOT_PASSWORD=root`, `Swagger__Enabled=true`, `ASPNETCORE_ENVIRONMENT=Development` и короткие token/API key/secret значения
 * права на storage
 * свободное место на диске
 * наличие сети `yuviron_shared`
