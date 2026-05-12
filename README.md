@@ -16,6 +16,8 @@
 ### Dev
 
 ```bash
+python3 -m pip install -r requirements.txt
+
 cp env/example.env env/dev.env
 # Отредактируйте env/dev.env и заполните реальные значения.
 
@@ -43,6 +45,8 @@ https://dev-api.yuviron.com
 ### Prod
 
 ```bash
+python3 -m pip install -r requirements.txt
+
 cp env/example.env env/prod.env
 # Отредактируйте env/prod.env и заполните production-значения.
 
@@ -79,6 +83,7 @@ https://api.yuviron.com
 ## Тесты
 
 ```bash
+python3 -m pip install -r requirements.txt
 python3 -m unittest discover -s scripts/tests
 ```
 

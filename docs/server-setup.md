@@ -66,6 +66,19 @@ cd yuviron-server
 
 ---
 
+## Python-зависимости
+
+Инфраструктурные CLI-скрипты используют Python-зависимости из `requirements.txt`:
+
+```bash
+cd /opt/yuviron-server
+python3 -m pip install -r requirements.txt
+```
+
+Минимально требуются `PyYAML` для YAML-конфигурации и `Jinja2` для nginx templates.
+
+---
+
 ## Установка Docker
 
 Для установки Docker доступна CLI-обёртка над `scripts/tools/docker_install.sh`:

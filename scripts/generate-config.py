@@ -9,7 +9,7 @@ from pathlib import Path
 try:
     import yaml  # noqa: F401
 except ImportError as exc:
-    print("ERROR: PyYAML is required. Install it with: python3 -m pip install pyyaml", file=sys.stderr)
+    print("ERROR: PyYAML is required. Install script dependencies with: python3 -m pip install -r requirements.txt", file=sys.stderr)
     raise SystemExit(1) from exc
 
 if __package__ in {None, ""}:
