@@ -26,6 +26,34 @@ CLI является единым интерфейсом для работы с�
 * `action` — операция
 * `env` — окружение (`dev`, `prod`)
 
+`doctor` — отдельная top-level команда:
+
+```bash
+./scripts/cli.py doctor dev
+./scripts/cli.py doctor prod
+./scripts/cli.py doctor dev --strict
+```
+
+Проверяет host-level готовность окружения:
+
+* Docker CLI и доступ к daemon
+* Docker Compose plugin
+* Tailscale daemon и tailnet IP
+* DNS для hosts из `generated/<env>/routes.env`
+* наличие и базовую валидность сертификата/ключа
+* покрытие route hosts в SAN сертификата
+* свободность `HTTP_PORT`/`HTTPS_PORT` или их занятость ожидаемым `${COMPOSE_PROJECT_NAME}-nginx`
+* наличие обязательных env/runtime values
+* generated runtime-файлы
+* доступность `STORAGE_PATH`/`SEQ_STORAGE_PATH`
+* свободное место на диске
+* Docker shared network
+* валидность compose config
+* валидность nginx config через `nginx -t`
+* локальный firewall для `53/tcp`, `53/udp`, `80/tcp`, `443/tcp` и фактических HTTP/HTTPS портов
+
+По умолчанию warning'и не делают exit code non-zero. `--strict` считает warning'и ошибкой.
+
 ---
 
 ## 🧱 STACK

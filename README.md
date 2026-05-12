@@ -21,6 +21,7 @@ cp env/example.env env/dev.env
 
 python3 scripts/init.py --env dev --domain yuviron.com --no-up
 ./scripts/cli.py stack preflight dev
+./scripts/cli.py doctor dev
 ./scripts/cli.py stack up dev
 ./scripts/cli.py stack smoke dev
 ```

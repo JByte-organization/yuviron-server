@@ -6,6 +6,18 @@
 
 ## 🧱 STACK
 
+### Doctor
+
+```bash
+./scripts/cli.py doctor dev
+./scripts/cli.py doctor prod
+./scripts/cli.py doctor dev --strict
+```
+
+Проверяет host-level зависимости перед запуском или разбором проблем: Docker, Compose, Tailscale, DNS, cert/key, публичные порты, env/runtime-файлы, storage, диск, shared network, compose/nginx config и локальный firewall для `53/80/443`. Если `HTTP_PORT`/`HTTPS_PORT` уже заняты ожидаемым `${COMPOSE_PROJECT_NAME}-nginx`, это считается нормальным состоянием.
+
+---
+
 ### Preflight (обязательная проверка)
 
 ```bash
