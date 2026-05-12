@@ -177,6 +177,24 @@ CLI является единым интерфейсом для работы с�
 
 ---
 
+## 🌐 DNS
+
+### CoreDNS Corefile
+
+```bash
+./scripts/cli.py dns generate --env dev --domain yuviron.com --ip 100.81.228.68
+```
+
+Команда читает `generated/<env>/routes.env` и записывает CoreDNS-конфиг в:
+
+```text
+generated/<env>/Corefile
+```
+
+Каждый route host получает A/hosts-запись на указанный `--ip`. Остальные DNS-запросы форвардятся на `8.8.8.8` и `1.1.1.1`.
+
+---
+
 ## 🛠 TOOLS
 
 ### Установка Docker

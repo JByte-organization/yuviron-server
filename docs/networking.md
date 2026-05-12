@@ -97,6 +97,20 @@ C:\coredns
 C:\coredns\Corefile
 ```
 
+Corefile можно сгенерировать из runtime routes проекта:
+
+```bash
+./scripts/cli.py dns generate --env dev --domain yuviron.com --ip 100.81.228.68
+```
+
+Результат будет сохранён в:
+
+```text
+generated/dev/Corefile
+```
+
+После генерации файл можно перенести или синхронизировать в `C:\coredns\Corefile` на Windows host.
+
 Пример конфигурации:
 
 ```txt
