@@ -12,6 +12,7 @@ if __package__ in {None, ""}:
 
 from commands import backup as backup_cmd
 from commands import certs as certs_cmd
+from commands import dns as dns_cmd
 from commands import doctor as doctor_cmd
 from commands import security as security_cmd
 from commands import stack as stack_cmd
@@ -29,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     stack_cmd.register(subparsers)
     doctor_cmd.register(subparsers)
+    dns_cmd.register(subparsers)
     backup_cmd.register(subparsers)
     certs_cmd.register(subparsers)
     security_cmd.register(subparsers)
