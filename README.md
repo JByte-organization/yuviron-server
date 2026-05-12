@@ -88,6 +88,7 @@ python3 -m unittest discover -s scripts/tests
 
 * [Индекс документации](docs/index.md)
 * [Обзор и архитектура](docs/overview.md)
+* [Подробная архитектура](docs/architecture.md)
 * [CLI и команды](docs/commands.md)
 * [Operations и запуск стека](docs/operations.md)
 * [Runtime-конфигурация](docs/runtime-config.md)

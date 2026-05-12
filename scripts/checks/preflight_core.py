@@ -4,7 +4,7 @@ import os
 import shutil
 from pathlib import Path
 
-from core.docker import run
+from core.docker import ensure_shared_network, run
 from core.env import (
     ensure_generated_basic_auth_file,
     generated_exists,
@@ -19,6 +19,74 @@ from core.validators import ensure_command, fail
 
 REQUIRED_STORAGE_DIRS = ("avatars", "banners", "covers", "seq", "temp", "tracks")
 DEFAULT_STORAGE_DIR_MODE = "0777"
+
+
+def _resolve_regeneration_value(ctx: object, key: str, *value_maps: dict[str, str]) -> str:
+    manifest_values = getattr(ctx, "manifest_values", {})
+    value = manifest_values.get(key, "").strip()
+    if value:
+        return value
+
+    for values in value_maps:
+        value = values.get(key, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _resolve_regeneration_inputs(ctx: object) -> tuple[str, str, str]:
+    deploy_values = parse_env_file(ctx.env_file)
+    stack_values = parse_env_file(ctx.stack_env_file)
+    apps_values = parse_env_file(ctx.apps_file)
+
+    domain = _resolve_regeneration_value(ctx, "GENERATION_DOMAIN")
+    if not domain:
+        domain = _resolve_regeneration_value(ctx, "BASE_DOMAIN", stack_values, deploy_values)
+
+    app_keys = _resolve_regeneration_value(ctx, "GENERATION_APP_KEYS")
+    if not app_keys:
+        app_keys = _resolve_regeneration_value(ctx, "FRONTEND_APP_KEYS", apps_values)
+
+    manifest_values = getattr(ctx, "manifest_values", {})
+    extra_routes = manifest_values.get("GENERATION_EXTRA_ROUTES", "").strip()
+
+    if not domain:
+        fail(
+            "Could not infer domain for generated config regeneration. "
+            f"Run ./scripts/init.py --env {ctx.environment} --domain <domain> --no-up."
+        )
+    if not app_keys:
+        fail(
+            "Could not infer frontend apps for generated config regeneration. "
+            f"Run ./scripts/init.py --env {ctx.environment} --domain {domain} --apps <apps> --no-up."
+        )
+
+    return domain, app_keys, extra_routes
+
+
+def regenerate_preflight_generated(ctx: object) -> None:
+    domain, app_keys, extra_routes = _resolve_regeneration_inputs(ctx)
+    log_info(
+        f"Regenerating generated config for {ctx.environment}: "
+        f"domain={domain}, apps={app_keys}"
+    )
+
+    run(
+        [
+            "python3",
+            str(ctx.root_dir / "scripts" / "generate-config.py"),
+            f"--env={ctx.environment}",
+            f"--domain={domain}",
+            f"--apps={app_keys}",
+            f"--extra-routes={extra_routes}",
+        ],
+        cwd=ctx.root_dir,
+    )
+    ensure_shared_network(
+        ctx.environment,
+        root_dir=ctx.root_dir,
+        generated_dir=ctx.root_dir / "generated",
+    )
 
 
 def check_required_paths(ctx: object) -> None:

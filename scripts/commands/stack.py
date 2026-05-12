@@ -22,7 +22,7 @@ from core.docker import ComposeContext, run, run_compose
 from core.env import parse_env_file, parse_routes_file, resolve_runtime_env
 from core.paths import resolve_root_dir
 from core.ui import log_info, log_ok, log_warn
-from core.validators import ensure_command, fail, resolve_prompted_environment
+from core.validators import CommandError, ensure_command, fail, resolve_prompted_environment
 
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[2]
@@ -540,7 +540,17 @@ def cmd_preflight(args: argparse.Namespace) -> int:
 
         if ctx.strict_generated:
             preflight_generated.load_manifest_file(ctx)
-            preflight_generated.check_generated_freshness(ctx)
+            try:
+                preflight_generated.check_generated_freshness(ctx)
+            except CommandError as exc:
+                if not (ctx.allow_regenerate or environment == "dev"):
+                    raise
+
+                reason = str(exc).splitlines()[0]
+                log_warn(f"{reason}; regenerating generated config")
+                preflight_core.regenerate_preflight_generated(ctx)
+                preflight_generated.load_manifest_file(ctx)
+                preflight_generated.check_generated_freshness(ctx)
 
         preflight_core.load_env_file(ctx)
         preflight_core.check_required_env_vars(ctx)

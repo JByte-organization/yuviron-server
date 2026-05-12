@@ -5,6 +5,7 @@
 ## Разделы
 
 * [Обзор и архитектура](overview.md)
+* [Подробная архитектура](architecture.md)
 * [CLI и команды](commands.md)
 * [Operations и запуск стека](operations.md)
 * [Runtime-конфигурация](runtime-config.md)

@@ -55,4 +55,7 @@ edge nginx
   ↓
 приложения (frontend / backend)
 ```
+
+Подробная рабочая схема: [architecture.md](architecture.md).
+
 ---

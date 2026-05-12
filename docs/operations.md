@@ -38,6 +38,8 @@
 * валидность значений маршрутов для nginx: host, upstream `service:port`, диапазон портов и `client_max_body_size`
 * соответствие upstream services из `routes.env` сервисам полной compose-конфигурации
 
+Если `generated/<env>/manifest.env` устарел после обновления source-файлов, `preflight dev` автоматически пересобирает generated config и повторяет проверку. Для `prod` это поведение включается только явно: `./scripts/cli.py stack preflight prod --allow-regenerate` или `ALLOW_REGENERATE=1`.
+
 ---
 
 ### Запуск
@@ -190,6 +192,8 @@ Seq запускается non-root: одноразовый `seq-init` без с
 * наличие route hosts в `generated/<env>/nginx.conf`
 * соответствие upstream services из `routes.env` сервисам compose
 * синтаксис nginx через `nginx -t`
+
+Для `dev` stale generated-файлы исправляются прямо внутри preflight: CLI не заходит в интерактивный `init.py`, а запускает `generate-config.py` с параметрами из `manifest.env` или уже сгенерированных `stack.env`/`apps.env`. Для `prod` preflight падает на stale config, пока не передан `--allow-regenerate` или `ALLOW_REGENERATE=1`.
 
 Это позволяет обнаружить типовые проблемы **до запуска контейнеров**.
 

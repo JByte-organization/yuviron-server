@@ -250,7 +250,13 @@ def main() -> None:
         "GENERATED_NGINX_CONF_SHA256": hash_file(nginx_conf_path),
     }
 
-    write_text(manifest_env_path, render_manifest_env(source_hashes, generated_hashes))
+    generation_values = {
+        "GENERATION_DOMAIN": base_domain,
+        "GENERATION_APP_KEYS": ",".join(selected_keys),
+        "GENERATION_EXTRA_ROUTES": ",".join(ctx.extra_routes_raw),
+    }
+
+    write_text(manifest_env_path, render_manifest_env(source_hashes, generated_hashes, generation_values))
 
     print("Сгенерировано:")
     for path in (

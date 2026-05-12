@@ -86,8 +86,14 @@ def render_stack_env(stack_values: Dict[str, str]) -> str:
     return "\n".join(f"{key}={value}" for key, value in stack_values.items()) + "\n"
 
 
-def render_manifest_env(source_hashes: Dict[str, str], generated_hashes: Dict[str, str]) -> str:
+def render_manifest_env(
+    source_hashes: Dict[str, str],
+    generated_hashes: Dict[str, str],
+    generation_values: Dict[str, str] | None = None,
+) -> str:
     payload = {}
+    if generation_values:
+        payload.update(generation_values)
     payload.update(source_hashes)
     payload.update(generated_hashes)
     return "\n".join(f"{key}={value}" for key, value in payload.items()) + "\n"

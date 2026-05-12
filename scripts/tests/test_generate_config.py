@@ -80,9 +80,13 @@ class GenerateConfigTests(unittest.TestCase):
             self.assertTrue((output_dir / "htpasswd.credentials").is_file())
             deploy_env = (output_dir / "deploy.env").read_text(encoding="utf-8")
             stack_env = (output_dir / "stack.env").read_text(encoding="utf-8")
+            manifest_env = (output_dir / "manifest.env").read_text(encoding="utf-8")
             self.assertIn(f"NGINX_BASIC_AUTH_FILE={output_dir / 'htpasswd'}", deploy_env)
             self.assertIn("MYSQL_ROOT_PASSWORD=test-only-root-password", deploy_env)
             self.assertIn("HTTP_PORT=18080", stack_env)
+            self.assertIn("GENERATION_DOMAIN=example.com", manifest_env)
+            self.assertIn("GENERATION_APP_KEYS=client,admin,backoffice", manifest_env)
+            self.assertIn("GENERATION_EXTRA_ROUTES=", manifest_env)
             self.assertNotIn("YV_DEV_ASPIRE_2026", deploy_env)
 
 

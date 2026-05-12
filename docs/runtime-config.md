@@ -30,9 +30,27 @@ generated/<env>/
 * `htpasswd` — Basic Auth users для внутренних management routes (`seq`, `aspire` и т.п.), монтируется в nginx как `/etc/nginx/htpasswd`
 * `htpasswd.credentials` — одноразово созданные plaintext-credentials для первого входа; файл не перезаписывается, если `htpasswd` уже существует
 * `stack.env` — runtime-значения стека, включая `COMPOSE_PROJECT_NAME`, пути storage/certs и host-порты nginx
-* `manifest.env` — hashes source/generated файлов для проверки свежести
+* `manifest.env` — hashes source/generated файлов для проверки свежести, а также параметры генерации: `GENERATION_DOMAIN`, `GENERATION_APP_KEYS`, `GENERATION_EXTRA_ROUTES`
 
-Если preflight пишет, что source stale или modified, перегенерируй файлы:
+### Freshness manifest
+
+`generated/` не хранится в git, а source-файлы вроде `env/common.env`, `env/<env>.env`, `config/apps.yml`, `config/routes.yml` и генератор обновляются через git. Поэтому после `git pull` на сервере возможна ситуация: source уже новый, а локальный `generated/<env>/manifest.env` всё ещё содержит hashes от старой генерации. В этом случае preflight пишет `source is stale or modified`.
+
+Для `dev` `stack preflight` автоматически пересобирает stale generated config, перечитывает manifest и повторяет проверку свежести. Для регенерации используются параметры из `manifest.env`; для старых manifest без этих полей CLI берёт `BASE_DOMAIN` из `stack.env`/`deploy.env` и `FRONTEND_APP_KEYS` из `apps.env`.
+
+Для `prod` автоматическая регенерация отключена по умолчанию. Это сохраняет явный контроль над production runtime-файлами. Если нужно разрешить автоперегенерацию в CI/deploy, используй:
+
+```bash
+./scripts/cli.py stack preflight prod --allow-regenerate
+```
+
+или:
+
+```bash
+ALLOW_REGENERATE=1 ./scripts/cli.py stack preflight prod
+```
+
+Ручная перегенерация по-прежнему доступна:
 
 ```bash
 python3 scripts/init.py --env dev --domain yuviron.com --no-up
