@@ -31,6 +31,17 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertEqual("${RABBITMQ_DEFAULT_PASS}", compose["x-dotnet-env"]["RabbitMQ__Password"])
         self.assertNotIn("RabbitMQ__Password=", example_env)
 
+    def test_example_env_uses_placeholders_for_secret_like_values(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        example_env = (root / "env" / "example.env").read_text(encoding="utf-8")
+
+        self.assertIn("MYSQL_ROOT_PASSWORD=<YOUR_MYSQL_ROOT_PASSWORD>", example_env)
+        self.assertIn("ASPIRE_FRONTEND_BROWSER_TOKEN=<YOUR_ASPIRE_BROWSER_TOKEN_MIN_32_CHARS>", example_env)
+        self.assertIn("JamendoApi__ClientId=<YOUR_JAMENDO_CLIENT_ID>", example_env)
+        self.assertNotIn("YV_DEV_ASPIRE_2026", example_env)
+        self.assertNotIn("yv_dev_strong_password_1234", example_env)
+        self.assertNotIn("JamendoApi__ClientId=65493600", example_env)
+
     def test_stateful_services_drop_capabilities_where_supported(self) -> None:
         root = SCRIPTS_ROOT.parent
         compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
