@@ -34,7 +34,7 @@ ERROR = "ERROR"
 WARN = "WARN"
 
 STATEFUL_SERVICES = {"mysql", "redis", "rabbitmq", "seq"}
-ROOT_ALLOWED_SERVICES = {"seq"}
+ROOT_ALLOWED_SERVICES = {"seq-init"}
 ALLOWED_PUBLISHED_PORT_SERVICES = {"nginx"}
 ALLOWED_NGINX_CONTAINER_PORTS = {"80", "443"}
 

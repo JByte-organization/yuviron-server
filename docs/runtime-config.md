@@ -187,7 +187,7 @@ HTTP_PORT=80
 HTTPS_PORT=443
 ```
 
-Для env-specific секретов и connection strings ориентируйся на ключи из `env/example.env`; общие инфраструктурные knobs, такие как resource limits и nginx rate limit, по умолчанию живут в `env/common.env` и могут быть переопределены в `env/<env>.env`.
+Для env-specific секретов и connection strings ориентируйся на ключи из `env/example.env`; общие инфраструктурные knobs, такие как resource limits, nginx rate limit и `SEQ_UID`/`SEQ_GID` для non-root запуска Seq, по умолчанию живут в `env/common.env` и могут быть переопределены в `env/<env>.env`.
 
 ---
 
