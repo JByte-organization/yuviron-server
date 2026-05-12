@@ -17,6 +17,7 @@
 ```bash
 ./scripts/cli.py backup verify
 ./scripts/cli.py backup verify --full
+./scripts/cli.py backup restore-test dev
 ```
 
 ### Полный цикл
@@ -73,6 +74,7 @@ BACKEND_SERVICE_NAME=backend
 ./scripts/cli.py backup create
 ./scripts/cli.py backup verify
 ./scripts/cli.py backup verify --full
+./scripts/cli.py backup restore-test dev
 ./scripts/cli.py backup restore --env dev --archive backups/archives/<archive>.tar.gz
 ./scripts/cli.py tools setup-cron
 ```
@@ -87,6 +89,21 @@ BACKEND_SERVICE_NAME=backend
 
 ```bash
 ./scripts/cli.py backup verify
+```
+
+### Restore-test MySQL dump
+
+```bash
+./scripts/cli.py backup restore-test dev
+./scripts/cli.py backup restore-test prod --archive backups/archives/<archive>.tar.gz
+```
+
+Команда берёт `mysql.sql.gz` выбранного окружения из backup-архива, поднимает временный контейнер `mysql:8.4`, импортирует dump в отдельную временную базу, проверяет количество восстановленных таблиц и удаляет временный контейнер/рабочую директорию.
+
+По умолчанию требуется минимум одна таблица. Порог можно переопределить:
+
+```bash
+./scripts/cli.py backup restore-test dev --min-tables 5
 ```
 
 ### Автоматизация (cron)

@@ -67,6 +67,7 @@ https://api.yuviron.com
 ./scripts/cli.py stack smoke dev
 ./scripts/cli.py backup create
 ./scripts/cli.py backup verify
+./scripts/cli.py backup restore-test dev
 ./scripts/cli.py security audit dev
 ./scripts/cli.py tools docker-clean --mode report
 ```

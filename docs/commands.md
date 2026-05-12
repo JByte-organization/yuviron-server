@@ -155,6 +155,7 @@ CLI является единым интерфейсом для работы с�
 ```bash
 ./scripts/cli.py backup verify
 ./scripts/cli.py backup verify --full
+./scripts/cli.py backup restore-test dev
 ```
 
 ### Полный цикл
@@ -162,6 +163,15 @@ CLI является единым интерфейсом для работы с�
 ```bash
 ./scripts/cli.py backup create && ./scripts/cli.py backup verify
 ```
+
+### Restore-test
+
+```bash
+./scripts/cli.py backup restore-test dev
+./scripts/cli.py backup restore-test prod --archive backups/archives/<archive>.tar.gz
+```
+
+Поднимает временный `mysql:8.4`, импортирует `mysql.sql.gz` выбранного окружения, проверяет восстановленные таблицы и удаляет временный контейнер.
 
 ---
 
