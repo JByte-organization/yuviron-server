@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -32,6 +33,9 @@ from .core import (
     _validate_tar,
 )
 from .docker_utils import _service_exists, _service_running, _wait_for_mysql_ready
+
+
+MYSQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 
 
 def cmd_backup_create(args: argparse.Namespace) -> int:
@@ -560,6 +564,268 @@ def cmd_backup_restore(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_backup_archive(paths: object, archive: str | None) -> Path:
+    if archive:
+        archive_file = Path(archive).expanduser().resolve()
+    else:
+        archives = sorted(paths.backup_archive_dir.glob("*.tar.gz"))
+        if not archives:
+            fail(f"No backup archive found in {paths.backup_archive_dir}")
+        archive_file = archives[-1]
+
+    if not archive_file.is_file():
+        fail(f"Backup archive not found: {archive_file}")
+
+    return archive_file
+
+
+def _extract_snapshot_dir(archive_file: Path, work_dir: Path) -> Path:
+    _validate_tar(archive_file)
+    run(["tar", "-xzf", str(archive_file), "-C", str(work_dir)])
+
+    snapshot_dirs = sorted(p for p in work_dir.iterdir() if p.is_dir())
+    if not snapshot_dirs:
+        fail("Snapshot directory not found after extraction")
+    if len(snapshot_dirs) > 1:
+        fail(f"Expected one snapshot directory, found: {', '.join(path.name for path in snapshot_dirs)}")
+
+    return snapshot_dirs[0]
+
+
+def _resolve_snapshot_env_dir(snapshot_dir: Path, environment: str) -> Path:
+    env_snapshot_dir = snapshot_dir / environment
+    if not env_snapshot_dir.is_dir():
+        fail(f"Environment snapshot not found in archive: {environment}")
+    return env_snapshot_dir
+
+
+def _validate_mysql_identifier(value: str, label: str = "MySQL identifier") -> str:
+    if not MYSQL_IDENTIFIER_RE.fullmatch(value):
+        fail(f"Invalid {label}: {value!r}")
+    return value
+
+
+def _quote_mysql_identifier(value: str, label: str = "MySQL identifier") -> str:
+    return f"`{_validate_mysql_identifier(value, label)}`"
+
+
+def _restore_test_container_name(environment: str, timestamp_utc: str, pid: int | None = None) -> str:
+    pid_value = os.getpid() if pid is None else pid
+    safe_timestamp = timestamp_utc.lower().replace("t", "-").replace("z", "").replace("_", "-")
+    return f"restore-test-{environment}-{safe_timestamp}-{pid_value}"
+
+
+def _wait_for_standalone_mysql(container_name: str, logger: BackupLogger, timeout_seconds: int) -> None:
+    logger.info("Waiting for temporary MySQL readiness")
+    start_ts = time.time()
+
+    while True:
+        ping = run(
+            [
+                "docker",
+                "exec",
+                container_name,
+                "mysqladmin",
+                "ping",
+                "-h",
+                "127.0.0.1",
+                "-uroot",
+                "-prestoretest",
+                "--silent",
+            ],
+            check=False,
+            capture_output=True,
+        )
+        if ping.returncode == 0:
+            return
+
+        if time.time() - start_ts >= timeout_seconds:
+            raise CommandError(f"Timed out waiting for restore-test MySQL readiness after {timeout_seconds}s")
+
+        time.sleep(2)
+
+
+def _query_standalone_mysql(container_name: str, query: str) -> str:
+    result = run(
+        [
+            "docker",
+            "exec",
+            container_name,
+            "mysql",
+            "-uroot",
+            "-prestoretest",
+            "-N",
+            "-B",
+            "-e",
+            query,
+        ],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        details = (result.stderr or result.stdout or "").strip()
+        suffix = f": {details}" if details else ""
+        raise CommandError(f"Restore-test MySQL query failed{suffix}")
+    return (result.stdout or "").strip()
+
+
+def _check_restored_mysql_tables(container_name: str, database_name: str, min_tables: int, logger: BackupLogger) -> None:
+    database_name = _validate_mysql_identifier(database_name, "database name")
+    raw_count = _query_standalone_mysql(
+        container_name,
+        (
+            "SELECT COUNT(*) "
+            "FROM information_schema.tables "
+            f"WHERE table_schema = '{database_name}' AND table_type = 'BASE TABLE';"
+        ),
+    )
+
+    try:
+        table_count = int(raw_count.splitlines()[-1])
+    except (IndexError, ValueError):
+        raise CommandError(f"Could not parse restored table count: {raw_count!r}")
+
+    if table_count < min_tables:
+        raise CommandError(
+            f"Restore-test imported {table_count} table(s), expected at least {min_tables}"
+        )
+
+    logger.info(f"Restored MySQL table count: {table_count}")
+
+    table_names = _query_standalone_mysql(
+        container_name,
+        (
+            "SELECT table_name "
+            "FROM information_schema.tables "
+            f"WHERE table_schema = '{database_name}' AND table_type = 'BASE TABLE' "
+            "ORDER BY table_name "
+            "LIMIT 20;"
+        ),
+    )
+    if table_names:
+        logger.info("Restored tables sample: " + ", ".join(table_names.splitlines()))
+
+
+def _restore_mysql_dump_into_standalone_container(
+    mysql_dump: Path,
+    *,
+    container_name: str,
+    database_name: str,
+    min_tables: int,
+    logger: BackupLogger,
+) -> None:
+    _validate_gzip(mysql_dump)
+    database_name = _validate_mysql_identifier(database_name, "database name")
+    quoted_database_name = _quote_mysql_identifier(database_name, "database name")
+
+    logger.info(f"Starting temporary MySQL container: {container_name}")
+    run(["docker", "rm", "-f", container_name], check=False, capture_output=True)
+    run(
+        [
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            container_name,
+            "-e",
+            "MYSQL_ROOT_PASSWORD=restoretest",
+            "mysql:8.4",
+        ],
+        capture_output=True,
+    )
+
+    _wait_for_standalone_mysql(
+        container_name,
+        logger,
+        int(os.getenv("RESTORE_TEST_MYSQL_READY_TIMEOUT", "120")),
+    )
+
+    logger.info(f"Creating temporary database: {database_name}")
+    run(
+        [
+            "docker",
+            "exec",
+            container_name,
+            "mysql",
+            "-uroot",
+            "-prestoretest",
+            "-e",
+            f"CREATE DATABASE {quoted_database_name};",
+        ]
+    )
+
+    logger.info(f"Importing MySQL dump: {mysql_dump}")
+    import_cmd = [
+        "docker",
+        "exec",
+        "-i",
+        container_name,
+        "mysql",
+        "-uroot",
+        "-prestoretest",
+        database_name,
+    ]
+    rc, stderr = _stream_gzip_to_stdin(mysql_dump, import_cmd)
+    if rc != 0:
+        details = stderr.strip()
+        if details:
+            raise CommandError(f"Restore-test import failed: {details}")
+        raise CommandError("Restore-test import failed")
+
+    _check_restored_mysql_tables(container_name, database_name, min_tables, logger)
+
+
+def cmd_backup_restore_test(args: argparse.Namespace) -> int:
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+    load_dotenv_if_exists(root_dir / ".env")
+
+    environment = resolve_prompted_environment(getattr(args, "environment_flag", None) or args.environment)
+    paths = _resolve_backup_paths(root_dir)
+    paths.backup_restore_test_tmp.mkdir(parents=True, exist_ok=True)
+    paths.backup_log_dir.mkdir(parents=True, exist_ok=True)
+
+    date_utc = time.strftime("%Y-%m-%d")
+    logger = BackupLogger(paths.backup_log_dir / f"restore-test-{date_utc}.log")
+
+    archive_file = _resolve_backup_archive(paths, args.archive)
+    timestamp_utc = time.strftime("%Y-%m-%dT%H-%M-%SZ")
+    work_dir = paths.backup_restore_test_tmp / f"{environment}-{timestamp_utc}-{os.getpid()}"
+    container_name = _restore_test_container_name(environment, timestamp_utc)
+    database_name = _validate_mysql_identifier(f"restore_{environment}", "database name")
+    min_tables = args.min_tables
+    if min_tables is None:
+        min_tables = int(os.getenv("RESTORE_TEST_MIN_TABLES", "1"))
+    if min_tables < 0:
+        fail("--min-tables must be >= 0")
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info(f"Restore-test started for {environment}")
+    logger.info(f"Archive: {archive_file}")
+
+    try:
+        snapshot_dir = _extract_snapshot_dir(archive_file, work_dir)
+        env_snapshot_dir = _resolve_snapshot_env_dir(snapshot_dir, environment)
+        mysql_dump = env_snapshot_dir / "mysql.sql.gz"
+        if not mysql_dump.is_file():
+            fail(f"MySQL dump not found for {environment}: {mysql_dump}")
+
+        _restore_mysql_dump_into_standalone_container(
+            mysql_dump,
+            container_name=container_name,
+            database_name=database_name,
+            min_tables=min_tables,
+            logger=logger,
+        )
+
+        logger.info(f"Restore-test passed successfully for {environment}")
+        return 0
+    finally:
+        logger.info("Cleaning restore-test environment")
+        run(["docker", "rm", "-f", container_name], check=False, capture_output=True)
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+
 def cmd_backup_verify(args: argparse.Namespace) -> int:
     root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
     load_dotenv_if_exists(root_dir / ".env")
@@ -919,3 +1185,11 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     verify_parser.add_argument("--full", action="store_true", help="Perform a full restore and HTTP healthcheck")
     verify_parser.add_argument("--project-root", dest="project_root")
     verify_parser.set_defaults(handler=cmd_backup_verify)
+
+    restore_test_parser = backup_sub.add_parser("restore-test", help="Restore one environment dump into a temporary MySQL")
+    restore_test_parser.add_argument("environment", nargs="?")
+    restore_test_parser.add_argument("--env", dest="environment_flag", help="Environment name; alternative to positional env")
+    restore_test_parser.add_argument("--archive", help="Explicit archive path (default: latest)")
+    restore_test_parser.add_argument("--min-tables", type=int, default=None, help="Minimum restored base tables required")
+    restore_test_parser.add_argument("--project-root", dest="project_root")
+    restore_test_parser.set_defaults(handler=cmd_backup_restore_test)
