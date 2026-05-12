@@ -121,6 +121,10 @@ yuviron-server/
 * Используйте `backup verify`, а не только `backup create`.
 * Не запускайте CLI от root без необходимости.
 
-## Лицензия
+## Лицензия / License
 
-Internal infrastructure repository. Используется исключительно для разработки и эксплуатации Yuviron.
+This repository is proprietary and internal to Yuviron.
+
+No permission is granted to use, copy, modify, distribute, sublicense,
+or deploy this repository or any part of it outside Yuviron development
+and operations without explicit written permission from the owner.
