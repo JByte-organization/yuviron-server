@@ -56,6 +56,11 @@ class RenderComposeTests(unittest.TestCase):
 
         self.assertEqual(["client-app", "admin", "backoffice"], list(payload["services"].keys()))
         self.assertEqual("client-app", payload["services"]["client-app"]["build"]["args"]["APP_NAME"])
+        self.assertEqual("../src/yuviron-frontend", payload["services"]["client-app"]["build"]["context"])
+        self.assertEqual(
+            "../../infra/docker/frontend-next/Dockerfile",
+            payload["services"]["client-app"]["build"]["dockerfile"],
+        )
         self.assertEqual("${COMPOSE_PROJECT_NAME}-client", payload["services"]["client-app"]["container_name"])
         self.assertEqual("10001:10001", payload["services"]["client-app"]["user"])
         self.assertEqual("${CLIENT_APP_MEM_LIMIT:-256m}", payload["services"]["client-app"]["mem_limit"])

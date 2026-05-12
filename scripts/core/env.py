@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 from .ui import log_warn
+from .paths import compose_relative_path
 from .validators import fail, require_file
 
 
@@ -172,8 +173,8 @@ def build_fallback_runtime_env(root_dir: Path, env_name: str, out_file: Path) ->
     merged.update(parse_env_file(env_file))
 
     merged.setdefault("COMPOSE_PROJECT_NAME", f"yuviron-{env_name}")
-    merged.setdefault("STORAGE_PATH", str(root_dir / "storage" / env_name))
-    merged.setdefault("SEQ_STORAGE_PATH", str(root_dir / "storage" / env_name / "seq"))
+    merged.setdefault("STORAGE_PATH", compose_relative_path(root_dir, root_dir / "storage" / env_name))
+    merged.setdefault("SEQ_STORAGE_PATH", compose_relative_path(root_dir, root_dir / "storage" / env_name / "seq"))
 
     expanded = _expand_vars(merged)
 

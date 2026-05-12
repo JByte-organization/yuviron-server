@@ -225,6 +225,7 @@ class SecurityAuditTests(unittest.TestCase):
 
             report = security.AuditReport()
             security._audit_cert_files(
+                root,
                 {
                     "CERT_FILE": str(cert_file),
                     "KEY_FILE": str(key_file),
@@ -237,6 +238,7 @@ class SecurityAuditTests(unittest.TestCase):
 
             report = security.AuditReport()
             security._audit_cert_files(
+                root,
                 {
                     "CERT_FILE": str(cert_file),
                     "KEY_FILE": str(key_file),
@@ -247,6 +249,28 @@ class SecurityAuditTests(unittest.TestCase):
 
         self.assertEqual(1, len(report.errors))
         self.assertIn("does not match NGINX_CERT_GROUP_ID", report.errors[0].message)
+
+    def test_tls_audit_resolves_compose_relative_runtime_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            cert_file = root / "certs" / "cert.pem"
+            key_file = root / "certs" / "key.pem"
+            cert_file.parent.mkdir(parents=True)
+            cert_file.write_text("cert\n", encoding="utf-8")
+            key_file.write_text("key\n", encoding="utf-8")
+            key_file.chmod(0o600)
+
+            report = security.AuditReport()
+            security._audit_cert_files(
+                root,
+                {
+                    "CERT_FILE": "../certs/cert.pem",
+                    "KEY_FILE": "../certs/key.pem",
+                },
+                report,
+            )
+
+        self.assertEqual([], report.errors)
 
     def test_git_secret_scan_ignores_github_secret_references_but_flags_literals(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

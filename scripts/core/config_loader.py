@@ -15,6 +15,7 @@ from .models import (
     VALID_ENVIRONMENTS,
     is_valid_target,
 )
+from .paths import compose_relative_path
 from .validators import ensure_file, ensure_mapping, fail
 
 
@@ -266,11 +267,11 @@ def render_stack_values(
         "ENVIRONMENT": env_name,
         "BASE_DOMAIN": domain,
         "COMPOSE_PROJECT_NAME": compose_project_name,
-        "CERT_FILE": str(cert_file),
-        "KEY_FILE": str(key_file),
+        "CERT_FILE": compose_relative_path(root_dir, cert_file),
+        "KEY_FILE": compose_relative_path(root_dir, key_file),
         "NGINX_CERT_GROUP_ID": str(os.getgid()),
-        "STORAGE_PATH": str(storage_path),
-        "SEQ_STORAGE_PATH": str(seq_storage_path),
+        "STORAGE_PATH": compose_relative_path(root_dir, storage_path),
+        "SEQ_STORAGE_PATH": compose_relative_path(root_dir, seq_storage_path),
         "RESTART_POLICY": restart_policy,
         "HTTP_PORT": load_stack_port(
             root_dir,

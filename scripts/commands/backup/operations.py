@@ -19,7 +19,7 @@ from core.env import (
     read_env_value,
     ensure_generated_env,
 )
-from core.paths import resolve_root_dir
+from core.paths import resolve_root_dir, resolve_runtime_path
 from core.validators import CommandError, fail, resolve_prompted_environment, resolve_prompted_required
 
 from .core import (
@@ -207,7 +207,7 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
 
     def archive_storage(env_name: str, out_file: Path) -> None:
         storage_path = read_env_value(get_context(env_name).runtime_env, "STORAGE_PATH")
-        src_dir = Path(storage_path) if storage_path else root_dir / "storage" / env_name
+        src_dir = resolve_runtime_path(root_dir, storage_path) if storage_path else root_dir / "storage" / env_name
 
         if not src_dir.is_dir():
             logger.warn(f"Skipping storage archive for {env_name}: directory not found: {src_dir}")
@@ -441,7 +441,7 @@ def cmd_backup_restore(args: argparse.Namespace) -> int:
     if not storage_path_raw:
         fail(f"STORAGE_PATH is empty in {context.runtime_env}")
 
-    storage_path = Path(storage_path_raw).expanduser()
+    storage_path = resolve_runtime_path(root_dir, storage_path_raw)
 
     logger.info(f"Validating archive: {archive_file}")
     _validate_tar(archive_file)

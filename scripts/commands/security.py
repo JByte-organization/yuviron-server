@@ -25,7 +25,7 @@ from core.env import parse_env_file, parse_routes_file, resolve_runtime_env
 from core.env_validation import ERROR as ENV_ERROR
 from core.env_validation import is_token_key, validate_runtime_env
 from core.models import MANAGEMENT_ROUTE_NAMES
-from core.paths import resolve_root_dir
+from core.paths import resolve_root_dir, resolve_runtime_path
 from core.ui import log_err, log_info, log_ok, log_warn
 from core.validators import fail, resolve_prompted_environment
 
@@ -321,7 +321,7 @@ def _audit_env_policy(env_values: dict[str, str], environment: str, report: Audi
             report.warn("env-policy", message)
 
 
-def _audit_cert_files(env_values: dict[str, str], report: AuditReport) -> None:
+def _audit_cert_files(root_dir: Path, env_values: dict[str, str], report: AuditReport) -> None:
     cert_file = env_values.get("CERT_FILE", "")
     key_file = env_values.get("KEY_FILE", "")
     nginx_cert_group_id = env_values.get("NGINX_CERT_GROUP_ID", "")
@@ -329,13 +329,13 @@ def _audit_cert_files(env_values: dict[str, str], report: AuditReport) -> None:
     if not cert_file:
         report.error("tls-files", "CERT_FILE is missing from runtime env")
     else:
-        _audit_single_tls_file(Path(cert_file), "certificate", report)
+        _audit_single_tls_file(resolve_runtime_path(root_dir, cert_file), "certificate", report)
 
     if not key_file:
         report.error("tls-files", "KEY_FILE is missing from runtime env")
     else:
         _audit_single_tls_file(
-            Path(key_file),
+            resolve_runtime_path(root_dir, key_file),
             "private key",
             report,
             private_key=True,
@@ -381,7 +381,7 @@ def _audit_single_tls_file(
         report.warn("tls-files", f"certificate file is writable by group/others: {path} mode {mode:03o}")
 
 
-def _audit_storage_paths(env_values: dict[str, str], report: AuditReport) -> None:
+def _audit_storage_paths(root_dir: Path, env_values: dict[str, str], report: AuditReport) -> None:
     storage_paths = [
         ("STORAGE_PATH", env_values.get("STORAGE_PATH", "")),
         ("SEQ_STORAGE_PATH", env_values.get("SEQ_STORAGE_PATH", "")),
@@ -392,7 +392,7 @@ def _audit_storage_paths(env_values: dict[str, str], report: AuditReport) -> Non
             report.error("storage-permissions", f"{key} is missing from runtime env")
             continue
 
-        path = Path(raw_path)
+        path = resolve_runtime_path(root_dir, raw_path)
         if not path.exists():
             report.error("storage-permissions", f"{key} does not exist: {path}")
             continue
@@ -594,8 +594,8 @@ def cmd_audit(args: argparse.Namespace) -> int:
     _run_check(report, "Auditing published ports", lambda: _audit_published_ports(services, report))
     _run_check(report, "Auditing env policy", lambda: _audit_env_policy(env_values, environment, report))
     _run_check(report, "Auditing default secrets", lambda: _audit_default_passwords(env_values, environment, report))
-    _run_check(report, "Auditing TLS files", lambda: _audit_cert_files(env_values, report))
-    _run_check(report, "Auditing storage permissions", lambda: _audit_storage_paths(env_values, report))
+    _run_check(report, "Auditing TLS files", lambda: _audit_cert_files(root_dir, env_values, report))
+    _run_check(report, "Auditing storage permissions", lambda: _audit_storage_paths(root_dir, env_values, report))
     _run_check(report, "Auditing management endpoints", lambda: _audit_management_endpoints(root_dir, environment, report))
     _run_check(report, "Auditing git-tracked secrets", lambda: _audit_tracked_secrets(root_dir, report))
 

@@ -24,6 +24,10 @@ class ConfigLoaderStackPortsTests(unittest.TestCase):
         self.assertEqual(values["HTTP_PORT"], "8080")
         self.assertEqual(values["HTTPS_PORT"], "8443")
         self.assertEqual(values["NGINX_CERT_GROUP_ID"], str(os.getgid()))
+        self.assertEqual(values["CERT_FILE"], "../certs/dev-example.com.pem")
+        self.assertEqual(values["KEY_FILE"], "../certs/dev-example.com-key.pem")
+        self.assertEqual(values["STORAGE_PATH"], "../storage/dev")
+        self.assertEqual(values["SEQ_STORAGE_PATH"], "../storage/dev/seq")
 
     def test_prod_uses_standard_default_edge_ports(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

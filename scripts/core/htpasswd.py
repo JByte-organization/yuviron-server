@@ -8,6 +8,7 @@ import secrets
 from dataclasses import dataclass
 from pathlib import Path
 
+from .paths import resolve_runtime_path
 from .validators import fail
 
 
@@ -27,10 +28,7 @@ def resolve_htpasswd_path(root_dir: Path, raw_path: str, fallback: Path) -> Path
     if not value:
         return fallback.resolve()
 
-    path = Path(value)
-    if not path.is_absolute():
-        path = root_dir / path
-    return path.resolve()
+    return resolve_runtime_path(root_dir, value)
 
 
 def _validate_username(username: str) -> str:

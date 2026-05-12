@@ -21,7 +21,7 @@ if __package__ in {None, ""}:
 from checks import preflight_core, preflight_nginx
 from commands.stack import DEFAULT_ROOT, PreflightContext
 from core.env import parse_env_file, parse_routes_file
-from core.paths import resolve_root_dir
+from core.paths import resolve_root_dir, resolve_runtime_path
 from core.ui import log_err, log_info, log_ok, log_warn
 from core.validators import CommandError, fail, resolve_prompted_environment
 
@@ -366,8 +366,8 @@ def _check_certificates(ctx: PreflightContext, report: DoctorReport) -> str:
     values = _ensure_runtime_values(ctx)
     raw_cert_file = values.get("CERT_FILE", "")
     raw_key_file = values.get("KEY_FILE", "")
-    cert_file = Path(raw_cert_file) if raw_cert_file else None
-    key_file = Path(raw_key_file) if raw_key_file else None
+    cert_file = resolve_runtime_path(ctx.root_dir, raw_cert_file) if raw_cert_file else None
+    key_file = resolve_runtime_path(ctx.root_dir, raw_key_file) if raw_key_file else None
 
     if cert_file is None:
         report.error("certificates", "CERT_FILE is missing from runtime env")
@@ -513,7 +513,7 @@ def _check_storage_paths(ctx: PreflightContext, report: DoctorReport) -> str:
             report.error("storage", f"{key} is missing from runtime env")
             continue
 
-        path = Path(raw_path)
+        path = resolve_runtime_path(ctx.root_dir, raw_path)
         if not path.exists():
             report.error("storage", f"{key} does not exist: {path}")
             continue

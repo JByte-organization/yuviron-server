@@ -33,6 +33,7 @@ from core.models import (  # noqa: E402
     GenerationContext,
     VALID_ENVIRONMENTS,
 )
+from core.paths import compose_relative_path  # noqa: E402
 from core.render_compose import (  # noqa: E402
     render_apps_env,
     render_env_file,
@@ -200,7 +201,7 @@ def main() -> None:
         raw_basic_auth_file,
         output_dir / "htpasswd",
     )
-    merged_env_map["NGINX_BASIC_AUTH_FILE"] = str(htpasswd_path)
+    merged_env_map["NGINX_BASIC_AUTH_FILE"] = compose_relative_path(root_dir, htpasswd_path)
 
     output_dir.mkdir(parents=True, exist_ok=True)
 

@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple
 import yaml
 
 from .models import FrontendApp
+from .paths import compose_relative_path, relative_posix_path
 
 
 def frontend_resource_env_prefix(app: FrontendApp) -> str:
@@ -35,8 +36,12 @@ def render_routes_env(route_lines: List[Tuple[str, str, str, str]]) -> str:
 
 
 def build_frontend_service(app: FrontendApp, root_dir: Path) -> dict:
-    frontend_context = str((root_dir / "src" / "yuviron-frontend").resolve())
-    dockerfile = str((root_dir / "infra" / "docker" / "frontend-next" / "Dockerfile").resolve())
+    frontend_context_path = root_dir / "src" / "yuviron-frontend"
+    frontend_context = compose_relative_path(root_dir, frontend_context_path)
+    dockerfile = relative_posix_path(
+        root_dir / "infra" / "docker" / "frontend-next" / "Dockerfile",
+        frontend_context_path,
+    )
     resource_prefix = frontend_resource_env_prefix(app)
     healthcheck_command = (
         "node -e \"const net = require('net'); "

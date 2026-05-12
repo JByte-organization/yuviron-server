@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import tempfile
@@ -81,7 +82,8 @@ class GenerateConfigTests(unittest.TestCase):
             deploy_env = (output_dir / "deploy.env").read_text(encoding="utf-8")
             stack_env = (output_dir / "stack.env").read_text(encoding="utf-8")
             manifest_env = (output_dir / "manifest.env").read_text(encoding="utf-8")
-            self.assertIn(f"NGINX_BASIC_AUTH_FILE={output_dir / 'htpasswd'}", deploy_env)
+            expected_htpasswd = os.path.relpath(output_dir / "htpasswd", ROOT_DIR / "infra")
+            self.assertIn(f"NGINX_BASIC_AUTH_FILE={Path(expected_htpasswd).as_posix()}", deploy_env)
             self.assertIn("MYSQL_ROOT_PASSWORD=test-only-root-password", deploy_env)
             self.assertIn("HTTP_PORT=18080", stack_env)
             self.assertIn("GENERATION_DOMAIN=example.com", manifest_env)

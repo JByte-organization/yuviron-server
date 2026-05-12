@@ -111,6 +111,7 @@ cp env/example.env env/prod.env
 
 `env/common.env` и `env/<env>.env` объединяются генератором в `generated/<env>/deploy.env`.
 Именно `deploy.env`, а не исходный `env/dev.env` или `env/prod.env`, используется как `--env-file` для Docker Compose.
+Path-значения, которые используются Docker Compose для bind mounts, генерируются относительно `infra/compose.yml`: например `CERT_FILE=../certs/...`, `STORAGE_PATH=../storage/<env>` и `NGINX_BASIC_AUTH_FILE=../generated/<env>/htpasswd`. CLI-команды умеют резолвить такие пути обратно в абсолютные для локальных проверок.
 
 ### Env validation policy
 
@@ -269,6 +270,7 @@ Backend, migrator и media-worker собираются через единый m
 ### Frontend
 
 Frontend собирается из монорепозитория через единый Dockerfile с параметром `APP_NAME`.
+`generated/<env>/compose.frontends.yml` использует относительные build paths, чтобы файл не был привязан к абсолютному пути сервера: `context` указывает на `../src/yuviron-frontend`, а `dockerfile` — на общий frontend Dockerfile относительно build context.
 
 Пример ручной сборки:
 
