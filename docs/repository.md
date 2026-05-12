@@ -78,7 +78,7 @@ yuviron-server/
 6. запускает инфраструктуру
 7. настраивает GitHub runner
 8. следит за CI/CD
-9. при необходимости настраивает CoreDNS и portproxy для RadminVPN legacy-схемы
+9. при необходимости настраивает optional CoreDNS on Windows и portproxy для RadminVPN legacy compatibility
 10. настраивает Tailscale ACL и Tailscale SSH для Linux VM, если используется Tailnet-доступ
 11. передаёт разработчикам `rootCA.crt`, если используется локальный Root CA
 
@@ -86,15 +86,15 @@ yuviron-server/
 
 ### Разработчик
 
-1. подключается через Tailscale (рекомендуется) или RadminVPN (optional/legacy), если это требуется
+1. подключается через Tailscale (preferred) или RadminVPN (legacy compatibility), если это требуется
 2. получает доступ к dev-доменам
 3. при необходимости устанавливает `rootCA.crt`
-4. указывает внутренний DNS-сервер, если используется отдельная RadminVPN/CoreDNS dev DNS-схема
+4. указывает внутренний DNS-сервер, если используется optional CoreDNS on Windows для RadminVPN legacy-схемы или Tailnet Split DNS
 5. очищает DNS-кеш
 6. проверяет локальную сборку frontend перед push
 7. использует dev-домены для тестирования
 
-Разработчикам не нужно удалять RadminVPN, если он уже используется. Для новых подключений предпочтительнее Tailscale, потому что он проще для onboarding, работает с мобильными устройствами и не требует ручного route management.
+Разработчикам не нужно удалять RadminVPN, если он уже используется. Для новых подключений предпочтительнее Tailscale, потому что он проще для onboarding, работает с мобильными устройствами и не требует ручного route management. CoreDNS on Windows нужен только как optional local DNS endpoint, а не как обязательный сетевой слой.
 
 Пример dev-доменов:
 
@@ -115,7 +115,8 @@ https://dev-api.yuviron.com
 * доступ к Docker должен быть ограничен доверенными пользователями
 * `rootCA.crt` должен распространяться только среди участников команды разработки
 * dev-доступ через VPN/Tailnet и внутренний DNS предпочтительнее, если среда не должна быть общедоступной
-* RadminVPN сохраняется как optional/legacy access method; новые подключения лучше заводить через Tailscale
+* RadminVPN сохраняется как legacy compatibility; новые подключения лучше заводить через Tailscale
+* CoreDNS on Windows используется только как optional local DNS endpoint для dev-доменов
 * Tailscale ACL должен ограничивать SSH-доступ только владельцем инфраструктуры
 * на Linux VM нужно держать `--accept-dns=false`, если MagicDNS ломает внешний DNS resolution
 

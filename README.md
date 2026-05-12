@@ -38,6 +38,8 @@ https://dev-seq.yuviron.com/
 https://dev-api.yuviron.com
 ```
 
+Сетевой доступ к dev-среде: **Tailscale** — preferred private access layer, **RadminVPN** — legacy compatibility, **CoreDNS on Windows** — optional local DNS endpoint. Подробнее: [docs/networking.md](docs/networking.md).
+
 ### Prod
 
 ```bash

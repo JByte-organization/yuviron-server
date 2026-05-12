@@ -42,7 +42,7 @@
 - **Backend, Migrator, MediaWorker** — серверные процессы
 - **Frontend apps** — `client-app`, `backoffice`, `admin` (единый Next.js Dockerfile, общий hardening-профиль)
 - **GitHub Actions + self-hosted runner** — CI/CD
-- **CoreDNS / RadminVPN / Tailscale** — приватный dev-доступ, legacy-совместимость и изолированный Tailnet-доступ к Linux VM
+- **Tailscale / RadminVPN / CoreDNS on Windows** — Tailscale как preferred private access layer, RadminVPN как legacy compatibility, CoreDNS как optional local DNS endpoint
 
 Схема работы (упрощённо):
 

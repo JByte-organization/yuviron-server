@@ -45,10 +45,12 @@ User: обычный пользователь (НЕ root)
 
 * IP Ubuntu VM
 * IP Windows host
-* внешний VPN IP / адрес, на который будет смотреть DNS
-* схему проброса портов 80/443
+* Tailnet IP Linux VM для preferred Tailscale-доступа
+* RadminVPN IP / адрес для DNS только если нужна legacy compatibility
+* схему проброса портов 80/443, если Windows host остаётся gateway для legacy-схемы
 * Tailnet IP для `dev-vm` и `host-pc`, если используется Tailscale
-* какой access layer используется для конкретного разработчика: Tailscale или RadminVPN legacy
+* какой access layer используется для конкретного разработчика: Tailscale preferred или RadminVPN legacy compatibility
+* нужен ли CoreDNS on Windows как optional local DNS endpoint
 
 ---
 

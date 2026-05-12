@@ -1,29 +1,30 @@
 # Dev-доступ и сети
 
-RadminVPN, CoreDNS, portproxy, Tailscale, Tailnet ACL, Tailscale DNS и Docker network.
+Preferred-доступ через Tailscale, legacy compatibility через RadminVPN, optional CoreDNS on Windows, Tailnet ACL, Tailscale DNS и Docker network.
 
 [← К README](../README.md)
 
 ## Dev-доступ для разработчиков
 
-Dev-инфраструктура поддерживает два сетевых слоя доступа:
+Dev-инфраструктура разделяет приватный access layer и локальный DNS endpoint. Короткая архитектурная маркировка:
 
-* **RadminVPN** — legacy-совместимость для существующих рабочих мест и текущей Windows/CoreDNS схемы.
-* **Tailscale** — альтернативный приватный слой доступа к Linux VM на базе Zero Trust networking.
+* **RadminVPN** — legacy compatibility для существующих рабочих мест, старых маршрутов и `radmin_setup.bat`.
+* **Tailscale** — preferred private access layer для новых устройств, SSH и прямого доступа к Linux VM через Tailnet.
+* **CoreDNS on Windows** — optional local DNS endpoint для dev-доменов, если нужен резолвинг `*.yuviron.com` через Windows host.
 
-Tailscale не является полной заменой RadminVPN в этой инфраструктуре. Совместимость с RadminVPN сохраняется, потому что часть команды и существующих маршрутов может продолжать использовать старую схему. При этом Tailscale рекомендуется как основной современный способ доступа, особенно для новых устройств, мобильного доступа и сценариев, где не хочется поддерживать `.bat` route scripts или вручную перенастраивать RadminVPN.
+Это не три обязательных слоя, которые нужно включать одновременно для каждого разработчика. Для новых подключений базовым выбором считается Tailscale. RadminVPN сохраняется, чтобы не ломать существующие рабочие места, а CoreDNS на Windows включается только там, где нужен локальный DNS endpoint для legacy RadminVPN-схемы или Tailnet Split DNS.
 
 Архитектурные границы:
 
-* CoreDNS остаётся на Windows host.
-* RadminVPN остаётся optional/legacy access method.
-* Tailscale работает как private access layer для Linux VM.
+* CoreDNS не является отдельным access layer; это optional DNS endpoint на Windows host.
+* RadminVPN остаётся только legacy compatibility path.
+* Tailscale работает как preferred private access layer для Linux VM.
 * Tailscale daemon запускается изолированно внутри Linux VM.
 * Tailscale не устанавливается на Windows host как основной VPN-слой проекта.
 * Tailscale networking изолирован на уровне VM-инфраструктуры.
 * Входной трафик к приложениям по Tailnet направляется напрямую на `dev-vm`.
 
-Legacy-схема через RadminVPN:
+Legacy compatibility-схема через RadminVPN и Windows CoreDNS:
 
 ```text
 Разработчик (RadminVPN)
@@ -43,7 +44,7 @@ yuviron edge nginx
 client-app / backoffice / admin / backend
 ```
 
-Схема через Tailscale:
+Preferred-схема через Tailscale:
 
 ```text
 Разработчик / мобильное устройство (Tailscale)
@@ -57,7 +58,7 @@ yuviron edge nginx
 client-app / backoffice / admin / backend
 ```
 
-Такой режим особенно полезен, если:
+Tailscale-режим особенно полезен, если:
 
 * dev-среда не публикуется напрямую в интернет
 * доступ к dev должен быть только у команды разработки
@@ -75,13 +76,15 @@ client-app / backoffice / admin / backend
 * изолированная VM-сетевая зона
 * прямой private-доступ к dev без публикации сервисов в интернет
 
-Если dev окружение будет доступно по другой схеме, блоки CoreDNS / portproxy / Tailnet ACL можно адаптировать под конкретную сеть.
+Если dev окружение будет доступно по другой схеме, блоки CoreDNS / portproxy / Tailnet ACL можно адаптировать под конкретную сеть. CoreDNS и portproxy нужны только для схем, где Windows host выступает DNS/traffic gateway.
 
 ---
 
-## Настройка CoreDNS для dev-окружения
+## Настройка CoreDNS на Windows (optional)
 
-Если dev-среда работает через Windows host с отдельным DNS, можно использовать **CoreDNS**. Corefile не нужно редактировать руками: он должен генерироваться из `generated/<env>/routes.env`, чтобы DNS всегда совпадал с nginx routes.
+**CoreDNS on Windows** — optional local DNS endpoint, а не обязательная часть private access layer. Используй его, если dev-среда работает через Windows host с отдельным DNS, например для RadminVPN legacy compatibility или Tailnet Split DNS.
+
+Corefile не нужно редактировать руками: он должен генерироваться из `generated/<env>/routes.env`, чтобы DNS всегда совпадал с nginx routes.
 
 Создать директорию:
 
@@ -127,13 +130,13 @@ cd C:\coredns
 coredns.exe -conf Corefile
 ```
 
-Для production такая схема обычно не используется, но для dev внутри VPN — это нормальный вариант.
+Для production такая схема обычно не используется. Для dev внутри приватной сети это нормальный вариант, если Windows host действительно нужен как local DNS endpoint.
 
 ---
 
-## Windows Firewall: DNS для CoreDNS / Tailscale
+## Windows Firewall: DNS для optional CoreDNS endpoint
 
-CoreDNS запускается на Windows host machine и обслуживает internal DNS для dev-доменов. Если Windows host используется как DNS endpoint внутри Tailnet, Windows Firewall должен разрешать входящий DNS-трафик на порт `53`.
+Если CoreDNS запускается на Windows host machine и обслуживает internal DNS для dev-доменов, Windows Firewall должен разрешать входящий DNS-трафик на порт `53`. Это требуется только когда Windows host используется как DNS endpoint для RadminVPN legacy-схемы или Tailnet Split DNS.
 
 Нужно открыть оба протокола:
 
@@ -144,7 +147,7 @@ PowerShell:
 
 ```powershell
 New-NetFirewallRule `
-  -DisplayName "CoreDNS UDP 53 Tailscale" `
+  -DisplayName "CoreDNS UDP 53 Internal" `
   -Direction Inbound `
   -Action Allow `
   -Protocol UDP `
@@ -153,25 +156,25 @@ New-NetFirewallRule `
 
 ```powershell
 New-NetFirewallRule `
-  -DisplayName "CoreDNS TCP 53 Tailscale" `
+  -DisplayName "CoreDNS TCP 53 Internal" `
   -Direction Inbound `
   -Action Allow `
   -Protocol TCP `
   -LocalPort 53
 ```
 
-Без этих firewall rules:
+Без этих firewall rules, если Windows host используется как DNS endpoint:
 
-* internal DNS resolution внутри Tailnet может не работать
+* internal DNS resolution внутри Tailnet или legacy RadminVPN может не работать
 * `yuviron.com` / `dev.yuviron.com` могут перестать резолвиться
 * мобильные устройства могут потерять доступ к internal domains
 * Split DNS functionality может сломаться
 
 ---
 
-## Настройка portproxy
+## Настройка portproxy для legacy RadminVPN
 
-Если Windows host принимает трафик и перенаправляет его на Ubuntu VM, нужно настроить `portproxy`.
+Если Windows host принимает трафик из RadminVPN legacy-схемы и перенаправляет его на Ubuntu VM, нужно настроить `portproxy`.
 
 Пример:
 
@@ -199,9 +202,9 @@ netsh interface portproxy show v4tov4
 
 ---
 
-## Настройка DNS у разработчиков
+## Настройка DNS у разработчиков для legacy/CoreDNS
 
-Если dev доступен через RadminVPN/CoreDNS legacy-схему, разработчику нужно указать внутренний DNS-сервер:
+Если dev доступен через legacy RadminVPN и optional CoreDNS on Windows, разработчику нужно указать внутренний DNS-сервер:
 
 ```text
 <RADMIN_VPN_IP>
@@ -222,26 +225,26 @@ nslookup dev-admin.yuviron.com
 nslookup dev-api.yuviron.com
 ```
 
-Если всё настроено правильно, домены должны резолвиться в нужный IP.
+Если всё настроено правильно, домены должны резолвиться в нужный IP. Для новых Tailscale-подключений этот шаг обычно не нужен, если только Windows CoreDNS не используется как optional DNS endpoint внутри Tailnet.
 
 ---
 
-## Tailscale как приватный слой доступа
+## Tailscale как preferred private access layer
 
-Tailscale используется как альтернативный private access layer для dev-инфраструктуры. Он не отменяет RadminVPN, а добавляет более современный путь доступа к Linux VM через Tailnet.
+Tailscale используется как preferred private access layer для dev-инфраструктуры. Он не требует удалять RadminVPN там, где старая схема уже работает, но для новых устройств и новых сценариев доступа именно Tailscale считается основным путём к Linux VM через Tailnet.
 
 В текущей схеме:
 
-* RadminVPN остаётся доступен для legacy-совместимости.
+* RadminVPN остаётся доступен для legacy compatibility.
 * Tailscale является предпочтительным способом подключения для новых устройств.
 * Мобильные устройства могут обращаться к dev-проекту напрямую через Tailnet.
 * Не нужно поддерживать отдельные `.bat` route scripts для доступа к VM.
 * Не нужно вручную перенастраивать маршруты RadminVPN для каждого нового сценария.
-* CoreDNS остаётся размещённым на Windows host.
+* CoreDNS может оставаться на Windows host как optional local DNS endpoint.
 * Tailscale daemon работает внутри Linux VM.
 * Tailscale networking ограничен инфраструктурным слоем Linux VM.
 
-Важно: Tailscale не должен описываться как полный replacement для RadminVPN. Это дополнительный private access layer, который уменьшает операционные сложности, но не ломает существующую RadminVPN-схему.
+Важно: Tailscale нужно описывать как preferred private access layer, а не как принудительный replacement, который ломает legacy RadminVPN-схему. RadminVPN остаётся compatibility path, CoreDNS on Windows остаётся optional DNS endpoint.
 
 ---
 
@@ -530,6 +533,8 @@ sudo tailscale up --accept-dns=false --ssh
 
 ## Tailscale ACL policy
 
+В шаблоне ниже есть доступ к `host-pc:53`. Это правило нужно только если **CoreDNS on Windows** используется как optional local DNS endpoint. Если Windows host не обслуживает DNS для Tailnet, правило `host-pc:53` можно убрать.
+
 Шаблон Tailnet ACL policy:
 
 ```json
@@ -582,7 +587,7 @@ sudo tailscale up --accept-dns=false --ssh
 
 Что разрешает policy:
 
-* участники Tailnet могут обращаться к DNS на Windows host: `host-pc:53`
+* участники Tailnet могут обращаться к DNS на Windows host: `host-pc:53`, если включён optional CoreDNS endpoint
 * участники Tailnet могут обращаться к dev web ports на VM: `dev-vm:80` и `dev-vm:443`
 * SSH к VM и Windows host ограничен владельцем инфраструктуры
 * Tailscale SSH разрешён только к tagged Linux VM и только для локального пользователя `<LINUX_VM_USER>`
@@ -607,7 +612,7 @@ Tailscale SSH включается на Linux VM через:
 sudo tailscale up --accept-dns=false --ssh
 ```
 
-Windows host не должен рассматриваться как основной Tailscale VPN layer проекта. Он продолжает выполнять свои инфраструктурные обязанности, включая CoreDNS и standard OpenSSH Server, а основной приватный application access через Tailscale направляется на Linux VM.
+Windows host не должен рассматриваться как основной Tailscale VPN layer проекта. Он продолжает выполнять свои инфраструктурные обязанности, включая optional CoreDNS и standard OpenSSH Server, а основной приватный application access через Tailscale направляется на Linux VM.
 
 ---
 

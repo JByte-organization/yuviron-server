@@ -195,6 +195,8 @@ CLI является единым интерфейсом для работы с�
 ./scripts/cli.py dns generate --env dev --domain yuviron.com --ip 100.81.228.68
 ```
 
+CoreDNS on Windows — optional local DNS endpoint для dev-доменов. Он нужен, если Windows host обслуживает DNS для RadminVPN legacy-схемы или Tailnet Split DNS; сам private access layer для новых подключений предпочтительно строится через Tailscale.
+
 Команда читает `generated/<env>/routes.env` и записывает CoreDNS-конфиг в:
 
 ```text
