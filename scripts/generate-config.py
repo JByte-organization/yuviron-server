@@ -42,6 +42,7 @@ from core.render_compose import (  # noqa: E402
     render_stack_env,
 )
 from core.render_nginx import render_nginx_conf_modular  # noqa: E402
+from core.ui import log_warn  # noqa: E402
 from core.validators import CommandError, fail, validate_domain  # noqa: E402
 
 
@@ -52,6 +53,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--apps", default="")
     parser.add_argument("--extra-routes", default="")
     parser.add_argument("--output-dir", default="")
+    parser.add_argument(
+        "--common-env-file",
+        default="",
+        help="Override env/common.env path; intended for tests and CI fixtures.",
+    )
+    parser.add_argument(
+        "--env-file",
+        default="",
+        help="Override env/<env>.env path; intended for tests and CI fixtures.",
+    )
     return parser.parse_args()
 
 
@@ -63,6 +74,16 @@ def write_text(path: Path, content: str) -> None:
 def manifest_hash_key(prefix: str, filename: str) -> str:
     token = re.sub(r"[^A-Za-z0-9]+", "_", filename).strip("_").upper()
     return f"{prefix}_{token}_SHA256"
+
+
+def resolve_override_path(root_dir: Path, raw_path: str, default_path: Path) -> Path:
+    if not raw_path:
+        return default_path
+
+    path = Path(raw_path).expanduser()
+    if not path.is_absolute():
+        path = root_dir / path
+    return path.resolve()
 
 
 def resolve_routes(ctx: GenerationContext, apps, routes_cfg):
@@ -131,9 +152,18 @@ def main() -> None:
 
     apps_config_path = root_dir / "config" / "apps.yml"
     routes_config_path = root_dir / "config" / "routes.yml"
-    common_env_path = root_dir / "env" / "common.env"
-    env_file_path = root_dir / "env" / f"{env_name}.env"
+    default_common_env_path = root_dir / "env" / "common.env"
+    default_env_file_path = root_dir / "env" / f"{env_name}.env"
+    common_env_path = resolve_override_path(root_dir, args.common_env_file, default_common_env_path)
+    env_file_path = resolve_override_path(root_dir, args.env_file, default_env_file_path)
     generator_path = Path(__file__).resolve()
+
+    if args.common_env_file or args.env_file:
+        log_warn(
+            "Используется временный/override ENV для генерации. "
+            f"Для реальной работы создайте {default_env_file_path} из env/example.env "
+            "и заполните настоящие значения."
+        )
 
     apps = load_frontend_apps(apps_config_path)
     routes_cfg = load_routes(routes_config_path)
@@ -152,7 +182,13 @@ def main() -> None:
     )
 
     route_lines = resolve_routes(ctx, apps, routes_cfg)
-    stack_values = render_stack_values(root_dir, env_name, base_domain)
+    stack_values = render_stack_values(
+        root_dir,
+        env_name,
+        base_domain,
+        common_env_path=common_env_path,
+        env_file_path=env_file_path,
+    )
     merged_env_map = merge_env_maps(common_env_path, env_file_path, stack_values)
     raw_basic_auth_file = (
         str(output_dir / "htpasswd")

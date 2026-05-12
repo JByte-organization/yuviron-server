@@ -219,16 +219,29 @@ def load_project_name(config_dir: Path) -> str:
     return name
 
 
-def load_stack_port(root_dir: Path, env_name: str, key: str, default: str) -> str:
-    values = parse_env_file(root_dir / "env" / "common.env")
-    values.update(parse_env_file(root_dir / "env" / f"{env_name}.env"))
+def load_stack_port(
+    root_dir: Path,
+    env_name: str,
+    key: str,
+    default: str,
+    common_env_path: Path | None = None,
+    env_file_path: Path | None = None,
+) -> str:
+    values = parse_env_file(common_env_path or root_dir / "env" / "common.env")
+    values.update(parse_env_file(env_file_path or root_dir / "env" / f"{env_name}.env"))
     value = values.get(key, default).strip()
     if not value:
         fail(f"{key} must not be empty")
     return value
 
 
-def render_stack_values(root_dir: Path, env_name: str, domain: str) -> Dict[str, str]:
+def render_stack_values(
+    root_dir: Path,
+    env_name: str,
+    domain: str,
+    common_env_path: Path | None = None,
+    env_file_path: Path | None = None,
+) -> Dict[str, str]:
     storage_path = root_dir / "storage" / env_name
     seq_storage_path = storage_path / "seq"
 
@@ -259,7 +272,21 @@ def render_stack_values(root_dir: Path, env_name: str, domain: str) -> Dict[str,
         "STORAGE_PATH": str(storage_path),
         "SEQ_STORAGE_PATH": str(seq_storage_path),
         "RESTART_POLICY": restart_policy,
-        "HTTP_PORT": load_stack_port(root_dir, env_name, "HTTP_PORT", default_http_port),
-        "HTTPS_PORT": load_stack_port(root_dir, env_name, "HTTPS_PORT", default_https_port),
+        "HTTP_PORT": load_stack_port(
+            root_dir,
+            env_name,
+            "HTTP_PORT",
+            default_http_port,
+            common_env_path=common_env_path,
+            env_file_path=env_file_path,
+        ),
+        "HTTPS_PORT": load_stack_port(
+            root_dir,
+            env_name,
+            "HTTPS_PORT",
+            default_https_port,
+            common_env_path=common_env_path,
+            env_file_path=env_file_path,
+        ),
         "SHARED_NETWORK": shared_network,
     }
