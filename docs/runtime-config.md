@@ -75,6 +75,7 @@ scripts/templates/proxy-params.conf
 
 Финальные маршруты nginx берёт не напрямую из `config/routes.yml`, а из `generated/<env>/routes.env`.
 Перед рендерингом генератор nginx валидирует route name, host, upstream, `client_max_body_size`, а также публичные rate-limit значения `NGINX_PUBLIC_RATE_LIMIT` и `NGINX_PUBLIC_RATE_BURST`; Jinja2 работает в режиме `StrictUndefined`, чтобы ошибка в шаблоне или контексте падала на генерации, а не превращалась в битый nginx config.
+Security headers задаются в nginx templates: `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`; deprecated `X-XSS-Protection` намеренно не используется. HTTPS server-блоки повторяют эти headers рядом с HSTS, потому что nginx не наследует `add_header` с уровня `http`, если на уровне `server` уже задан свой `add_header`.
 
 В итоговой compose-схеме nginx ждёт готовности `backend` и сгенерированного `client-app` через `depends_on: condition: service_healthy`.
 Все Next.js frontend services используют одинаковый runtime-профиль: `user: 10001:10001`, `read_only: true`, `tmpfs: /tmp`, `cap_drop: ALL`, `security_opt: no-new-privileges:true` и TCP healthcheck порта `3000` внутри контейнера. Resource limits задаются отдельно для каждого frontend service: `client-app` использует `CLIENT_APP_*`, `admin` — `ADMIN_*`, `backoffice` — `BACKOFFICE_*`.
