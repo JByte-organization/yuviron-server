@@ -9,6 +9,17 @@ events {
 http {
     server_tokens off;
 
+    # -- TLS policy -----------------------------------------------------
+    ssl_protocols {{ nginx_tls_protocols }};
+    {% if nginx_tls_has_ciphers %}
+    ssl_ciphers {{ nginx_tls_ciphers }};
+    ssl_prefer_server_ciphers {{ nginx_tls_prefer_server_ciphers }};
+    {% endif %}
+    ssl_session_cache {{ nginx_tls_session_cache }};
+    ssl_session_timeout {{ nginx_tls_session_timeout }};
+    ssl_session_tickets {{ nginx_tls_session_tickets }};
+    # -------------------------------------------------------------------
+
     # -- Rate limiting zones --------------------------------------------
     # 10m = ~160 000 IP-адресов в памяти
     limit_req_zone $binary_remote_addr zone=api_general:10m  rate={{ nginx_public_rate_limit }};
