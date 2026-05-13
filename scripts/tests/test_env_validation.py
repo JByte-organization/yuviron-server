@@ -1,20 +1,89 @@
 from __future__ import annotations
 
+import re
 import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+ROOT_DIR = SCRIPTS_ROOT.parent
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from checks import preflight_core
-from core.env_validation import ERROR, WARN, validate_runtime_env
+from core.config_loader import load_frontend_apps
+from core.env import parse_env_file
+from core.env_validation import (
+    ERROR,
+    WARN,
+    env_schema_declares_key,
+    load_env_schema,
+    validate_runtime_env,
+)
+from core.render_compose import render_frontends_compose
 from core.validators import CommandError
 
 
+_COMPOSE_ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-[^}]*)?\}")
+
+
 class EnvValidationTests(unittest.TestCase):
+    def test_env_schema_declares_tracked_env_template_keys(self) -> None:
+        schema = load_env_schema()
+        keys = set(parse_env_file(ROOT_DIR / "env" / "common.env"))
+        keys.update(parse_env_file(ROOT_DIR / "env" / "example.env"))
+
+        missing = sorted(key for key in keys if not env_schema_declares_key(key, schema))
+
+        self.assertEqual([], missing)
+
+    def test_env_schema_declares_compose_env_keys(self) -> None:
+        schema = load_env_schema()
+        apps = load_frontend_apps(ROOT_DIR / "config" / "apps.yml")
+        compose_sources = [
+            (ROOT_DIR / "infra" / "compose.yml").read_text(encoding="utf-8"),
+            render_frontends_compose(list(apps.values()), ROOT_DIR),
+        ]
+        keys = sorted({
+            key
+            for compose_content in compose_sources
+            for key in _COMPOSE_ENV_VAR_RE.findall(compose_content)
+        })
+
+        missing = [key for key in keys if not env_schema_declares_key(key, schema)]
+
+        self.assertEqual([], missing)
+
+    def test_schema_validation_reports_missing_required_keys(self) -> None:
+        issues = validate_runtime_env({}, "prod")
+
+        errors = {(issue.key, issue.severity) for issue in issues}
+        self.assertIn(("MYSQL_ROOT_PASSWORD", ERROR), errors)
+        self.assertIn(("ASPNETCORE_ENVIRONMENT", ERROR), errors)
+        self.assertIn(("COMPOSE_PROJECT_NAME", ERROR), errors)
+
+    def test_schema_validation_reports_unknown_keys_as_warnings(self) -> None:
+        issues = validate_runtime_env({"NEW_RUNTIME_FLAG": "1"}, "dev")
+
+        warnings = {(issue.key, issue.severity) for issue in issues}
+        self.assertIn(("NEW_RUNTIME_FLAG", WARN), warnings)
+
+    def test_schema_validation_reports_invalid_formats(self) -> None:
+        issues = validate_runtime_env(
+            {
+                "HTTP_PORT": "not-a-port",
+                "NGINX_PUBLIC_RATE_LIMIT": "20 per second",
+                "NGINX_CPUS": "zero",
+            },
+            "dev",
+        )
+
+        errors = {(issue.key, issue.severity) for issue in issues}
+        self.assertIn(("HTTP_PORT", ERROR), errors)
+        self.assertIn(("NGINX_PUBLIC_RATE_LIMIT", ERROR), errors)
+        self.assertIn(("NGINX_CPUS", ERROR), errors)
+
     def test_prod_rejects_unsafe_runtime_env_values(self) -> None:
         issues = validate_runtime_env(
             {
@@ -47,6 +116,7 @@ class EnvValidationTests(unittest.TestCase):
                 "ASPIRE_FRONTEND_BROWSER_TOKEN": "short",
             },
             "dev",
+            validate_schema=False,
         )
 
         self.assertEqual([("ASPIRE_FRONTEND_BROWSER_TOKEN", WARN)], [(issue.key, issue.severity) for issue in issues])

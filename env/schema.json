@@ -1,0 +1,342 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yuviron.local/schemas/runtime-env.schema.json",
+  "title": "Yuviron runtime environment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ASPNETCORE_ENVIRONMENT",
+    "ASPIRE_ASPNETCORE_URLS",
+    "ASPIRE_FRONTEND_AUTH_MODE",
+    "ASPIRE_FRONTEND_BROWSER_TOKEN",
+    "ASPIRE_OTLP_API_KEY",
+    "ASPIRE_OTLP_ENDPOINT_URL",
+    "BASE_DOMAIN",
+    "CERT_FILE",
+    "COMPOSE_PROJECT_NAME",
+    "ConnectionStrings__Default",
+    "ConnectionStrings__Redis",
+    "ENVIRONMENT",
+    "FILE_STORAGE_ROOT",
+    "HTTP_PORT",
+    "HTTPS_PORT",
+    "JamendoApi__ClientId",
+    "KEY_FILE",
+    "MYSQL_DATABASE",
+    "MYSQL_PASSWORD",
+    "MYSQL_ROOT_PASSWORD",
+    "MYSQL_USER",
+    "NGINX_BASIC_AUTH_FILE",
+    "NGINX_BASIC_AUTH_USER",
+    "NGINX_CERT_GROUP_ID",
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_HEADERS",
+    "OTEL_EXPORTER_OTLP_PROTOCOL",
+    "RABBITMQ_DEFAULT_PASS",
+    "RABBITMQ_DEFAULT_USER",
+    "RABBITMQ_DEFAULT_VHOST",
+    "RESTART_POLICY",
+    "RabbitMQ__Host",
+    "RabbitMQ__Port",
+    "RabbitMQ__Username",
+    "RabbitMQ__VirtualHost",
+    "SEQ_FIRSTRUN_ADMINPASSWORDHASH",
+    "SEQ_FIRSTRUN_ADMINUSERNAME",
+    "SEQ_STORAGE_PATH",
+    "SHARED_NETWORK",
+    "STORAGE_PATH",
+    "Seq__ServerUrl",
+    "Swagger__Enabled"
+  ],
+  "properties": {
+    "ASPNETCORE_ENVIRONMENT": {
+      "type": "string",
+      "enum": ["Development", "Staging", "Production"]
+    },
+    "ASPIRE_ASPNETCORE_URLS": {
+      "type": "string",
+      "format": "url"
+    },
+    "ASPIRE_FRONTEND_AUTH_MODE": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ASPIRE_FRONTEND_BROWSER_TOKEN": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ASPIRE_OTLP_API_KEY": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ASPIRE_OTLP_ENDPOINT_URL": {
+      "type": "string",
+      "format": "url"
+    },
+    "BACKEND_SERVICE_NAME": {
+      "type": "string",
+      "format": "docker-name"
+    },
+    "BACKUP_ARCHIVE_DIR": {
+      "type": "string",
+      "minLength": 1
+    },
+    "BACKUP_ENVS": {
+      "type": "string",
+      "format": "csv"
+    },
+    "BACKUP_LOG_DIR": {
+      "type": "string",
+      "minLength": 1
+    },
+    "BACKUP_PROJECT_NAME": {
+      "type": "string",
+      "minLength": 1
+    },
+    "BACKUP_REMOTE_PATH": {
+      "type": "string"
+    },
+    "BACKUP_RESTORE_TEST_TMP": {
+      "type": "string",
+      "minLength": 1
+    },
+    "BACKUP_RETENTION_DAYS": {
+      "type": "string",
+      "format": "positive-integer"
+    },
+    "BACKUP_ROOT": {
+      "type": "string",
+      "minLength": 1
+    },
+    "BACKUP_STORAGE_DEV": {
+      "type": "string",
+      "minLength": 1
+    },
+    "BACKUP_STORAGE_PROD": {
+      "type": "string",
+      "minLength": 1
+    },
+    "BACKUP_TMP": {
+      "type": "string",
+      "minLength": 1
+    },
+    "BASE_DOMAIN": {
+      "type": "string",
+      "format": "domain"
+    },
+    "CERT_FILE": {
+      "type": "string",
+      "minLength": 1
+    },
+    "COMPOSE_PROJECT_NAME": {
+      "type": "string",
+      "format": "docker-name"
+    },
+    "ConnectionStrings__Default": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ConnectionStrings__Redis": {
+      "type": "string",
+      "minLength": 1
+    },
+    "DOTNET_APP_GID": {
+      "type": "string",
+      "format": "non-negative-integer"
+    },
+    "DOTNET_APP_UID": {
+      "type": "string",
+      "format": "non-negative-integer"
+    },
+    "DOTNET_VERSION": {
+      "type": "string",
+      "pattern": "^[0-9]+(\\.[0-9]+)?$"
+    },
+    "ENVIRONMENT": {
+      "type": "string",
+      "enum": ["dev", "prod"]
+    },
+    "FILE_STORAGE_ROOT": {
+      "type": "string",
+      "minLength": 1
+    },
+    "HTTP_PORT": {
+      "type": "string",
+      "format": "port"
+    },
+    "HTTPS_PORT": {
+      "type": "string",
+      "format": "port"
+    },
+    "JamendoApi__ClientId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "KEY_FILE": {
+      "type": "string",
+      "minLength": 1
+    },
+    "MYSQL_DATABASE": {
+      "type": "string",
+      "minLength": 1
+    },
+    "MYSQL_PASSWORD": {
+      "type": "string",
+      "minLength": 1
+    },
+    "MYSQL_ROOT_PASSWORD": {
+      "type": "string",
+      "minLength": 1
+    },
+    "MYSQL_SERVICE_NAME": {
+      "type": "string",
+      "format": "docker-name"
+    },
+    "MYSQL_USER": {
+      "type": "string",
+      "minLength": 1
+    },
+    "NGINX_ADMIN_ALLOWLIST": {
+      "type": "string",
+      "format": "cidr-list"
+    },
+    "NGINX_BASIC_AUTH_FILE": {
+      "type": "string",
+      "minLength": 1
+    },
+    "NGINX_BASIC_AUTH_USER": {
+      "type": "string",
+      "minLength": 1
+    },
+    "NGINX_CERT_GROUP_ID": {
+      "type": "string",
+      "format": "non-negative-integer"
+    },
+    "NGINX_PRIVATE_ACCESS_CIDRS": {
+      "type": "string",
+      "format": "cidr-list"
+    },
+    "NGINX_PUBLIC_RATE_BURST": {
+      "type": "string",
+      "format": "positive-integer"
+    },
+    "NGINX_PUBLIC_RATE_LIMIT": {
+      "type": "string",
+      "format": "nginx-rate"
+    },
+    "NGINX_RATE_API_AUTH": {
+      "type": "string",
+      "format": "nginx-rate"
+    },
+    "NGINX_RATE_API_GENERAL": {
+      "type": "string",
+      "format": "nginx-rate"
+    },
+    "NGINX_RATE_API_UPLOAD": {
+      "type": "string",
+      "format": "nginx-rate"
+    },
+    "OPS_LOG_DIR": {
+      "type": "string",
+      "minLength": 1
+    },
+    "OTEL_EXPORTER_OTLP_ENDPOINT": {
+      "type": "string",
+      "format": "url"
+    },
+    "OTEL_EXPORTER_OTLP_HEADERS": {
+      "type": "string",
+      "minLength": 1
+    },
+    "OTEL_EXPORTER_OTLP_PROTOCOL": {
+      "type": "string",
+      "enum": ["grpc", "http/protobuf"]
+    },
+    "RABBITMQ_DEFAULT_PASS": {
+      "type": "string",
+      "minLength": 1
+    },
+    "RABBITMQ_DEFAULT_USER": {
+      "type": "string",
+      "minLength": 1
+    },
+    "RABBITMQ_DEFAULT_VHOST": {
+      "type": "string",
+      "minLength": 1
+    },
+    "RESTART_POLICY": {
+      "type": "string",
+      "enum": ["always", "no", "on-failure", "unless-stopped"]
+    },
+    "RabbitMQ__Host": {
+      "type": "string",
+      "minLength": 1
+    },
+    "RabbitMQ__Port": {
+      "type": "string",
+      "format": "port"
+    },
+    "RabbitMQ__Username": {
+      "type": "string",
+      "minLength": 1
+    },
+    "RabbitMQ__VirtualHost": {
+      "type": "string",
+      "minLength": 1
+    },
+    "SEQ_FIRSTRUN_ADMINPASSWORDHASH": {
+      "type": "string",
+      "minLength": 1
+    },
+    "SEQ_FIRSTRUN_ADMINUSERNAME": {
+      "type": "string",
+      "minLength": 1
+    },
+    "SEQ_GID": {
+      "type": "string",
+      "format": "non-negative-integer"
+    },
+    "SEQ_STORAGE_PATH": {
+      "type": "string",
+      "minLength": 1
+    },
+    "SEQ_UID": {
+      "type": "string",
+      "format": "non-negative-integer"
+    },
+    "SHARED_NETWORK": {
+      "type": "string",
+      "format": "docker-name"
+    },
+    "STORAGE_DIR_MODE": {
+      "type": "string",
+      "pattern": "^0[0-7]{3}$"
+    },
+    "STORAGE_PATH": {
+      "type": "string",
+      "minLength": 1
+    },
+    "Seq__ServerUrl": {
+      "type": "string",
+      "format": "url"
+    },
+    "Swagger__Enabled": {
+      "type": "string",
+      "format": "boolean"
+    }
+  },
+  "patternProperties": {
+    "^[A-Z][A-Z0-9_]*_CPUS$": {
+      "type": "string",
+      "format": "positive-number"
+    },
+    "^[A-Z][A-Z0-9_]*_MEM_LIMIT$": {
+      "type": "string",
+      "format": "docker-memory"
+    },
+    "^[A-Z][A-Z0-9_]*_MEMSWAP_LIMIT$": {
+      "type": "string",
+      "format": "docker-memory"
+    }
+  }
+}
