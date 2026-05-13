@@ -112,6 +112,16 @@ BACKEND_SERVICE_NAME=backend
 ./scripts/cli.py tools setup-cron
 ```
 
+### Off-site copy
+
+`BACKUP_REMOTE_PATH` поддерживает только локальный directory path. Для rsync/scp/NFS/S3/rclone-подобных сценариев сначала смонтируй remote storage локально, затем укажи путь к mount directory, например:
+
+```env
+BACKUP_REMOTE_PATH=/mnt/yuviron-backups
+```
+
+Значение валидируется до запуска backup: remote specs вроде `user@host:/path`, URL, whitespace и shell metacharacters отклоняются.
+
 ### Ротация
 
 ```env
