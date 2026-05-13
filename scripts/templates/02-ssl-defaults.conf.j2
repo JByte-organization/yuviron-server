@@ -21,6 +21,9 @@
         ssl_certificate_key /etc/nginx/certs/key.pem;
 
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+        {% for header in security_headers %}
+        add_header {{ header.name }} "{{ header.value }}" always;
+        {% endfor %}
 
         location = /health {
             access_log off;

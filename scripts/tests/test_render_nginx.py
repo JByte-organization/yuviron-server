@@ -46,6 +46,29 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("limit_req_zone $binary_remote_addr zone=api_general:10m  rate=20r/s;", rendered)
         self.assertIn("limit_req zone=api_general burst=40 nodelay;", rendered)
 
+    def test_render_adds_csp_and_removes_deprecated_xss_protection_header(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [("api", "api.example.com", "backend:5073", "50m")],
+            SCRIPTS_ROOT / "templates",
+        )
+
+        self.assertIn("add_header Content-Security-Policy", rendered)
+        self.assertIn("default-src 'self';", rendered)
+        self.assertIn("object-src 'none';", rendered)
+        self.assertIn("frame-ancestors 'none';", rendered)
+        self.assertNotIn("X-XSS-Protection", rendered)
+
+    def test_https_servers_repeat_security_headers_with_hsts(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [("api", "api.example.com", "backend:5073", "50m")],
+            SCRIPTS_ROOT / "templates",
+        )
+
+        self.assertEqual(
+            rendered.count("add_header Strict-Transport-Security"),
+            rendered.count("add_header Content-Security-Policy") - 1,
+        )
+
     def test_render_rejects_invalid_public_rate_limit(self) -> None:
         with self.assertRaises(CommandError) as raised:
             render_nginx_conf_modular(

@@ -20,6 +20,28 @@ DEFAULT_NGINX_PUBLIC_RATE_LIMIT = "30r/m"
 DEFAULT_NGINX_PUBLIC_RATE_BURST = "20"
 NGINX_RATE_LIMIT_PATTERN = re.compile(r"^[1-9][0-9]*r/[sm]$")
 NGINX_RATE_BURST_PATTERN = re.compile(r"^[1-9][0-9]*$")
+DEFAULT_CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; "
+    "base-uri 'self'; "
+    "object-src 'none'; "
+    "frame-ancestors 'none'; "
+    "form-action 'self'; "
+    "img-src 'self' data: blob: https:; "
+    "font-src 'self' data:; "
+    "style-src 'self' 'unsafe-inline'; "
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; "
+    "connect-src 'self' http: https: ws: wss:; "
+    "media-src 'self' data: blob: https:; "
+    "worker-src 'self' blob:; "
+    "manifest-src 'self'"
+)
+SECURITY_HEADERS = (
+    {"name": "Content-Security-Policy", "value": DEFAULT_CONTENT_SECURITY_POLICY},
+    {"name": "X-Frame-Options", "value": "DENY"},
+    {"name": "X-Content-Type-Options", "value": "nosniff"},
+    {"name": "Referrer-Policy", "value": "strict-origin-when-cross-origin"},
+    {"name": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()"},
+)
 
 
 def _render_template(template_text: str, context: dict) -> str:
@@ -131,6 +153,7 @@ def render_nginx_conf_modular(
 
     context = {
         "routes": routes,
+        "security_headers": SECURITY_HEADERS,
         "nginx_public_rate_limit": _validate_nginx_rate_limit(
             "NGINX_PUBLIC_RATE_LIMIT",
             _env_value(env_values, "NGINX_PUBLIC_RATE_LIMIT", DEFAULT_NGINX_PUBLIC_RATE_LIMIT),
