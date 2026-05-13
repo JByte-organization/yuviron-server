@@ -60,6 +60,7 @@ class PreflightContext:
         "SHARED_NETWORK",
         "COMPOSE_PROJECT_NAME",
         "NGINX_BASIC_AUTH_FILE",
+        "NGINX_CERT_MODE",
     )
 
     def __post_init__(self) -> None:

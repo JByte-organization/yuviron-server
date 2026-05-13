@@ -17,6 +17,11 @@ from .models import (
     is_valid_target,
 )
 from .paths import compose_relative_path
+from .tls import (
+    default_nginx_cert_mode,
+    shared_certificate_paths,
+    validate_nginx_cert_mode,
+)
 from .validators import ensure_file, ensure_mapping, fail
 
 
@@ -258,6 +263,21 @@ def load_nginx_worker_processes(
     return value
 
 
+def load_nginx_cert_mode(
+    root_dir: Path,
+    env_name: str,
+    common_env_path: Path | None = None,
+    env_file_path: Path | None = None,
+) -> str:
+    values = parse_env_file(common_env_path or root_dir / "env" / "common.env")
+    values.update(parse_env_file(env_file_path or root_dir / "env" / f"{env_name}.env"))
+
+    value = values.get("NGINX_CERT_MODE", default_nginx_cert_mode(env_name)).strip()
+    if not value:
+        fail("NGINX_CERT_MODE must not be empty")
+    return validate_nginx_cert_mode(value, environment=env_name)
+
+
 def render_stack_values(
     root_dir: Path,
     env_name: str,
@@ -282,8 +302,7 @@ def render_stack_values(
     compose_project_name = f"{project_name}-{env_name}"
     shared_network = f"{project_name}_shared"
 
-    cert_file = root_dir / "certs" / f"{env_name}-{domain}.pem"
-    key_file = root_dir / "certs" / f"{env_name}-{domain}-key.pem"
+    cert_file, key_file = shared_certificate_paths(root_dir / "certs", env_name, domain)
 
     return {
         "ENVIRONMENT": env_name,
@@ -292,6 +311,12 @@ def render_stack_values(
         "CERT_FILE": compose_relative_path(root_dir, cert_file),
         "KEY_FILE": compose_relative_path(root_dir, key_file),
         "NGINX_CERT_GROUP_ID": str(os.getgid()),
+        "NGINX_CERT_MODE": load_nginx_cert_mode(
+            root_dir,
+            env_name,
+            common_env_path=common_env_path,
+            env_file_path=env_file_path,
+        ),
         "NGINX_WORKER_PROCESSES": load_nginx_worker_processes(
             root_dir,
             env_name,

@@ -29,6 +29,7 @@
     "NGINX_BASIC_AUTH_FILE",
     "NGINX_BASIC_AUTH_USER",
     "NGINX_CERT_GROUP_ID",
+    "NGINX_CERT_MODE",
     "NGINX_WORKER_PROCESSES",
     "OTEL_EXPORTER_OTLP_ENDPOINT",
     "OTEL_EXPORTER_OTLP_HEADERS",
@@ -212,6 +213,10 @@
     "NGINX_CERT_GROUP_ID": {
       "type": "string",
       "format": "non-negative-integer"
+    },
+    "NGINX_CERT_MODE": {
+      "type": "string",
+      "enum": ["shared", "per-route"]
     },
     "NGINX_PRIVATE_ACCESS_CIDRS": {
       "type": "string",
