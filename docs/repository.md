@@ -18,6 +18,7 @@ yuviron-server/
 │   ├── common.env
 │   ├── dev.env
 │   ├── example.env
+│   ├── schema.json
 │   └── prod.env
 ├── generated/
 │   └── <env>/

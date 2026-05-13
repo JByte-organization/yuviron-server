@@ -116,6 +116,12 @@ cp env/example.env env/prod.env
 Именно `deploy.env`, а не исходный `env/dev.env` или `env/prod.env`, используется как `--env-file` для Docker Compose.
 Path-значения, которые используются Docker Compose для bind mounts, генерируются относительно `infra/compose.yml`: например `CERT_FILE=../certs/...`, `STORAGE_PATH=../storage/<env>` и `NGINX_BASIC_AUTH_FILE=../generated/<env>/htpasswd`. CLI-команды умеют резолвить такие пути обратно в абсолютные для локальных проверок.
 
+### Env schema
+
+Машиночитаемая схема runtime env лежит в `env/schema.json`. Она описывает обязательные ключи, известные опциональные ключи, базовые форматы (`port`, `nginx-rate`, `cidr-list`, `docker-memory`, `positive-number` и т.п.) и запрещает неописанные переменные на уровне схемы.
+
+`scripts/core/env_validation.py` использует эту схему без внешней JSON Schema зависимости: `stack preflight` и `security audit` проверяют итоговый `generated/<env>/deploy.env`. Пропущенные обязательные ключи и неверные форматы считаются ошибками, а неизвестные ключи выводятся как warning, чтобы новая переменная не появилась бесшумно. Тесты дополнительно проверяют, что ключи из `env/common.env`, `env/example.env` и `${...}`-переменные из `infra/compose.yml` объявлены в схеме.
+
 ### Env validation policy
 
 `stack preflight` и `security audit` проверяют итоговый `generated/<env>/deploy.env`, то есть уже объединённые common/env-specific значения.

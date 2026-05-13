@@ -136,7 +136,7 @@ CLI является единым интерфейсом для работы с�
 ./scripts/cli.py security audit prod --strict
 ```
 
-Проверяет Docker/infra hardening без запуска контейнеров: `read_only`, `cap_drop`, root containers, published ports, env safety policy, дефолтные секреты, наличие `cert/key`, права `storage`, management routes и возможные секреты среди git-tracked файлов. Audit читает итоговую compose-схему целиком: `infra/compose.yml` вместе с `generated/<env>/compose.frontends.yml`.
+Проверяет Docker/infra hardening без запуска контейнеров: `read_only`, `cap_drop`, root containers, published ports, env schema/safety policy, дефолтные секреты, наличие `cert/key`, права `storage`, management routes и возможные секреты среди git-tracked файлов. Audit читает итоговую compose-схему целиком: `infra/compose.yml` вместе с `generated/<env>/compose.frontends.yml`.
 
 По умолчанию команда возвращает non-zero только при `ERROR`; `--strict` считает warning'и ошибками.
 
