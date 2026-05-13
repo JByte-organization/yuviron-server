@@ -39,6 +39,17 @@ class ConfigLoaderStackPortsTests(unittest.TestCase):
         self.assertEqual(values["HTTP_PORT"], "80")
         self.assertEqual(values["HTTPS_PORT"], "443")
 
+    def test_restart_policy_is_environment_specific(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_minimal_config(root)
+
+            dev_values = render_stack_values(root, "dev", "example.com")
+            prod_values = render_stack_values(root, "prod", "example.com")
+
+        self.assertEqual("unless-stopped", dev_values["RESTART_POLICY"])
+        self.assertEqual("always", prod_values["RESTART_POLICY"])
+
     def test_env_file_overrides_default_edge_ports(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

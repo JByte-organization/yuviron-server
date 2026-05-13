@@ -153,6 +153,10 @@ HTTPS_PORT=8443
 ./scripts/init.py --env dev --domain yuviron.com --no-up
 ```
 
+### Restart policy
+
+`RESTART_POLICY` генерируется окружением: для `dev` используется `unless-stopped`, для `prod` — `always`. `unless-stopped` перезапускает контейнеры после restart Docker daemon или reboot VM, если до этого они не были остановлены вручную. Если dev-стек был остановлен через `docker compose stop/down`, после перезагрузки VM его нужно поднять явной командой `./scripts/cli.py stack up dev`.
+
 ### Nginx rate limit
 
 Публичный rate limit для основного API location настраивается через env:
