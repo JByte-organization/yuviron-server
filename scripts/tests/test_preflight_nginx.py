@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -58,6 +59,39 @@ class PreflightNginxTests(unittest.TestCase):
         message = str(raised.exception)
         self.assertIn("Route 'aspire' points to service 'aspire-dashboard'", message)
         self.assertIn("missing from compose config", message)
+
+    def test_check_nginx_config_dry_run_uses_compose_plan_without_starting_containers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            generated_nginx_conf = Path(temp_dir) / "nginx.conf"
+            routes_file = Path(temp_dir) / "routes.env"
+            generated_nginx_conf.write_text("server_name api.example.com;\n", encoding="utf-8")
+            routes_file.write_text("api|api.example.com|backend:5073\n", encoding="utf-8")
+            compose = SimpleNamespace()
+            ctx = SimpleNamespace(
+                dry_run=True,
+                generated_nginx_conf=generated_nginx_conf,
+                routes_file=routes_file,
+                routes=[("api", "api.example.com", "backend:5073")],
+                ensure_compose_context=lambda: compose,
+                assert_file=lambda path: None,
+            )
+
+            with (
+                patch.object(preflight_nginx, "_check_route_upstreams_exist"),
+                patch.object(preflight_nginx, "run_compose", return_value=SimpleNamespace(returncode=0)) as run_compose_mock,
+            ):
+                preflight_nginx.check_nginx_config(ctx)
+
+        run_compose_mock.assert_called_once_with(
+            compose,
+            "--dry-run",
+            "up",
+            "--no-start",
+            "--build",
+            "--remove-orphans",
+            "backend",
+            check=False,
+        )
 
 
 if __name__ == "__main__":

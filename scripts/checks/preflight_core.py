@@ -388,6 +388,10 @@ def check_storage_writable(ctx: object) -> None:
 
 
 def check_backend_storage_permissions(ctx: object) -> None:
+    if bool(getattr(ctx, "dry_run", False)):
+        log_warn("Dry-run preflight skips backend in-container storage permission check")
+        return
+
     compose_project_name = ctx.runtime_values.get("COMPOSE_PROJECT_NAME", "")
     if not compose_project_name:
         fail("COMPOSE_PROJECT_NAME is missing from runtime env")

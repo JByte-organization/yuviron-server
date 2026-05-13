@@ -36,6 +36,7 @@ class PreflightContext:
     strict_generated: bool
     allow_regenerate: bool
     isolated: bool = False
+    dry_run: bool = False
     compose_context: ComposeContext | None = None
     preflight_started_containers: dict[str, str] = field(default_factory=dict)
     runtime_env: Path | None = None
@@ -492,7 +493,11 @@ def cmd_up(args: argparse.Namespace) -> int:
     context = create_compose_context(root_dir, environment, ensure_generated=True)
     runtime_values = parse_env_file(context.runtime_env)
     preflight_core.prepare_host_storage_layout(root_dir, runtime_values)
-    run_compose(context, "up", "-d", "--build", "--remove-orphans")
+    if bool(getattr(args, "dry_run", False)):
+        log_info("Running docker compose up in dry-run mode")
+        run_compose(context, "--dry-run", "up", "--no-start", "--build", "--remove-orphans")
+    else:
+        run_compose(context, "up", "-d", "--build", "--remove-orphans")
     return 0
 
 
@@ -527,6 +532,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         strict_generated=bool(strict_generated),
         allow_regenerate=bool(allow_regenerate),
         isolated=bool(args.isolated),
+        dry_run=bool(args.dry_run),
     )
 
     try:
@@ -618,6 +624,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     up_parser = stack_sub.add_parser("up", help="Start stack")
     up_parser.add_argument("environment", nargs="?")
     up_parser.add_argument("project_root", nargs="?")
+    up_parser.add_argument("--dry-run", action="store_true", help="Validate compose up plan without starting containers")
     up_parser.set_defaults(handler=cmd_up)
 
     down_parser = stack_sub.add_parser("down", help="Stop stack")
@@ -629,6 +636,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     preflight_parser.add_argument("environment", nargs="?")
     preflight_parser.add_argument("project_root", nargs="?")
     preflight_parser.add_argument("--isolated", action="store_true", help="Run preflight in a temporary isolated compose project")
+    preflight_parser.add_argument("--dry-run", action="store_true", help="Use docker compose dry-run for container-start checks")
     preflight_parser.add_argument("--no-header", action="store_true", help=argparse.SUPPRESS)
 
     strict_group = preflight_parser.add_mutually_exclusive_group()

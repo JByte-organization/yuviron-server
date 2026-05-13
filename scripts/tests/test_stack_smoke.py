@@ -61,7 +61,7 @@ class StackSmokeTests(unittest.TestCase):
             runtime_env.parent.mkdir(parents=True)
             runtime_env.write_text("STORAGE_PATH=storage/dev\nSEQ_STORAGE_PATH=storage/dev/seq\n", encoding="utf-8")
             context = SimpleNamespace(runtime_env=runtime_env)
-            args = SimpleNamespace(environment="dev", project_root=str(root))
+            args = SimpleNamespace(environment="dev", project_root=str(root), dry_run=False)
 
             with (
                 patch.object(stack, "create_compose_context", return_value=context),
@@ -75,6 +75,31 @@ class StackSmokeTests(unittest.TestCase):
             {"STORAGE_PATH": "storage/dev", "SEQ_STORAGE_PATH": "storage/dev/seq"},
         )
         run_compose_mock.assert_called_once_with(context, "up", "-d", "--build", "--remove-orphans")
+
+    def test_stack_up_dry_run_uses_compose_dry_run_without_starting_containers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            runtime_env = root / "generated" / "dev" / "deploy.env"
+            runtime_env.parent.mkdir(parents=True)
+            runtime_env.write_text("STORAGE_PATH=storage/dev\nSEQ_STORAGE_PATH=storage/dev/seq\n", encoding="utf-8")
+            context = SimpleNamespace(runtime_env=runtime_env)
+            args = SimpleNamespace(environment="dev", project_root=str(root), dry_run=True)
+
+            with (
+                patch.object(stack, "create_compose_context", return_value=context),
+                patch.object(stack.preflight_core, "prepare_host_storage_layout"),
+                patch.object(stack, "run_compose") as run_compose_mock,
+            ):
+                stack.cmd_up(args)
+
+        run_compose_mock.assert_called_once_with(
+            context,
+            "--dry-run",
+            "up",
+            "--no-start",
+            "--build",
+            "--remove-orphans",
+        )
 
 
 if __name__ == "__main__":

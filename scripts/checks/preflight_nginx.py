@@ -3,7 +3,7 @@ from __future__ import annotations
 from core.docker import run, run_compose
 from core.env import parse_routes_file
 from core.models import is_valid_target
-from core.ui import log_info, log_ok
+from core.ui import log_info, log_ok, log_warn
 from core.validators import fail
 
 
@@ -128,6 +128,28 @@ def check_nginx_config(ctx: object) -> None:
         fail(f"Routes file does not contain upstream services: {ctx.routes_file}")
 
     compose = ctx.ensure_compose_context()
+
+    if bool(getattr(ctx, "dry_run", False)):
+        log_info(
+            "Dry-run: validating nginx upstream dependency plan without starting containers: "
+            + ", ".join(start_services)
+        )
+        dry_run = run_compose(
+            compose,
+            "--dry-run",
+            "up",
+            "--no-start",
+            "--build",
+            "--remove-orphans",
+            *start_services,
+            check=False,
+        )
+        if dry_run.returncode != 0:
+            fail("Docker compose dry-run failed for nginx upstream dependency plan")
+
+        log_warn("Dry-run preflight skips runtime nginx -t because no container is started")
+        log_ok("Generated nginx config dry-run compose plan looks valid")
+        return
 
     log_info(f"Starting nginx upstream dependencies for config validation: {', '.join(start_services)}")
     running_before = _running_project_containers(ctx)
