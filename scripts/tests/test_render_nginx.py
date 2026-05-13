@@ -8,7 +8,14 @@ SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
-from core.render_nginx import render_nginx_conf_modular
+from core.render_nginx import (
+    DEFAULT_TLS_POLICY,
+    TLS_POLICY_INTERMEDIATE,
+    TLS_POLICY_MODERN,
+    NginxTlsPolicy,
+    _validate_nginx_tls_policy,
+    render_nginx_conf_modular,
+)
 from core.validators import CommandError
 
 
@@ -33,6 +40,73 @@ class RenderNginxTests(unittest.TestCase):
 
         self.assertIn("worker_processes 1;", rendered)
         self.assertNotIn("worker_processes auto;", rendered)
+
+    def test_render_pins_default_tls_policy(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [("api", "api.example.com", "backend:5073", "50m")],
+            SCRIPTS_ROOT / "templates",
+        )
+        expected_ciphers = ":".join(DEFAULT_TLS_POLICY.ciphers)
+
+        self.assertIs(DEFAULT_TLS_POLICY, TLS_POLICY_INTERMEDIATE)
+        self.assertEqual(("TLSv1.3",), TLS_POLICY_MODERN.protocols)
+        self.assertIn(f"ssl_protocols {' '.join(DEFAULT_TLS_POLICY.protocols)};", rendered)
+        self.assertIn(f"ssl_ciphers {expected_ciphers};", rendered)
+        self.assertIn(f"ssl_prefer_server_ciphers {DEFAULT_TLS_POLICY.prefer_server_ciphers};", rendered)
+        self.assertIn(f"ssl_session_cache {DEFAULT_TLS_POLICY.session_cache};", rendered)
+        self.assertIn(f"ssl_session_timeout {DEFAULT_TLS_POLICY.session_timeout};", rendered)
+        self.assertIn(f"ssl_session_tickets {DEFAULT_TLS_POLICY.session_tickets};", rendered)
+        self.assertNotIn("TLSv1 TLSv1.1", rendered)
+
+    def test_tls_cipher_list_lives_in_render_context_not_template(self) -> None:
+        template = (SCRIPTS_ROOT / "templates" / "01-global.conf.j2").read_text(encoding="utf-8")
+
+        self.assertIn("ssl_ciphers {{ nginx_tls_ciphers }};", template)
+        self.assertNotIn(":".join(DEFAULT_TLS_POLICY.ciphers), template)
+
+    def test_tls_policy_validation_rejects_legacy_protocols(self) -> None:
+        with self.assertRaises(CommandError) as raised:
+            _validate_nginx_tls_policy(
+                NginxTlsPolicy(
+                    name="legacy",
+                    protocols=("TLSv1",),
+                    ciphers=("ECDHE-RSA-AES128-GCM-SHA256",),
+                )
+            )
+
+        self.assertIn("forbidden protocol 'TLSv1'", str(raised.exception))
+
+    def test_tls_policy_validation_rejects_unknown_protocols(self) -> None:
+        with self.assertRaises(CommandError) as raised:
+            _validate_nginx_tls_policy(
+                NginxTlsPolicy(
+                    name="future",
+                    protocols=("TLSv1.4",),
+                    ciphers=("ECDHE-RSA-AES128-GCM-SHA256",),
+                )
+            )
+
+        self.assertIn("forbidden protocol 'TLSv1.4'", str(raised.exception))
+
+    def test_tls_policy_validation_rejects_forbidden_ciphers(self) -> None:
+        with self.assertRaises(CommandError) as raised:
+            _validate_nginx_tls_policy(
+                NginxTlsPolicy(
+                    name="cbc",
+                    protocols=("TLSv1.2",),
+                    ciphers=("ECDHE-RSA-AES128-CBC-SHA256",),
+                )
+            )
+
+        self.assertIn("forbidden cipher", str(raised.exception))
+
+    def test_tls_policy_validation_allows_modern_tls13_only_profile(self) -> None:
+        context = _validate_nginx_tls_policy(TLS_POLICY_MODERN)
+
+        self.assertEqual("modern", context["nginx_tls_policy_name"])
+        self.assertEqual("TLSv1.3", context["nginx_tls_protocols"])
+        self.assertEqual("", context["nginx_tls_ciphers"])
+        self.assertFalse(context["nginx_tls_has_ciphers"])
 
     def test_render_rejects_invalid_nginx_worker_processes(self) -> None:
         with self.assertRaises(CommandError) as raised:
