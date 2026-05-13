@@ -24,7 +24,7 @@ from core.env import load_dotenv_if_exists, parse_env_file, parse_routes_file
 from core.paths import resolve_root_dir
 from core.tls import (
     NGINX_CERT_MODE_PER_ROUTE,
-    NGINX_CERT_MODE_SHARED,
+    default_nginx_cert_mode,
     route_certificate_paths,
     shared_certificate_paths,
     validate_nginx_cert_mode,
@@ -281,10 +281,10 @@ def _resolve_nginx_cert_mode(root_dir: Path, environment: str) -> str:
         if value:
             return validate_nginx_cert_mode(value, environment=environment)
     log_warn(
-        "NGINX_CERT_MODE is missing from generated runtime env; assuming shared mode. "
+        "NGINX_CERT_MODE is missing from generated runtime env; using environment default. "
         "Regenerate runtime config to use the current environment default."
     )
-    return NGINX_CERT_MODE_SHARED
+    return default_nginx_cert_mode(environment)
 
 
 def _warn_if_nonstandard_http_port(root_dir: Path, environment: str) -> None:

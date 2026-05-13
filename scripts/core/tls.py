@@ -10,10 +10,17 @@ NGINX_CERT_MODE_SHARED = "shared"
 NGINX_CERT_MODE_PER_ROUTE = "per-route"
 NGINX_CERT_MODES = frozenset({NGINX_CERT_MODE_SHARED, NGINX_CERT_MODE_PER_ROUTE})
 NGINX_CERTS_CONTAINER_DIR = "/etc/nginx/certs"
+DEFAULT_CERT_MODE_BY_ENV = {
+    "dev": NGINX_CERT_MODE_SHARED,
+    "prod": NGINX_CERT_MODE_PER_ROUTE,
+}
 
 
 def default_nginx_cert_mode(environment: str) -> str:
-    return NGINX_CERT_MODE_PER_ROUTE if environment == "prod" else NGINX_CERT_MODE_SHARED
+    try:
+        return DEFAULT_CERT_MODE_BY_ENV[environment]
+    except KeyError:
+        fail(f"Invalid environment for default TLS certificate mode: {environment!r}")
 
 
 def validate_nginx_cert_mode(value: object, *, environment: str | None = None) -> str:
