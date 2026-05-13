@@ -13,6 +13,8 @@ ROOT_DIR = SCRIPTS_ROOT.parent
 TEST_COMMON_ENV = """\
 NGINX_PUBLIC_RATE_LIMIT=20r/s
 NGINX_PUBLIC_RATE_BURST=40
+NGINX_PRIVATE_ACCESS_CIDRS=10.8.0.0/24
+NGINX_ADMIN_ALLOWLIST=127.0.0.1/32,${NGINX_PRIVATE_ACCESS_CIDRS}
 NGINX_BASIC_AUTH_USER=test-admin
 NGINX_BASIC_AUTH_FILE=./generated/${ENVIRONMENT}/htpasswd
 """
@@ -82,13 +84,16 @@ class GenerateConfigTests(unittest.TestCase):
             deploy_env = (output_dir / "deploy.env").read_text(encoding="utf-8")
             stack_env = (output_dir / "stack.env").read_text(encoding="utf-8")
             manifest_env = (output_dir / "manifest.env").read_text(encoding="utf-8")
+            nginx_conf = (output_dir / "nginx.conf").read_text(encoding="utf-8")
             expected_htpasswd = os.path.relpath(output_dir / "htpasswd", ROOT_DIR / "infra")
             self.assertIn(f"NGINX_BASIC_AUTH_FILE={Path(expected_htpasswd).as_posix()}", deploy_env)
+            self.assertIn("NGINX_ADMIN_ALLOWLIST=127.0.0.1/32,10.8.0.0/24", deploy_env)
             self.assertIn("MYSQL_ROOT_PASSWORD=test-only-root-password", deploy_env)
             self.assertIn("HTTP_PORT=18080", stack_env)
             self.assertIn("GENERATION_DOMAIN=example.com", manifest_env)
             self.assertIn("GENERATION_APP_KEYS=client,admin,backoffice", manifest_env)
             self.assertIn("GENERATION_EXTRA_ROUTES=", manifest_env)
+            self.assertIn("allow 10.8.0.0/24;", nginx_conf)
             self.assertNotIn("YV_DEV_ASPIRE_2026", deploy_env)
 
 

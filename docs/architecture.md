@@ -134,7 +134,7 @@ dev-aspire.yuviron.com     -> aspire-dashboard:18888
 
 * `client`, `admin`, `backoffice` идут в frontend containers.
 * `api` идёт в backend на `5073`.
-* `seq` и `aspire` считаются management routes и получают HTTP Basic Auth.
+* `seq` и `aspire` считаются management routes и получают HTTP Basic Auth плюс `NGINX_ADMIN_ALLOWLIST`.
 * `/health` обслуживается самим edge nginx для healthcheck и smoke.
 * API routes получают nginx rate limiting.
 * TLS certificate/key монтируются в nginx как read-only файлы.
@@ -286,7 +286,7 @@ Internal Docker network
 
 * наружу публикуется только nginx (`HTTP_PORT` / `HTTPS_PORT`);
 * data services остаются внутри Docker network;
-* management routes `seq` и `aspire` доступны только в dev и закрыты Basic Auth;
+* management routes `seq` и `aspire` доступны только в dev и закрыты Basic Auth и CIDR allowlist;
 * Tailscale ACL должен ограничивать SSH и service access;
 * RadminVPN остаётся compatibility path, а не основной новый слой доступа;
 * CoreDNS on Windows используется только как optional DNS endpoint;

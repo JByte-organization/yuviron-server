@@ -17,11 +17,12 @@ from commands import security
 
 
 class SecurityAuditTests(unittest.TestCase):
-    def test_default_nginx_admin_allowlist_is_tailnet_scoped(self) -> None:
+    def test_default_nginx_admin_allowlist_uses_private_access_cidrs(self) -> None:
         root = SCRIPTS_ROOT.parent
         common_env = security.parse_env_file(root / "env" / "common.env")
 
-        self.assertEqual("127.0.0.1/32,100.64.0.0/10", common_env["NGINX_ADMIN_ALLOWLIST"])
+        self.assertEqual("100.64.0.0/10", common_env["NGINX_PRIVATE_ACCESS_CIDRS"])
+        self.assertEqual("127.0.0.1/32,${NGINX_PRIVATE_ACCESS_CIDRS}", common_env["NGINX_ADMIN_ALLOWLIST"])
 
     def test_dotnet_rabbitmq_password_is_derived_from_default_password(self) -> None:
         root = SCRIPTS_ROOT.parent
