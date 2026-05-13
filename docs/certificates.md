@@ -24,9 +24,14 @@
 certs/
 ```
 
-Для dev и prod могут использоваться разные сертификаты.
+Для dev и prod могут использоваться разные сертификаты и разный режим привязки сертификатов к маршрутам.
 
-Используемые файлы задаются в `generated/<env>/stack.env` и монтируются в nginx через единый `infra/compose.yml`.
+`infra/compose.yml` монтирует весь каталог `certs/` в nginx как `/etc/nginx/certs`. Конкретные файлы выбираются в сгенерированном `generated/<env>/nginx.conf`:
+
+* `NGINX_CERT_MODE=shared` — один общий SAN/wildcard certificate для всех route hosts.
+* `NGINX_CERT_MODE=per-route` — каждый route host получает отдельную пару cert/key через nginx `map $ssl_server_name ...`.
+
+По умолчанию `dev` генерируется в режиме `shared`, `prod` — в режиме `per-route`. Общий cert/key из `CERT_FILE` и `KEY_FILE` остаётся default/fallback сертификатом для default HTTPS server и healthcheck.
 
 Генерация через CLI:
 
@@ -81,7 +86,7 @@ CLI использует `mkcert` и SAN-список из `generated/<env>/rout
 ~/rootCA.crt
 ```
 
-Сертификат покрывает hosts из `routes.env`, например:
+В `shared` режиме один сертификат покрывает hosts из `routes.env`, например:
 
 ```text
 dev.yuviron.com
@@ -92,12 +97,29 @@ dev-seq.yuviron.com
 dev-aspire.yuviron.com
 ```
 
+В `per-route` режиме `mkcert` всё равно выпускает общий SAN-сертификат, а затем раскладывает его копии в per-route пути вида:
+
+```text
+certs/<env>/<host>.pem
+certs/<env>/<host>-key.pem
+```
+
+Это удобно как bootstrap для production nginx перед выпуском настоящих Let's Encrypt сертификатов.
+
 ---
 
 ## Генерация SSL сертификатов через Let's Encrypt
 
-CLI использует `certbot --webroot` и тот же SAN-список из `generated/<env>/routes.env`.
+CLI использует `certbot --webroot` и route hosts из `generated/<env>/routes.env`.
 Для ACME HTTP-01 challenge nginx отдаёт файлы из `certs/acme-challenge` по пути `/.well-known/acme-challenge/`.
+
+В `shared` режиме CLI выпускает один SAN-сертификат `certs/<env>-<domain>.pem`.
+В `per-route` режиме CLI выпускает отдельный Let's Encrypt certificate для каждого route host и синхронизирует файлы в:
+
+```text
+certs/<env>/<host>.pem
+certs/<env>/<host>-key.pem
+```
 
 ```bash
 ./scripts/cli.py certs generate --provider letsencrypt --env prod --domain yuviron.com --email ops@yuviron.com
@@ -130,7 +152,7 @@ certs/acme-challenge/.well-known/acme-challenge/<token>
 http://<host>/.well-known/acme-challenge/<token>
 ```
 
-На чистом сервере nginx всё равно должен стартовать с каким-либо существующим cert/key, например временно выпущенным через `mkcert`, потому что webroot challenge обслуживает именно nginx.
+На чистом сервере nginx всё равно должен стартовать с каким-либо существующим default cert/key, например временно выпущенным через `mkcert`, потому что webroot challenge обслуживает именно nginx. Для `prod` с дефолтным `NGINX_CERT_MODE=per-route` временный `mkcert` также подготовит per-route файлы, чтобы preflight и HTTPS smoke не падали до замены на Let's Encrypt.
 
 Если инфраструктура не поддерживает такую self-check проверку с самого сервера, её можно пропустить:
 

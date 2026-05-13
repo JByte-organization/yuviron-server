@@ -40,8 +40,8 @@ CLI является единым интерфейсом для работы с�
 * Docker Compose plugin
 * Tailscale daemon и tailnet IP
 * DNS для hosts из `generated/<env>/routes.env`
-* наличие и базовую валидность сертификата/ключа
-* покрытие route hosts в SAN сертификата
+* наличие и базовую валидность default сертификата/ключа
+* покрытие route hosts: SAN общего сертификата в `shared` режиме или отдельные per-route сертификаты в `per-route` режиме
 * свободность `HTTP_PORT`/`HTTPS_PORT` или их занятость ожидаемым `${COMPOSE_PROJECT_NAME}-nginx`
 * наличие обязательных env/runtime values
 * generated runtime-файлы
