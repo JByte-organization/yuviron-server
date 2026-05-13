@@ -134,8 +134,11 @@ Path-значения, которые используются Docker Compose д
 * `Swagger__Enabled=true` или другое truthy-значение (`1`, `yes`, `on`)
 * `ASPNETCORE_ENVIRONMENT=Development`
 * secret-like env keys с короткими значениями: ключи с `TOKEN`, `API_KEY` или `SECRET` должны иметь минимум 32 символа
+* при `stack preflight prod --strict` weak/default secrets в `MYSQL_ROOT_PASSWORD`, `MYSQL_PASSWORD`, `RABBITMQ_DEFAULT_PASS`, `ASPIRE_FRONTEND_BROWSER_TOKEN` и `ASPIRE_OTLP_API_KEY`
 
 Для `dev` dev-значения вроде `MYSQL_ROOT_PASSWORD=root`, `Swagger__Enabled=true` и `ASPNETCORE_ENVIRONMENT=Development` допустимы, но короткие secret-like значения дают warning. Минимум для non-prod secret-like значений — 16 символов.
+
+Strict weak-secret policy считает небезопасными пустые значения, общеизвестные дефолты вроде `admin`, `password`, `root`, `secret`, `test`, `yuviron`, шаблонные значения с `strong_password_1234`, prod-секреты с `dev` в значении и короткие prod password/pass значения.
 
 ### Edge-порты
 

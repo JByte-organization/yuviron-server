@@ -63,6 +63,7 @@ CLI является единым интерфейсом для работы с�
 ```bash
 ./scripts/cli.py stack preflight dev
 ./scripts/cli.py stack preflight prod
+./scripts/cli.py stack preflight prod --strict
 ./scripts/cli.py stack preflight dev --isolated
 ./scripts/cli.py stack preflight dev --dry-run
 ```
@@ -78,6 +79,7 @@ CLI является единым интерфейсом для работы с�
 * свежесть generated-файлов через `generated/<env>/manifest.env`
 * валидность значений маршрутов для nginx: host, upstream `service:port`, диапазон портов и `client_max_body_size`
 * соответствие upstream services из `routes.env` сервисам полной compose-конфигурации
+* в `--strict` режиме — weak/default secrets; для `prod` такие значения считаются `ERROR` и блокируют preflight
 
 ---
 

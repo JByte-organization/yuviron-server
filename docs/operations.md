@@ -23,6 +23,7 @@
 ```bash
 ./scripts/cli.py stack preflight dev
 ./scripts/cli.py stack preflight prod
+./scripts/cli.py stack preflight prod --strict
 ./scripts/cli.py stack preflight dev --isolated
 ./scripts/cli.py stack preflight dev --dry-run
 ```
@@ -32,6 +33,7 @@
 * Docker
 * env-файлы
 * env safety policy для prod/dev
+* weak/default secrets в strict-режиме; для `prod` такие значения блокируют preflight
 * сеть
 * права доступа
 * nginx конфигурацию
@@ -215,6 +217,8 @@ Seq запускается non-root под `${SEQ_UID:-1000}:${SEQ_GID:-1000}`. 
 ```
 
 `preflight --dry-run` выполняет обычные файловые/env/compose проверки, но моделирует container-start часть через `docker compose --dry-run` и пропускает runtime-проверки, которым нужен реально запущенный контейнер (`nginx -t` внутри контейнера и backend storage probe).
+
+Для `prod` рекомендуется запускать `stack preflight prod --strict`: strict-режим дополнительно включает проверку weak/default secrets и блокирует preflight, если секреты похожи на дефолтные, dev/template значения или слишком короткие production password/pass значения.
 
 ---
 
