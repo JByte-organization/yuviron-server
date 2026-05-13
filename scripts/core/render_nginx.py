@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import re
 from pathlib import Path
 from typing import Iterable, Mapping, Tuple
@@ -18,6 +19,7 @@ from .validators import fail
 
 DEFAULT_NGINX_PUBLIC_RATE_LIMIT = "30r/m"
 DEFAULT_NGINX_PUBLIC_RATE_BURST = "20"
+DEFAULT_NGINX_ADMIN_ALLOWLIST = "127.0.0.1/32"
 NGINX_RATE_LIMIT_PATTERN = re.compile(r"^[1-9][0-9]*r/[sm]$")
 NGINX_RATE_BURST_PATTERN = re.compile(r"^[1-9][0-9]*$")
 DEFAULT_CONTENT_SECURITY_POLICY = (
@@ -113,6 +115,28 @@ def _validate_nginx_rate_burst(field_name: str, value: object) -> str:
     return value
 
 
+def _validate_nginx_admin_allowlist(field_name: str, value: object) -> tuple[str, ...]:
+    if not isinstance(value, str):
+        fail(f"Invalid nginx {field_name}: expected string")
+    if value != value.strip():
+        fail(f"Invalid nginx {field_name}: surrounding whitespace is not allowed")
+
+    cidrs: list[str] = []
+    for raw_item in value.split(","):
+        item = raw_item.strip()
+        if not item:
+            continue
+
+        try:
+            cidrs.append(str(ipaddress.ip_network(item, strict=False)))
+        except ValueError:
+            fail(f"Invalid nginx {field_name}: {item!r}. Expected comma-separated IP/CIDR values")
+
+    if not cidrs:
+        fail(f"Invalid nginx {field_name}: at least one IP/CIDR value is required")
+    return tuple(cidrs)
+
+
 def render_nginx_conf_modular(
     route_lines: Iterable[Tuple[str, str, str, str]],
     template_dir: str | Path,
@@ -133,8 +157,13 @@ def render_nginx_conf_modular(
     if not template_dir.is_dir():
         raise NotADirectoryError(f"Nginx template directory not found: {template_dir}")
 
+    nginx_admin_allowlist = _validate_nginx_admin_allowlist(
+        "NGINX_ADMIN_ALLOWLIST",
+        _env_value(env_values, "NGINX_ADMIN_ALLOWLIST", DEFAULT_NGINX_ADMIN_ALLOWLIST),
+    )
+
     # Build routes context
-    routes: list[dict[str, str]] = []
+    routes: list[dict[str, object]] = []
     for route_name, route_host, route_upstream, route_max_body_size in route_lines:
         route_name, route_host, route_upstream, route_max_body_size = _validate_nginx_route(
             route_name,
@@ -142,10 +171,12 @@ def render_nginx_conf_modular(
             route_upstream,
             route_max_body_size,
         )
+        route_is_management = route_name in MANAGEMENT_ROUTE_NAMES
         routes.append({
             "name": route_name,
             "host": route_host,
-            "basic_auth": route_name in MANAGEMENT_ROUTE_NAMES,
+            "basic_auth": route_is_management,
+            "admin_allowlist": nginx_admin_allowlist if route_is_management else (),
             "log_name": f"{route_name}-{route_host.replace('.', '_')}",
             "upstream": route_upstream,
             "client_max_body_size": route_max_body_size,

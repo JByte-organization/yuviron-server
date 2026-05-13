@@ -32,6 +32,30 @@ class RenderNginxTests(unittest.TestCase):
 
         self.assertIn('auth_basic "Yuviron internal";', rendered)
         self.assertIn("auth_basic_user_file /etc/nginx/htpasswd;", rendered)
+        self.assertIn("allow 127.0.0.1/32;", rendered)
+        self.assertIn("deny all;", rendered)
+
+    def test_render_uses_admin_allowlist_env_values_for_management_routes(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [("seq", "seq.example.com", "seq:80", "5m")],
+            SCRIPTS_ROOT / "templates",
+            {"NGINX_ADMIN_ALLOWLIST": "127.0.0.1/32,10.8.0.0/24,fd7a:115c:a1e0::/48"},
+        )
+
+        self.assertIn("allow 127.0.0.1/32;", rendered)
+        self.assertIn("allow 10.8.0.0/24;", rendered)
+        self.assertIn("allow fd7a:115c:a1e0::/48;", rendered)
+        self.assertIn("deny all;", rendered)
+
+    def test_render_rejects_injected_admin_allowlist(self) -> None:
+        with self.assertRaises(CommandError) as raised:
+            render_nginx_conf_modular(
+                [("seq", "seq.example.com", "seq:80", "5m")],
+                SCRIPTS_ROOT / "templates",
+                {"NGINX_ADMIN_ALLOWLIST": "127.0.0.1/32; allow all"},
+            )
+
+        self.assertIn("Invalid nginx NGINX_ADMIN_ALLOWLIST", str(raised.exception))
 
     def test_render_uses_public_rate_limit_env_values(self) -> None:
         rendered = render_nginx_conf_modular(

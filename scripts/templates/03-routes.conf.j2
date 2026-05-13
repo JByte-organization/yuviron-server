@@ -42,6 +42,11 @@
 
         location / {
             {% if route.basic_auth %}
+            {% for cidr in route.admin_allowlist %}
+            allow {{ cidr }};
+            {% endfor %}
+            deny all;
+
             auth_basic "Yuviron internal";
             auth_basic_user_file /etc/nginx/htpasswd;
             {% endif %}
