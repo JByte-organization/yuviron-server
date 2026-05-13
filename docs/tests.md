@@ -17,6 +17,18 @@ python3 -m unittest discover -s scripts/tests
 python3 -m unittest scripts/tests/test_generate_config.py
 ```
 
+## Интеграционный dry-run e2e
+
+Тест `scripts/tests/test_stack_e2e_dry_run.py` проверяет полный CLI-цикл `init.py -> stack preflight --dry-run -> stack up --dry-run`. По умолчанию он пропускается, чтобы обычный unit-suite не требовал Docker daemon и не создавал временную Docker network.
+
+Для запуска:
+
+```bash
+YUVIRON_RUN_DOCKER_E2E=1 python3 -m unittest scripts/tests/test_stack_e2e_dry_run.py
+```
+
+Тест собирает минимальный временный проект, создаёт fixture `env/dev.env`, запускает `init.py`, добавляет dummy TLS files для preflight-проверки путей, затем выполняет `preflight` и `up` через `docker compose --dry-run`.
+
 ## Принципы
 
 * Тесты должны работать без настоящих секретов и локальных `env/dev.env` или `env/prod.env`.

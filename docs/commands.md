@@ -64,6 +64,7 @@ CLI является единым интерфейсом для работы с�
 ./scripts/cli.py stack preflight dev
 ./scripts/cli.py stack preflight prod
 ./scripts/cli.py stack preflight dev --isolated
+./scripts/cli.py stack preflight dev --dry-run
 ```
 
 Проверяет:
@@ -85,7 +86,10 @@ CLI является единым интерфейсом для работы с�
 ```bash
 ./scripts/cli.py stack up dev
 ./scripts/cli.py stack up prod
+./scripts/cli.py stack up dev --dry-run
 ```
+
+`--dry-run` использует `docker compose --dry-run` и не запускает контейнеры. Для `up` дополнительно используется `--no-start`, чтобы Compose проверил план создания/build без ожидания health dependencies.
 
 ---
 

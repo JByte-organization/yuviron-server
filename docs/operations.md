@@ -24,6 +24,7 @@
 ./scripts/cli.py stack preflight dev
 ./scripts/cli.py stack preflight prod
 ./scripts/cli.py stack preflight dev --isolated
+./scripts/cli.py stack preflight dev --dry-run
 ```
 
 Проверяет:
@@ -205,6 +206,15 @@ Seq запускается non-root под `${SEQ_UID:-1000}:${SEQ_GID:-1000}`. 
 ```bash
 ./scripts/cli.py stack preflight dev --isolated
 ```
+
+Для CI/e2e-проверки без запуска контейнеров:
+
+```bash
+./scripts/cli.py stack preflight dev --dry-run
+./scripts/cli.py stack up dev --dry-run
+```
+
+`preflight --dry-run` выполняет обычные файловые/env/compose проверки, но моделирует container-start часть через `docker compose --dry-run` и пропускает runtime-проверки, которым нужен реально запущенный контейнер (`nginx -t` внутри контейнера и backend storage probe).
 
 ---
 
