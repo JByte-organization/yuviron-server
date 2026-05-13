@@ -24,14 +24,25 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("client_max_body_size 50m;", rendered)
         self.assertNotIn("auth_basic_user_file", rendered)
 
-    def test_render_pins_nginx_worker_processes_to_container_cpu_limit(self) -> None:
+    def test_render_uses_nginx_worker_processes_env_value(self) -> None:
         rendered = render_nginx_conf_modular(
             [("api", "api.example.com", "backend:5073", "50m")],
             SCRIPTS_ROOT / "templates",
+            {"NGINX_WORKER_PROCESSES": "1"},
         )
 
         self.assertIn("worker_processes 1;", rendered)
         self.assertNotIn("worker_processes auto;", rendered)
+
+    def test_render_rejects_invalid_nginx_worker_processes(self) -> None:
+        with self.assertRaises(CommandError) as raised:
+            render_nginx_conf_modular(
+                [("api", "api.example.com", "backend:5073", "50m")],
+                SCRIPTS_ROOT / "templates",
+                {"NGINX_WORKER_PROCESSES": "auto; include /tmp/x"},
+            )
+
+        self.assertIn("Invalid nginx NGINX_WORKER_PROCESSES", str(raised.exception))
 
     def test_render_enables_basic_auth_for_management_routes(self) -> None:
         rendered = render_nginx_conf_modular(

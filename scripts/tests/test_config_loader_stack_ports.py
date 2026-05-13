@@ -50,6 +50,27 @@ class ConfigLoaderStackPortsTests(unittest.TestCase):
         self.assertEqual("unless-stopped", dev_values["RESTART_POLICY"])
         self.assertEqual("always", prod_values["RESTART_POLICY"])
 
+    def test_nginx_worker_processes_defaults_are_environment_specific(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_minimal_config(root)
+
+            dev_values = render_stack_values(root, "dev", "example.com")
+            prod_values = render_stack_values(root, "prod", "example.com")
+
+        self.assertEqual("1", dev_values["NGINX_WORKER_PROCESSES"])
+        self.assertEqual("auto", prod_values["NGINX_WORKER_PROCESSES"])
+
+    def test_env_file_overrides_default_nginx_worker_processes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_minimal_config(root)
+            (root / "env" / "dev.env").write_text("NGINX_WORKER_PROCESSES=auto\n", encoding="utf-8")
+
+            values = render_stack_values(root, "dev", "example.com")
+
+        self.assertEqual("auto", values["NGINX_WORKER_PROCESSES"])
+
     def test_env_file_overrides_default_edge_ports(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

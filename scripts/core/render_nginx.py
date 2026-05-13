@@ -20,8 +20,10 @@ from .validators import fail
 DEFAULT_NGINX_PUBLIC_RATE_LIMIT = "30r/m"
 DEFAULT_NGINX_PUBLIC_RATE_BURST = "20"
 DEFAULT_NGINX_ADMIN_ALLOWLIST = "127.0.0.1/32"
+DEFAULT_NGINX_WORKER_PROCESSES = "auto"
 NGINX_RATE_LIMIT_PATTERN = re.compile(r"^[1-9][0-9]*r/[sm]$")
 NGINX_RATE_BURST_PATTERN = re.compile(r"^[1-9][0-9]*$")
+NGINX_WORKER_PROCESSES_PATTERN = re.compile(r"^(?:auto|[1-9][0-9]*)$")
 DEFAULT_CONTENT_SECURITY_POLICY = (
     "default-src 'self'; "
     "base-uri 'self'; "
@@ -115,6 +117,16 @@ def _validate_nginx_rate_burst(field_name: str, value: object) -> str:
     return value
 
 
+def _validate_nginx_worker_processes(field_name: str, value: object) -> str:
+    if not isinstance(value, str):
+        fail(f"Invalid nginx {field_name}: expected string")
+    if value != value.strip():
+        fail(f"Invalid nginx {field_name}: surrounding whitespace is not allowed")
+    if not NGINX_WORKER_PROCESSES_PATTERN.fullmatch(value):
+        fail(f"Invalid nginx {field_name}: {value!r}. Expected 'auto' or a positive integer")
+    return value
+
+
 def _validate_nginx_admin_allowlist(field_name: str, value: object) -> tuple[str, ...]:
     if not isinstance(value, str):
         fail(f"Invalid nginx {field_name}: expected string")
@@ -192,6 +204,10 @@ def render_nginx_conf_modular(
         "nginx_public_rate_burst": _validate_nginx_rate_burst(
             "NGINX_PUBLIC_RATE_BURST",
             _env_value(env_values, "NGINX_PUBLIC_RATE_BURST", DEFAULT_NGINX_PUBLIC_RATE_BURST),
+        ),
+        "nginx_worker_processes": _validate_nginx_worker_processes(
+            "NGINX_WORKER_PROCESSES",
+            _env_value(env_values, "NGINX_WORKER_PROCESSES", DEFAULT_NGINX_WORKER_PROCESSES),
         ),
     }
 

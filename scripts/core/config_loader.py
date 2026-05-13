@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -17,6 +18,9 @@ from .models import (
 )
 from .paths import compose_relative_path
 from .validators import ensure_file, ensure_mapping, fail
+
+
+NGINX_WORKER_PROCESSES_PATTERN = re.compile(r"^(?:auto|[1-9][0-9]*)$")
 
 
 def read_text(path: Path) -> str:
@@ -236,6 +240,24 @@ def load_stack_port(
     return value
 
 
+def load_nginx_worker_processes(
+    root_dir: Path,
+    env_name: str,
+    common_env_path: Path | None = None,
+    env_file_path: Path | None = None,
+) -> str:
+    values = parse_env_file(common_env_path or root_dir / "env" / "common.env")
+    values.update(parse_env_file(env_file_path or root_dir / "env" / f"{env_name}.env"))
+
+    default = "1" if env_name == "dev" else "auto"
+    value = values.get("NGINX_WORKER_PROCESSES", default).strip()
+    if not value:
+        fail("NGINX_WORKER_PROCESSES must not be empty")
+    if not NGINX_WORKER_PROCESSES_PATTERN.fullmatch(value):
+        fail("NGINX_WORKER_PROCESSES must be 'auto' or a positive integer")
+    return value
+
+
 def render_stack_values(
     root_dir: Path,
     env_name: str,
@@ -270,6 +292,12 @@ def render_stack_values(
         "CERT_FILE": compose_relative_path(root_dir, cert_file),
         "KEY_FILE": compose_relative_path(root_dir, key_file),
         "NGINX_CERT_GROUP_ID": str(os.getgid()),
+        "NGINX_WORKER_PROCESSES": load_nginx_worker_processes(
+            root_dir,
+            env_name,
+            common_env_path=common_env_path,
+            env_file_path=env_file_path,
+        ),
         "STORAGE_PATH": compose_relative_path(root_dir, storage_path),
         "SEQ_STORAGE_PATH": compose_relative_path(root_dir, seq_storage_path),
         "RESTART_POLICY": restart_policy,
