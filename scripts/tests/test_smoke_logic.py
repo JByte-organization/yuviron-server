@@ -14,11 +14,15 @@ from checks.smoke_logic import smoke_expected_codes, smoke_route_path, smoke_sta
 class SmokeLogicTests(unittest.TestCase):
     def test_route_path(self) -> None:
         self.assertEqual("/health/ready", smoke_route_path("api"))
+        self.assertEqual("/health", smoke_route_path("seq"))
+        self.assertEqual("/health", smoke_route_path("aspire"))
         self.assertEqual("/", smoke_route_path("client"))
         self.assertEqual("/", smoke_route_path("unknown"))
 
     def test_expected_codes(self) -> None:
         self.assertEqual(["200"], smoke_expected_codes("api"))
+        self.assertEqual(["200"], smoke_expected_codes("seq"))
+        self.assertEqual(["200"], smoke_expected_codes("aspire"))
         self.assertEqual(["200", "301", "302", "307", "308", "404"], smoke_expected_codes("client"))
         self.assertEqual(
             ["200", "301", "302", "307", "308", "401", "403", "404"],
@@ -37,6 +41,10 @@ class SmokeLogicTests(unittest.TestCase):
         default_codes = smoke_expected_codes("log")
         self.assertTrue(smoke_status_allowed("401", default_codes))
         self.assertFalse(smoke_status_allowed("500", default_codes))
+
+        management_codes = smoke_expected_codes("seq")
+        self.assertTrue(smoke_status_allowed("200", management_codes))
+        self.assertFalse(smoke_status_allowed("403", management_codes))
 
 
 if __name__ == "__main__":

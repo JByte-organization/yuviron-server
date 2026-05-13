@@ -124,7 +124,7 @@ CLI является единым интерфейсом для работы с�
 * наличие обязательных сервисов `mysql`, `redis`, `rabbitmq`, `backend`, `nginx`
 * health/status core services и readiness backend внутри контейнера
 * HTTPS `/health` для каждого host из `generated/<env>/routes.env` через локальный `curl --resolve ... 127.0.0.1`
-* smoke paths по типу маршрута: для `api` — `/health/ready`, для остальных маршрутов — `/`
+* smoke paths по типу маршрута: для `api` — `/health/ready`, для management routes (`seq`, `aspire` и т.п.) — `/health`, для остальных маршрутов — `/`
 
 Если `HTTP_PORT`/`HTTPS_PORT` нестандартные, smoke предупреждает, что браузерные URL без явного порта требуют `HTTPS_PORT=443` или внешний portproxy/reverse proxy.
 
