@@ -24,6 +24,15 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("client_max_body_size 50m;", rendered)
         self.assertNotIn("auth_basic_user_file", rendered)
 
+    def test_render_pins_nginx_worker_processes_to_container_cpu_limit(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [("api", "api.example.com", "backend:5073", "50m")],
+            SCRIPTS_ROOT / "templates",
+        )
+
+        self.assertIn("worker_processes 1;", rendered)
+        self.assertNotIn("worker_processes auto;", rendered)
+
     def test_render_enables_basic_auth_for_management_routes(self) -> None:
         rendered = render_nginx_conf_modular(
             [("seq", "seq.example.com", "seq:80", "5m")],
