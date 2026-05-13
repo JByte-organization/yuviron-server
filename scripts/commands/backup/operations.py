@@ -36,6 +36,37 @@ from .docker_utils import _service_exists, _service_running, _wait_for_mysql_rea
 
 
 MYSQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+BACKUP_REMOTE_SAFE_PATH_RE = re.compile(r"^[A-Za-z0-9._~+/=-]+$")
+BACKUP_REMOTE_SHELL_META_RE = re.compile(r"[;&|`$(){}<>*?\\\"']")
+BACKUP_REMOTE_SCP_RE = re.compile(r"^[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+:.+")
+
+
+def _validate_backup_remote_path(raw_path: str, root_dir: Path) -> Path | None:
+    value = (raw_path or "").strip()
+    if not value:
+        return None
+
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        fail("Invalid BACKUP_REMOTE_PATH: control characters are not allowed")
+    if BACKUP_REMOTE_SHELL_META_RE.search(value) or any(char.isspace() for char in value):
+        fail("Invalid BACKUP_REMOTE_PATH: shell metacharacters and whitespace are not allowed")
+    if "://" in value or BACKUP_REMOTE_SCP_RE.fullmatch(value):
+        fail(
+            "Invalid BACKUP_REMOTE_PATH: remote rsync/scp destinations are not supported here. "
+            "Mount the remote storage locally and set BACKUP_REMOTE_PATH to that directory."
+        )
+    if not BACKUP_REMOTE_SAFE_PATH_RE.fullmatch(value):
+        fail("Invalid BACKUP_REMOTE_PATH: use only letters, digits, '.', '_', '-', '/', '~', '+', '='")
+
+    destination = Path(value).expanduser()
+    if str(destination).startswith("-"):
+        fail("Invalid BACKUP_REMOTE_PATH: path must not start with '-'")
+    if any(part.startswith("-") for part in destination.parts):
+        fail("Invalid BACKUP_REMOTE_PATH: path components must not start with '-'")
+
+    if not destination.is_absolute():
+        destination = root_dir / destination
+    return destination.resolve()
 
 
 def cmd_backup_create(args: argparse.Namespace) -> int:
@@ -61,7 +92,7 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
 
     logger = BackupLogger(log_file)
 
-    backup_remote_path = os.getenv("BACKUP_REMOTE_PATH", "").strip()
+    backup_remote_path = _validate_backup_remote_path(os.getenv("BACKUP_REMOTE_PATH", ""), root_dir)
     backup_retention_days = int(os.getenv("BACKUP_RETENTION_DAYS", "14"))
     backup_project_name = os.getenv("BACKUP_PROJECT_NAME", "yuviron-server")
     backup_envs_raw = os.getenv("BACKUP_ENVS", "dev,prod")
@@ -312,11 +343,10 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
             logger.info("Off-site disabled: BACKUP_REMOTE_PATH is empty")
             return
 
-        destination = Path(backup_remote_path).expanduser()
-        logger.info(f"Copying backup to off-site: {destination}")
+        logger.info(f"Copying backup to off-site: {backup_remote_path}")
         try:
-            destination.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(archive_file, destination / archive_file.name)
+            backup_remote_path.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(archive_file, backup_remote_path / archive_file.name)
             logger.info("Off-site copy completed")
         except Exception:
             logger.warn("Off-site copy failed, backup process continues")

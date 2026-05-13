@@ -16,6 +16,39 @@ from core.validators import CommandError
 
 
 class BackupRestoreTestTests(unittest.TestCase):
+    def test_validate_backup_remote_path_accepts_local_directory_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            resolved = operations._validate_backup_remote_path("./backups/offsite", root)
+
+        self.assertEqual((root / "backups" / "offsite").resolve(), resolved)
+
+    def test_validate_backup_remote_path_rejects_shell_metacharacters(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaises(CommandError) as raised:
+                operations._validate_backup_remote_path("; rm -rf /", Path(temp_dir))
+
+        self.assertIn("Invalid BACKUP_REMOTE_PATH", str(raised.exception))
+
+    def test_validate_backup_remote_path_rejects_scp_or_url_destinations(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            for value in ("backup@example.com:/srv/backups", "rsync://example.com/backups"):
+                with self.subTest(value=value):
+                    with self.assertRaises(CommandError) as raised:
+                        operations._validate_backup_remote_path(value, root)
+
+                    self.assertIn("remote rsync/scp destinations are not supported", str(raised.exception))
+
+    def test_validate_backup_remote_path_rejects_option_like_components(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaises(CommandError) as raised:
+                operations._validate_backup_remote_path("./backups/--delete", Path(temp_dir))
+
+        self.assertIn("path components must not start with '-'", str(raised.exception))
+
     def test_resolve_backup_archive_uses_latest_archive_by_name(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             archive_dir = Path(temp_dir)
