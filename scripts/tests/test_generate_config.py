@@ -97,6 +97,53 @@ class GenerateConfigTests(unittest.TestCase):
             self.assertIn("allow 10.8.0.0/24;", nginx_conf)
             self.assertNotIn("YV_DEV_ASPIRE_2026", deploy_env)
 
+    def test_prod_generate_config_maps_routes_to_per_route_certificates(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            output_dir = temp_root / "generated"
+            common_env = temp_root / "common.env"
+            prod_env = temp_root / "prod.env"
+            common_env.write_text(TEST_COMMON_ENV, encoding="utf-8")
+            prod_env.write_text("", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPTS_ROOT / "generate-config.py"),
+                    "--env",
+                    "prod",
+                    "--domain",
+                    "example.com",
+                    "--output-dir",
+                    str(output_dir),
+                    "--common-env-file",
+                    str(common_env),
+                    "--env-file",
+                    str(prod_env),
+                ],
+                cwd=ROOT_DIR,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertNotIn("ERROR:", result.stderr)
+            self.assertEqual(0, result.returncode)
+            deploy_env = (output_dir / "deploy.env").read_text(encoding="utf-8")
+            nginx_conf = (output_dir / "nginx.conf").read_text(encoding="utf-8")
+
+            self.assertIn("CERT_FILE=../certs/prod-example.com.pem", deploy_env)
+            self.assertIn("KEY_FILE=../certs/prod-example.com-key.pem", deploy_env)
+            self.assertIn("NGINX_CERT_MODE=per-route", deploy_env)
+            self.assertIn("default /etc/nginx/certs/prod-example.com.pem;", nginx_conf)
+            self.assertIn("api.example.com /etc/nginx/certs/prod/api.example.com.pem;", nginx_conf)
+            self.assertIn("api.example.com /etc/nginx/certs/prod/api.example.com-key.pem;", nginx_conf)
+            self.assertNotIn("/etc/nginx/certs/shared", nginx_conf)
+            self.assertNotIn("api.example.com /etc/nginx/certs/prod-example.com.pem;", nginx_conf)
+            self.assertNotIn("api.example.com /etc/nginx/certs/prod-example.com-key.pem;", nginx_conf)
+            self.assertIn("ssl_certificate $route_ssl_certificate;", nginx_conf)
+            self.assertIn("ssl_certificate_key $route_ssl_certificate_key;", nginx_conf)
+
 
 if __name__ == "__main__":
     unittest.main()
