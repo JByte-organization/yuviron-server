@@ -127,11 +127,23 @@ class SecurityAuditTests(unittest.TestCase):
     def test_dotnet_migrator_uses_writable_msbuild_extensions_path(self) -> None:
         root = SCRIPTS_ROOT.parent
         dockerfile = (root / "infra" / "docker" / "dotnet" / "Dockerfile").read_text(encoding="utf-8")
+        migrator_script = (root / "infra" / "docker" / "dotnet" / "migrator.sh").read_text(encoding="utf-8")
 
-        self.assertIn("cp -R /src/src/Yuviron.Infrastructure/obj/. /tmp/ef-obj/", dockerfile)
-        self.assertIn("MSBuildProjectExtensionsPath=/tmp/ef-obj/", dockerfile)
-        self.assertIn("--msbuildprojectextensionspath /tmp/ef-obj", dockerfile)
-        self.assertIn("--configuration Release", dockerfile)
+        self.assertIn("COPY infra/docker/dotnet/migrator.sh /usr/local/bin/yuviron-migrator", dockerfile)
+        self.assertIn('CMD ["/usr/local/bin/yuviron-migrator"]', dockerfile)
+        self.assertIn('cp -R /src/src/Yuviron.Infrastructure/obj/. "${EF_OBJ_DIR}/"', migrator_script)
+        self.assertIn('export MSBuildProjectExtensionsPath="${EF_OBJ_DIR}/"', migrator_script)
+        self.assertIn("--msbuildprojectextensionspath ${EF_OBJ_DIR}", migrator_script)
+        self.assertIn("--configuration ${EF_CONFIGURATION}", migrator_script)
+
+    def test_dotnet_migrator_verifies_no_pending_migrations_after_update(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        migrator_script = (root / "infra" / "docker" / "dotnet" / "migrator.sh").read_text(encoding="utf-8")
+
+        self.assertIn("dotnet ef database update", migrator_script)
+        self.assertIn("dotnet ef migrations list", migrator_script)
+        self.assertIn("pending migrations remain", migrator_script)
+        self.assertIn("exit 1", migrator_script)
 
     def test_nginx_healthcheck_covers_http_https_and_cert_expiry(self) -> None:
         root = SCRIPTS_ROOT.parent

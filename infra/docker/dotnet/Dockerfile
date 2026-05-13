@@ -37,6 +37,7 @@ FROM restore AS migrator
 ARG DOTNET_APP_UID=10001
 ARG DOTNET_APP_GID=10001
 ARG MIGRATOR_STARTUP_PROJECT=src/Yuviron.Api/Yuviron.Api.csproj
+ARG MIGRATOR_CONFIGURATION=Release
 
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
     dotnet tool install --tool-path /usr/local/dotnet-tools dotnet-ef --version 9.*
@@ -47,18 +48,20 @@ ENV DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
 
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
-    dotnet build ./${MIGRATOR_STARTUP_PROJECT} -c Release --no-restore
+    dotnet build ./${MIGRATOR_STARTUP_PROJECT} -c ${MIGRATOR_CONFIGURATION} --no-restore
 
-RUN chmod -R a+rX /src /usr/local/dotnet-tools
+COPY infra/docker/dotnet/migrator.sh /usr/local/bin/yuviron-migrator
+
+RUN chmod -R a+rX /src /usr/local/dotnet-tools \
+    && chmod 755 /usr/local/bin/yuviron-migrator
 
 ENV HOME=/tmp
 ENV DOTNET_CLI_HOME=/tmp
+ENV MIGRATOR_STARTUP_PROJECT=${MIGRATOR_STARTUP_PROJECT}
+ENV MIGRATOR_CONFIGURATION=${MIGRATOR_CONFIGURATION}
 
 USER ${DOTNET_APP_UID}:${DOTNET_APP_GID}
-CMD [ \
-    "sh", "-c", \
-    "set -eu; mkdir -p /tmp/ef-obj; cp -R /src/src/Yuviron.Infrastructure/obj/. /tmp/ef-obj/; MSBuildProjectExtensionsPath=/tmp/ef-obj/ dotnet ef database update --project src/Yuviron.Infrastructure/Yuviron.Infrastructure.csproj --startup-project src/Yuviron.Api/Yuviron.Api.csproj --configuration Release --no-build --msbuildprojectextensionspath /tmp/ef-obj" \
-]
+CMD ["/usr/local/bin/yuviron-migrator"]
 
 FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION} AS runtime-base
 
