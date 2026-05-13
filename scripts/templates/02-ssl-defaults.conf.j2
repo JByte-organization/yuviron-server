@@ -17,8 +17,8 @@
         listen 443 ssl default_server;
         server_name _;
 
-        ssl_certificate /etc/nginx/certs/cert.pem;
-        ssl_certificate_key /etc/nginx/certs/key.pem;
+        ssl_certificate {{ default_ssl_certificate }};
+        ssl_certificate_key {{ default_ssl_certificate_key }};
 
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
         {% for header in security_headers %}

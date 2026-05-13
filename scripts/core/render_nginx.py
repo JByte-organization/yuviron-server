@@ -15,6 +15,13 @@ from .models import (
     is_valid_route_host,
     is_valid_target,
 )
+from .tls import (
+    NGINX_CERT_MODE_PER_ROUTE,
+    default_nginx_cert_mode,
+    route_certificate_container_paths,
+    shared_certificate_container_paths,
+    validate_nginx_cert_mode,
+)
 from .validators import fail
 
 
@@ -135,6 +142,24 @@ def _env_value(env_values: Mapping[str, str] | None, key: str, default: str) -> 
     if env_values is None:
         return default
     return env_values.get(key, default)
+
+
+def _validate_environment_name(value: object) -> str:
+    if not isinstance(value, str):
+        fail("Invalid nginx ENVIRONMENT: expected string")
+    value = value.strip()
+    if value not in {"dev", "prod"}:
+        fail("Invalid nginx ENVIRONMENT: expected 'dev' or 'prod'")
+    return value
+
+
+def _validate_base_domain(value: object) -> str:
+    if not isinstance(value, str):
+        fail("Invalid nginx BASE_DOMAIN: expected string")
+    value = value.strip()
+    if not is_valid_route_host(value):
+        fail(f"Invalid nginx BASE_DOMAIN: {value!r}")
+    return value
 
 
 def _validate_nginx_rate_limit(field_name: str, value: object) -> str:
@@ -277,6 +302,16 @@ def render_nginx_conf_modular(
         "NGINX_ADMIN_ALLOWLIST",
         _env_value(env_values, "NGINX_ADMIN_ALLOWLIST", DEFAULT_NGINX_ADMIN_ALLOWLIST),
     )
+    environment_name = _validate_environment_name(_env_value(env_values, "ENVIRONMENT", "dev"))
+    base_domain = _validate_base_domain(_env_value(env_values, "BASE_DOMAIN", "example.com"))
+    nginx_cert_mode = validate_nginx_cert_mode(
+        _env_value(env_values, "NGINX_CERT_MODE", default_nginx_cert_mode(environment_name)),
+        environment=environment_name,
+    )
+    default_ssl_certificate, default_ssl_certificate_key = shared_certificate_container_paths(
+        environment_name,
+        base_domain,
+    )
 
     # Build routes context
     routes: list[dict[str, object]] = []
@@ -288,6 +323,13 @@ def render_nginx_conf_modular(
             route_max_body_size,
         )
         route_is_management = route_name in MANAGEMENT_ROUTE_NAMES
+        route_ssl_certificate = default_ssl_certificate
+        route_ssl_certificate_key = default_ssl_certificate_key
+        if nginx_cert_mode == NGINX_CERT_MODE_PER_ROUTE:
+            route_ssl_certificate, route_ssl_certificate_key = route_certificate_container_paths(
+                environment_name,
+                route_host,
+            )
         routes.append({
             "name": route_name,
             "host": route_host,
@@ -296,11 +338,16 @@ def render_nginx_conf_modular(
             "log_name": f"{route_name}-{route_host.replace('.', '_')}",
             "upstream": route_upstream,
             "client_max_body_size": route_max_body_size,
+            "ssl_certificate": route_ssl_certificate,
+            "ssl_certificate_key": route_ssl_certificate_key,
         })
 
     context = {
         "routes": routes,
         "security_headers": SECURITY_HEADERS,
+        "default_ssl_certificate": default_ssl_certificate,
+        "default_ssl_certificate_key": default_ssl_certificate_key,
+        "nginx_cert_mode": nginx_cert_mode,
         "nginx_public_rate_limit": _validate_nginx_rate_limit(
             "NGINX_PUBLIC_RATE_LIMIT",
             _env_value(env_values, "NGINX_PUBLIC_RATE_LIMIT", DEFAULT_NGINX_PUBLIC_RATE_LIMIT),

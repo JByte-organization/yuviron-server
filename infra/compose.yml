@@ -296,8 +296,7 @@ services:
       - ../generated/${ENVIRONMENT}/nginx.conf:/etc/nginx/nginx.conf:ro
       - ../scripts/templates/proxy-params.conf:/etc/nginx/proxy-params.conf:ro
       - ../certs/acme-challenge:/var/www/certbot:ro
-      - ${CERT_FILE}:/etc/nginx/certs/cert.pem:ro
-      - ${KEY_FILE}:/etc/nginx/certs/key.pem:ro
+      - ../certs:/etc/nginx/certs:ro
       - ${NGINX_BASIC_AUTH_FILE}:/etc/nginx/htpasswd:ro
     command: ["nginx", "-g", "daemon off;"]
     networks:
@@ -307,7 +306,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget -qO- http://127.0.0.1/health >/dev/null || exit 1; openssl x509 -checkend 0 -noout -in /etc/nginx/certs/cert.pem >/dev/null || exit 1; printf 'GET /health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' | timeout 5 openssl s_client -quiet -connect 127.0.0.1:443 -servername localhost 2>/dev/null | grep -q 'edge-nginx-ok' || exit 1",
+          "wget -qO- http://127.0.0.1/health >/dev/null || exit 1; openssl x509 -checkend 0 -noout -in /etc/nginx/certs/${ENVIRONMENT}-${BASE_DOMAIN}.pem >/dev/null || exit 1; printf 'GET /health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' | timeout 5 openssl s_client -quiet -connect 127.0.0.1:443 -servername localhost 2>/dev/null | grep -q 'edge-nginx-ok' || exit 1",
         ]
       interval: 15s
       timeout: 5s

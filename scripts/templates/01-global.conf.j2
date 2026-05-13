@@ -51,6 +51,20 @@ http {
         default upgrade;
         '' close;
     }
+
+    map $ssl_server_name $route_ssl_certificate {
+        default {{ default_ssl_certificate }};
+        {% for route in routes %}
+        {{ route.host }} {{ route.ssl_certificate }};
+        {% endfor %}
+    }
+
+    map $ssl_server_name $route_ssl_certificate_key {
+        default {{ default_ssl_certificate_key }};
+        {% for route in routes %}
+        {{ route.host }} {{ route.ssl_certificate_key }};
+        {% endfor %}
+    }
     
     log_format main '$remote_addr - $remote_user [$time_local] "$request" '
                 '$status $body_bytes_sent "$http_referer" '
