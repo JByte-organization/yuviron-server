@@ -22,6 +22,13 @@ from core.compose import create_compose_context
 from core.docker import run, run_compose
 from core.env import load_dotenv_if_exists, parse_env_file, parse_routes_file
 from core.paths import resolve_root_dir
+from core.tls import (
+    NGINX_CERT_MODE_PER_ROUTE,
+    NGINX_CERT_MODE_SHARED,
+    route_certificate_paths,
+    shared_certificate_paths,
+    validate_nginx_cert_mode,
+)
 from core.ui import confirm, log_info, log_ok, log_warn
 from core.validators import ensure_command, fail, resolve_prompted_environment, resolve_prompted_required
 
@@ -29,8 +36,16 @@ from core.validators import ensure_command, fail, resolve_prompted_environment, 
 DEFAULT_ROOT = Path(__file__).resolve().parents[2]
 CERT_PROVIDERS = ("mkcert", "letsencrypt")
 ACME_CHALLENGE_PREFIX = "/.well-known/acme-challenge/"
-TLS_CERT_MODE = 0o644
-TLS_KEY_MODE = 0o640
+TLS_CERT_FILE_MODE = 0o644
+TLS_KEY_FILE_MODE = 0o640
+
+
+@dataclass(frozen=True)
+class CertificateTarget:
+    cert_name: str
+    domains: tuple[str, ...]
+    cert_file: Path
+    key_file: Path
 
 
 @dataclass(frozen=True)
@@ -59,30 +74,56 @@ def _collect_route_domains(routes_file: Path) -> list[str]:
     return domains
 
 
-def _certificate_paths(certs_dir: Path, environment: str, domain: str) -> tuple[Path, Path]:
-    cert_file = certs_dir / f"{environment}-{domain}.pem"
-    key_file = certs_dir / f"{environment}-{domain}-key.pem"
-    return cert_file, key_file
+def _shared_certificate_target(
+    certs_dir: Path,
+    environment: str,
+    domain: str,
+    domains: list[str],
+) -> CertificateTarget:
+    cert_file, key_file = shared_certificate_paths(certs_dir, environment, domain)
+    return CertificateTarget(
+        cert_name=f"{environment}-{domain}",
+        domains=tuple(domains),
+        cert_file=cert_file,
+        key_file=key_file,
+    )
 
 
-def _letsencrypt_paths(root_dir: Path, certs_dir: Path, environment: str, domain: str) -> LetsEncryptPaths:
-    cert_name = f"{environment}-{domain}"
+def _route_certificate_targets(
+    certs_dir: Path,
+    environment: str,
+    domains: list[str],
+) -> list[CertificateTarget]:
+    targets: list[CertificateTarget] = []
+    for route_domain in domains:
+        cert_file, key_file = route_certificate_paths(certs_dir, environment, route_domain)
+        targets.append(
+            CertificateTarget(
+                cert_name=f"{environment}-route-{route_domain}",
+                domains=(route_domain,),
+                cert_file=cert_file,
+                key_file=key_file,
+            )
+        )
+    return targets
+
+
+def _letsencrypt_paths(root_dir: Path, certs_dir: Path, environment: str, target: CertificateTarget) -> LetsEncryptPaths:
     letsencrypt_dir = certs_dir / "letsencrypt"
     config_dir = letsencrypt_dir / "config"
     work_dir = letsencrypt_dir / "work"
     logs_dir = root_dir / "logs" / environment / "letsencrypt"
     challenge_dir = certs_dir / "acme-challenge"
-    cert_file, key_file = _certificate_paths(certs_dir, environment, domain)
-    live_dir = config_dir / "live" / cert_name
+    live_dir = config_dir / "live" / target.cert_name
 
     return LetsEncryptPaths(
-        cert_name=cert_name,
+        cert_name=target.cert_name,
         config_dir=config_dir,
         work_dir=work_dir,
         logs_dir=logs_dir,
         challenge_dir=challenge_dir,
-        cert_file=cert_file,
-        key_file=key_file,
+        cert_file=target.cert_file,
+        key_file=target.key_file,
         fullchain_file=live_dir / "fullchain.pem",
         privkey_file=live_dir / "privkey.pem",
     )
@@ -100,8 +141,8 @@ def _files_equal(left: Path, right: Path) -> bool:
 
 
 def _set_tls_file_permissions(cert_file: Path, key_file: Path) -> None:
-    cert_file.chmod(TLS_CERT_MODE)
-    key_file.chmod(TLS_KEY_MODE)
+    cert_file.chmod(TLS_CERT_FILE_MODE)
+    key_file.chmod(TLS_KEY_FILE_MODE)
 
 
 def _sync_letsencrypt_live_files(paths: LetsEncryptPaths) -> bool:
@@ -114,6 +155,8 @@ def _sync_letsencrypt_live_files(paths: LetsEncryptPaths) -> bool:
     )
 
     if changed:
+        paths.cert_file.parent.mkdir(parents=True, exist_ok=True)
+        paths.key_file.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(paths.fullchain_file, paths.cert_file)
         shutil.copy2(paths.privkey_file, paths.key_file)
 
@@ -137,7 +180,25 @@ def _certbot_common_args(paths: LetsEncryptPaths) -> list[str]:
     ]
 
 
-def _generate_mkcert(certs_dir: Path, environment: str, domain: str, domains: list[str]) -> None:
+def _sync_shared_certificate_to_route_targets(
+    shared_cert_file: Path,
+    shared_key_file: Path,
+    route_targets: list[CertificateTarget],
+) -> None:
+    for target in route_targets:
+        target.cert_file.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(shared_cert_file, target.cert_file)
+        shutil.copy2(shared_key_file, target.key_file)
+        _set_tls_file_permissions(target.cert_file, target.key_file)
+
+
+def _generate_mkcert(
+    certs_dir: Path,
+    environment: str,
+    domain: str,
+    domains: list[str],
+    cert_mode: str,
+) -> None:
     if shutil.which("mkcert") is None:
         log_warn("mkcert not found.")
         log_info("Required: mkcert + libnss3-tools")
@@ -160,25 +221,33 @@ def _generate_mkcert(certs_dir: Path, environment: str, domain: str, domains: li
         caroot_result = run(["mkcert", "-CAROOT"], capture_output=True)
         caroot = Path(caroot_result.stdout.strip())
 
-    cert_file, key_file = _certificate_paths(certs_dir, environment, domain)
+    shared_target = _shared_certificate_target(certs_dir, environment, domain, domains)
 
     log_info("Generating certificate with mkcert")
-    log_info(f"cert: {cert_file}")
-    log_info(f"key:  {key_file}")
+    log_info(f"cert: {shared_target.cert_file}")
+    log_info(f"key:  {shared_target.key_file}")
     log_info(f"SANs: {' '.join(domains)}")
 
     run(
         [
             "mkcert",
             "-cert-file",
-            str(cert_file),
+            str(shared_target.cert_file),
             "-key-file",
-            str(key_file),
+            str(shared_target.key_file),
             *domains,
         ]
     )
 
-    _set_tls_file_permissions(cert_file, key_file)
+    _set_tls_file_permissions(shared_target.cert_file, shared_target.key_file)
+
+    if cert_mode == NGINX_CERT_MODE_PER_ROUTE:
+        _sync_shared_certificate_to_route_targets(
+            shared_target.cert_file,
+            shared_target.key_file,
+            _route_certificate_targets(certs_dir, environment, domains),
+        )
+        log_ok("Per-route mkcert certificate files updated")
 
     root_ca_src = caroot / "rootCA.pem"
     root_ca_dst = Path.home() / "rootCA.crt"
@@ -187,8 +256,8 @@ def _generate_mkcert(certs_dir: Path, environment: str, domain: str, domains: li
         shutil.copy2(root_ca_src, root_ca_dst)
 
     log_ok("Certificate generated")
-    log_info(f"Cert:    {cert_file}")
-    log_info(f"Key:     {key_file}")
+    log_info(f"Cert:    {shared_target.cert_file}")
+    log_info(f"Key:     {shared_target.key_file}")
     log_info(f"Root CA: {root_ca_dst}")
 
 
@@ -200,6 +269,22 @@ def _resolve_letsencrypt_email(value: str | None) -> str:
         or ""
     ).strip()
     return resolve_prompted_required(email, "Enter Let's Encrypt account email: ", "email")
+
+
+def _resolve_nginx_cert_mode(root_dir: Path, environment: str) -> str:
+    for env_file in [
+        root_dir / "generated" / environment / "deploy.env",
+        root_dir / "generated" / environment / "stack.env",
+    ]:
+        values = parse_env_file(env_file)
+        value = values.get("NGINX_CERT_MODE", "").strip()
+        if value:
+            return validate_nginx_cert_mode(value, environment=environment)
+    log_warn(
+        "NGINX_CERT_MODE is missing from generated runtime env; assuming shared mode. "
+        "Regenerate runtime config to use the current environment default."
+    )
+    return NGINX_CERT_MODE_SHARED
 
 
 def _warn_if_nonstandard_http_port(root_dir: Path, environment: str) -> None:
@@ -328,6 +413,7 @@ def _generate_letsencrypt(
     environment: str,
     domain: str,
     domains: list[str],
+    cert_mode: str,
     email: str,
     force_renewal: bool,
     skip_public_check: bool,
@@ -345,51 +431,63 @@ def _generate_letsencrypt(
         log_info("Install manually:  sudo apt install -y certbot")
 
     ensure_command("certbot")
-    paths = _letsencrypt_paths(root_dir, certs_dir, environment, domain)
-    _ensure_letsencrypt_dirs(paths)
-    _letsencrypt_preflight(root_dir, environment, domains, paths, skip_public_check)
-
-    domain_args: list[str] = []
-    for route_domain in domains:
-        domain_args.extend(["-d", route_domain])
-
-    log_info("Generating certificate with Let's Encrypt")
-    log_info(f"cert: {paths.cert_file}")
-    log_info(f"key:  {paths.key_file}")
-    log_info(f"webroot: {paths.challenge_dir}")
-    log_info(f"SANs: {' '.join(domains)}")
-
-    run(
-        [
-            "certbot",
-            "certonly",
-            "--webroot",
-            "--webroot-path",
-            str(paths.challenge_dir),
-            *_certbot_common_args(paths),
-            "--cert-name",
-            paths.cert_name,
-            "--email",
-            email,
-            "--agree-tos",
-            "--non-interactive",
-            _certbot_issue_mode(force_renewal),
-            "--expand",
-            "--preferred-challenges",
-            "http",
-            *domain_args,
-        ]
+    targets = (
+        _route_certificate_targets(certs_dir, environment, domains)
+        if cert_mode == NGINX_CERT_MODE_PER_ROUTE
+        else [_shared_certificate_target(certs_dir, environment, domain, domains)]
     )
+    paths_by_target = [_letsencrypt_paths(root_dir, certs_dir, environment, target) for target in targets]
+    for paths in paths_by_target:
+        _ensure_letsencrypt_dirs(paths)
 
-    changed = _sync_letsencrypt_live_files(paths)
+    _letsencrypt_preflight(root_dir, environment, domains, paths_by_target[0], skip_public_check)
 
-    if changed:
-        log_ok("Certificate files updated")
-    else:
-        log_ok("Certificate files already up to date")
-    log_info(f"Cert:    {paths.cert_file}")
-    log_info(f"Key:     {paths.key_file}")
-    return changed
+    any_changed = False
+    for target, paths in zip(targets, paths_by_target):
+        domain_args: list[str] = []
+        for route_domain in target.domains:
+            domain_args.extend(["-d", route_domain])
+
+        log_info("Generating certificate with Let's Encrypt")
+        log_info(f"cert name: {paths.cert_name}")
+        log_info(f"cert: {paths.cert_file}")
+        log_info(f"key:  {paths.key_file}")
+        log_info(f"webroot: {paths.challenge_dir}")
+        log_info(f"SANs: {' '.join(target.domains)}")
+
+        run(
+            [
+                "certbot",
+                "certonly",
+                "--webroot",
+                "--webroot-path",
+                str(paths.challenge_dir),
+                *_certbot_common_args(paths),
+                "--cert-name",
+                paths.cert_name,
+                "--email",
+                email,
+                "--agree-tos",
+                "--non-interactive",
+                _certbot_issue_mode(force_renewal),
+                "--expand",
+                "--preferred-challenges",
+                "http",
+                *domain_args,
+            ]
+        )
+
+        changed = _sync_letsencrypt_live_files(paths)
+        any_changed = any_changed or changed
+
+        if changed:
+            log_ok("Certificate files updated")
+        else:
+            log_ok("Certificate files already up to date")
+        log_info(f"Cert:    {paths.cert_file}")
+        log_info(f"Key:     {paths.key_file}")
+
+    return any_changed
 
 
 def cmd_generate(args: argparse.Namespace) -> int:
@@ -410,8 +508,10 @@ def cmd_generate(args: argparse.Namespace) -> int:
     certs_dir.mkdir(parents=True, exist_ok=True)
 
     domains = _collect_route_domains(routes_file)
+    cert_mode = _resolve_nginx_cert_mode(root_dir, environment)
+    log_info(f"Nginx certificate mode: {cert_mode}")
     if provider == "mkcert":
-        _generate_mkcert(certs_dir, environment, domain, domains)
+        _generate_mkcert(certs_dir, environment, domain, domains, cert_mode)
     else:
         email = _resolve_letsencrypt_email(getattr(args, "email", None))
         changed = _generate_letsencrypt(
@@ -420,6 +520,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
             environment,
             domain,
             domains,
+            cert_mode,
             email,
             bool(getattr(args, "force_renewal", False)),
             bool(getattr(args, "skip_public_check", False)),
@@ -446,8 +547,15 @@ def cmd_renew(args: argparse.Namespace) -> int:
     certs_dir = root_dir / "certs"
     certs_dir.mkdir(parents=True, exist_ok=True)
     domains = _collect_route_domains(routes_file)
-    paths = _letsencrypt_paths(root_dir, certs_dir, environment, domain)
-    _ensure_letsencrypt_dirs(paths)
+    cert_mode = _resolve_nginx_cert_mode(root_dir, environment)
+    targets = (
+        _route_certificate_targets(certs_dir, environment, domains)
+        if cert_mode == NGINX_CERT_MODE_PER_ROUTE
+        else [_shared_certificate_target(certs_dir, environment, domain, domains)]
+    )
+    paths_by_target = [_letsencrypt_paths(root_dir, certs_dir, environment, target) for target in targets]
+    for paths in paths_by_target:
+        _ensure_letsencrypt_dirs(paths)
 
     if shutil.which("certbot") is None:
         log_warn("certbot not found.")
@@ -459,29 +567,33 @@ def cmd_renew(args: argparse.Namespace) -> int:
         root_dir,
         environment,
         domains,
-        paths,
+        paths_by_target[0],
         bool(getattr(args, "skip_public_check", False)),
     )
 
-    command = [
-        "certbot",
-        "renew",
-        *_certbot_common_args(paths),
-        "--cert-name",
-        paths.cert_name,
-        "--non-interactive",
-        "--preferred-challenges",
-        "http",
-    ]
-    if bool(getattr(args, "force_renewal", False)):
-        command.append("--force-renewal")
+    any_changed = False
+    for paths in paths_by_target:
+        command = [
+            "certbot",
+            "renew",
+            *_certbot_common_args(paths),
+            "--cert-name",
+            paths.cert_name,
+            "--non-interactive",
+            "--preferred-challenges",
+            "http",
+        ]
+        if bool(getattr(args, "force_renewal", False)):
+            command.append("--force-renewal")
 
-    log_info("Renewing Let's Encrypt certificate")
-    log_info(f"cert name: {paths.cert_name}")
-    run(command)
+        log_info("Renewing Let's Encrypt certificate")
+        log_info(f"cert name: {paths.cert_name}")
+        run(command)
 
-    changed = _sync_letsencrypt_live_files(paths)
-    if changed:
+        changed = _sync_letsencrypt_live_files(paths)
+        any_changed = any_changed or changed
+
+    if any_changed:
         log_ok("Certificate files updated")
         if not bool(getattr(args, "no_reload", False)):
             _reload_nginx(root_dir, environment)
