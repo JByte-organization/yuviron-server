@@ -85,7 +85,8 @@ jobs:
                       "https://admin.yuviron.com",
                       "https://dev.yuviron.com",
                       "https://dev-backoffice.yuviron.com",
-                      "https://dev-admin.yuviron.com"
+                      "https://dev-admin.yuviron.com",
+                      "http://localhost:3000"
                   ]
               },
               "JwtSettings": {
