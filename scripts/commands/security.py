@@ -26,6 +26,12 @@ from core.env_validation import ERROR as ENV_ERROR
 from core.env_validation import is_token_key, validate_runtime_env
 from core.models import MANAGEMENT_ROUTE_NAMES
 from core.paths import resolve_root_dir, resolve_runtime_path
+from core.tls import (
+    NGINX_CERT_MODE_PER_ROUTE,
+    default_nginx_cert_mode,
+    route_certificate_paths,
+    validate_nginx_cert_mode,
+)
 from core.ui import log_err, log_info, log_ok, log_warn
 from core.validators import fail, resolve_prompted_environment
 
@@ -322,6 +328,11 @@ def _audit_cert_files(root_dir: Path, env_values: dict[str, str], report: AuditR
     cert_file = env_values.get("CERT_FILE", "")
     key_file = env_values.get("KEY_FILE", "")
     nginx_cert_group_id = env_values.get("NGINX_CERT_GROUP_ID", "")
+    environment = env_values.get("ENVIRONMENT", "")
+    cert_mode = validate_nginx_cert_mode(
+        env_values.get("NGINX_CERT_MODE", default_nginx_cert_mode(environment or "dev")),
+        environment=environment or None,
+    )
 
     if not cert_file:
         report.error("tls-files", "CERT_FILE is missing from runtime env")
@@ -338,6 +349,22 @@ def _audit_cert_files(root_dir: Path, env_values: dict[str, str], report: AuditR
             private_key=True,
             allowed_group_id=nginx_cert_group_id,
         )
+
+    if cert_mode == NGINX_CERT_MODE_PER_ROUTE and environment:
+        routes_file = root_dir / "generated" / environment / "routes.env"
+        if not routes_file.is_file():
+            report.error("tls-files", f"routes.env is missing, cannot audit per-route certificates: {routes_file}")
+            return
+        for _route_name, route_host, _route_upstream in parse_routes_file(routes_file):
+            route_cert_file, route_key_file = route_certificate_paths(root_dir / "certs", environment, route_host)
+            _audit_single_tls_file(route_cert_file, f"route certificate {route_host}", report)
+            _audit_single_tls_file(
+                route_key_file,
+                f"route private key {route_host}",
+                report,
+                private_key=True,
+                allowed_group_id=nginx_cert_group_id,
+            )
 
 
 def _audit_single_tls_file(

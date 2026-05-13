@@ -16,6 +16,12 @@ from core.env import (
 from core.env_validation import ERROR, validate_runtime_env
 from core.htpasswd import resolve_htpasswd_path
 from core.paths import resolve_runtime_path
+from core.tls import (
+    NGINX_CERT_MODE_PER_ROUTE,
+    default_nginx_cert_mode,
+    route_certificate_paths,
+    validate_nginx_cert_mode,
+)
 from core.ui import log_info, log_ok, log_warn
 from core.validators import ensure_command, fail
 
@@ -190,12 +196,24 @@ def check_runtime_files(ctx: object) -> None:
     cert_file = ctx.runtime_values.get("CERT_FILE", "")
     key_file = ctx.runtime_values.get("KEY_FILE", "")
     basic_auth_file = ctx.runtime_values.get("NGINX_BASIC_AUTH_FILE", "")
+    cert_mode = validate_nginx_cert_mode(
+        ctx.runtime_values.get("NGINX_CERT_MODE", default_nginx_cert_mode(ctx.environment)),
+        environment=ctx.environment,
+    )
 
     if not cert_file or not key_file:
         fail("CERT_FILE or KEY_FILE is missing from runtime env")
 
     ctx.assert_file(resolve_runtime_path(ctx.root_dir, cert_file))
     ctx.assert_file(resolve_runtime_path(ctx.root_dir, key_file))
+    if cert_mode == NGINX_CERT_MODE_PER_ROUTE:
+        if not ctx.routes:
+            ctx.routes = parse_routes_file(ctx.routes_file)
+        for _route_name, route_host, _route_upstream in ctx.routes:
+            route_cert_file, route_key_file = route_certificate_paths(ctx.certs_dir, ctx.environment, route_host)
+            ctx.assert_file(route_cert_file)
+            ctx.assert_file(route_key_file)
+
     resolved_basic_auth_file = resolve_htpasswd_path(
         ctx.root_dir,
         basic_auth_file,

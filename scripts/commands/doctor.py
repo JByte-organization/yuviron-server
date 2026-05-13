@@ -22,6 +22,12 @@ from checks import preflight_core, preflight_nginx
 from commands.stack import DEFAULT_ROOT, PreflightContext
 from core.env import parse_env_file, parse_routes_file
 from core.paths import resolve_root_dir, resolve_runtime_path
+from core.tls import (
+    NGINX_CERT_MODE_PER_ROUTE,
+    default_nginx_cert_mode,
+    route_certificate_paths,
+    validate_nginx_cert_mode,
+)
 from core.ui import log_err, log_info, log_ok, log_warn
 from core.validators import CommandError, fail, resolve_prompted_environment
 
@@ -324,7 +330,12 @@ def _dns_name_matches(host: str, pattern: str) -> bool:
     return host.endswith(suffix) and host.count(".") == pattern.count(".")
 
 
-def _check_certificate_names(ctx: PreflightContext, cert_file: Path, report: DoctorReport) -> None:
+def _check_certificate_names(
+    ctx: PreflightContext,
+    cert_file: Path,
+    report: DoctorReport,
+    expected_hosts: list[str] | None = None,
+) -> None:
     if shutil.which("openssl") is None:
         report.warn("certificates", "openssl is not installed; certificate validity and SANs were not checked")
         return
@@ -350,13 +361,15 @@ def _check_certificate_names(ctx: PreflightContext, cert_file: Path, report: Doc
         report.error("certificates", f"Certificate has no DNS subjectAltName entries: {cert_file}")
         return
 
-    if not ctx.routes and ctx.routes_file.is_file():
-        ctx.routes = parse_routes_file(ctx.routes_file)
+    if expected_hosts is None:
+        if not ctx.routes and ctx.routes_file.is_file():
+            ctx.routes = parse_routes_file(ctx.routes_file)
+        expected_hosts = [host for _name, host, _upstream in ctx.routes if host]
 
     missing_hosts = [
         host
-        for _name, host, _upstream in ctx.routes
-        if host and not any(_dns_name_matches(host, pattern) for pattern in dns_names)
+        for host in expected_hosts
+        if not any(_dns_name_matches(host, pattern) for pattern in dns_names)
     ]
     if missing_hosts:
         report.error("certificates", "Certificate does not cover route hosts: " + ", ".join(sorted(missing_hosts)))
@@ -366,8 +379,34 @@ def _check_certificates(ctx: PreflightContext, report: DoctorReport) -> str:
     values = _ensure_runtime_values(ctx)
     raw_cert_file = values.get("CERT_FILE", "")
     raw_key_file = values.get("KEY_FILE", "")
+    cert_mode = validate_nginx_cert_mode(
+        values.get("NGINX_CERT_MODE", default_nginx_cert_mode(ctx.environment)),
+        environment=ctx.environment,
+    )
     cert_file = resolve_runtime_path(ctx.root_dir, raw_cert_file) if raw_cert_file else None
     key_file = resolve_runtime_path(ctx.root_dir, raw_key_file) if raw_key_file else None
+
+    def check_cert_file(path: Path | None, label: str, expected_hosts: list[str] | None = None) -> None:
+        if path is None:
+            report.error("certificates", f"{label} certificate file is missing from runtime env")
+        elif not path.is_file():
+            report.error("certificates", f"{label} certificate file is missing: {path}")
+        elif path.stat().st_size == 0:
+            report.error("certificates", f"{label} certificate file is empty: {path}")
+        else:
+            _check_certificate_names(ctx, path, report, expected_hosts=expected_hosts)
+
+    def check_key_file(path: Path | None, label: str) -> None:
+        if path is None:
+            report.error("certificates", f"{label} private key file is missing from runtime env")
+        elif not path.is_file():
+            report.error("certificates", f"{label} private key file is missing: {path}")
+        elif path.stat().st_size == 0:
+            report.error("certificates", f"{label} private key file is empty: {path}")
+        elif shutil.which("openssl") is not None:
+            key_result = _run_command(["openssl", "pkey", "-in", str(path), "-noout", "-check"], timeout=10)
+            if key_result.returncode != 0:
+                report.error("certificates", f"{label} private key is invalid or unreadable: {path}")
 
     if cert_file is None:
         report.error("certificates", "CERT_FILE is missing from runtime env")
@@ -388,7 +427,18 @@ def _check_certificates(ctx: PreflightContext, report: DoctorReport) -> str:
             report.error("certificates", f"Private key is invalid or unreadable: {key_file}")
 
     if cert_file is not None and cert_file.is_file() and cert_file.stat().st_size > 0:
-        _check_certificate_names(ctx, cert_file, report)
+        if cert_mode == NGINX_CERT_MODE_PER_ROUTE:
+            _check_certificate_names(ctx, cert_file, report, expected_hosts=[])
+        else:
+            _check_certificate_names(ctx, cert_file, report)
+
+    if cert_mode == NGINX_CERT_MODE_PER_ROUTE:
+        if not ctx.routes and ctx.routes_file.is_file():
+            ctx.routes = parse_routes_file(ctx.routes_file)
+        for _route_name, route_host, _route_upstream in ctx.routes:
+            route_cert_file, route_key_file = route_certificate_paths(ctx.certs_dir, ctx.environment, route_host)
+            check_cert_file(route_cert_file, f"route {route_host}", expected_hosts=[route_host])
+            check_key_file(route_key_file, f"route {route_host}")
 
     return f"Certificate and key files exist: {cert_file}, {key_file}"
 
