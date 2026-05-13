@@ -52,6 +52,8 @@ class SecurityAuditTests(unittest.TestCase):
             self.assertEqual(["ALL"], services[service_name]["cap_drop"])
             self.assertIn("user", services[service_name])
 
+        self.assertEqual("999:999", services["redis"]["user"])
+
         self.assertNotIn("seq-init", services)
 
         seq = services["seq"]

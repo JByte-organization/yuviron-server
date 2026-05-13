@@ -68,7 +68,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: ${COMPOSE_PROJECT_NAME}-redis
-    user: "999:1000"
+    user: "999:999"
     restart: ${RESTART_POLICY}
     cap_drop:
       - ALL
