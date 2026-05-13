@@ -268,6 +268,7 @@ HTTPS_PORT=443
 Backend, migrator и media-worker собираются через единый multi-stage Dockerfile `infra/docker/dotnet/Dockerfile`.
 В `infra/compose.yml` для них выбираются разные targets: `backend`, `migrator`, `media-worker`.
 Версия .NET, UID/GID runtime-пользователя и общие security-настройки задаются через `x-dotnet-*` anchors и build args.
+`migrator` остаётся one-shot сервисом с `restart: "no"` и `depends_on: condition: service_completed_successfully`: внутри `infra/docker/dotnet/migrator.sh` он сначала выполняет `dotnet ef database update`, затем запускает `dotnet ef migrations list` и завершает контейнер с ошибкой, если EF сообщает оставшиеся pending migrations.
 
 ### Frontend
 
