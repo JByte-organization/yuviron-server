@@ -36,7 +36,6 @@ ERROR = "ERROR"
 WARN = "WARN"
 
 STATEFUL_SERVICES = {"mysql", "redis", "rabbitmq", "seq"}
-ROOT_ALLOWED_SERVICES = {"seq-init"}
 ALLOWED_PUBLISHED_PORT_SERVICES = {"nginx"}
 ALLOWED_NGINX_CONTAINER_PORTS = {"80", "443"}
 
@@ -235,9 +234,7 @@ def _audit_container_hardening(services: dict[str, dict[str, Any]], environment:
             report.warn("root-containers", f"{service_name}: no explicit non-root user is configured")
         elif _is_root_user(user):
             message = f"{service_name}: explicitly runs as root ({user})"
-            if service_name in ROOT_ALLOWED_SERVICES:
-                report.warn("root-containers", message + " by documented exception")
-            elif environment == "prod":
+            if environment == "prod":
                 report.error("root-containers", message)
             else:
                 report.warn("root-containers", message)

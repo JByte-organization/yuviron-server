@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
 from pathlib import Path
 
 from core.docker import ensure_shared_network, run
@@ -239,8 +240,10 @@ def check_env_policy(ctx: object) -> None:
     log_ok("Env safety policy passed")
 
 
-def _storage_dir_mode() -> int:
-    raw = os.getenv("STORAGE_DIR_MODE", DEFAULT_STORAGE_DIR_MODE)
+def _storage_dir_mode(env_values: dict[str, str] | None = None) -> int:
+    raw = (env_values or {}).get("STORAGE_DIR_MODE", "").strip()
+    if not raw:
+        raw = os.getenv("STORAGE_DIR_MODE", DEFAULT_STORAGE_DIR_MODE)
     try:
         return int(raw, 8)
     except ValueError:
@@ -280,20 +283,108 @@ def _check_storage_directory_permissions(path: Path) -> None:
         probe_file.unlink(missing_ok=True)
 
 
-def check_storage_writable(ctx: object) -> None:
-    log_info(f"Checking storage layout and permissions for: {ctx.storage_dir}")
+def _runtime_id(env_values: dict[str, str], key: str, default: str) -> int:
+    raw = env_values.get(key, default).strip()
+    try:
+        value = int(raw, 10)
+    except ValueError:
+        fail(f"{key} must be a numeric id, got: {raw}")
+        raise AssertionError("unreachable")
 
-    mode = _storage_dir_mode()
+    if value <= 0:
+        fail(f"{key} must be a non-root numeric id, got: {raw}")
+    return value
 
-    _ensure_storage_directory(ctx.storage_dir, mode)
-    _check_storage_directory_permissions(ctx.storage_dir)
+
+def _directory_allows_uid_gid(path: Path, uid: int, gid: int) -> bool:
+    path_stat = path.stat()
+    mode = path_stat.st_mode
+
+    if path_stat.st_uid == uid:
+        required = stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
+    elif path_stat.st_gid == gid:
+        required = stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP
+    else:
+        required = stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH
+
+    return mode & required == required
+
+
+def _check_seq_storage_runtime_permissions(seq_storage_path: Path, env_values: dict[str, str]) -> None:
+    seq_uid = _runtime_id(env_values, "SEQ_UID", "1000")
+    seq_gid = _runtime_id(env_values, "SEQ_GID", "1000")
+
+    if _directory_allows_uid_gid(seq_storage_path, seq_uid, seq_gid):
+        return
+
+    mode = seq_storage_path.stat().st_mode & 0o777
+    fail(
+        "SEQ_STORAGE_PATH is not readable/writable/searchable by the configured Seq runtime user: "
+        f"{seq_storage_path} (SEQ_UID={seq_uid}, SEQ_GID={seq_gid}, mode={mode:03o}). "
+        f"Prepare it on the host, for example: sudo chown -R {seq_uid}:{seq_gid} {seq_storage_path}"
+    )
+
+
+def _ensure_seq_storage_directory(path: Path, mode: int, env_values: dict[str, str]) -> None:
+    if not path.exists():
+        log_info(f"Creating Seq storage directory: {path}")
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            fail(f"Could not create Seq storage directory: {path} ({exc})")
+    elif not path.is_dir():
+        fail(f"SEQ_STORAGE_PATH exists but is not a directory: {path}")
+
+    seq_uid = _runtime_id(env_values, "SEQ_UID", "1000")
+    seq_gid = _runtime_id(env_values, "SEQ_GID", "1000")
+    if _directory_allows_uid_gid(path, seq_uid, seq_gid):
+        return
+
+    current_mode = path.stat().st_mode & 0o777
+    if current_mode != mode:
+        log_info(f"Setting Seq storage directory mode {mode:o}: {path}")
+        try:
+            path.chmod(mode)
+        except OSError as exc:
+            fail(
+                f"Could not set Seq storage directory mode for {path}: {exc}. "
+                f"Prepare it on the host, for example: sudo chown -R {seq_uid}:{seq_gid} {path}"
+            )
+
+    _check_seq_storage_runtime_permissions(path, env_values)
+
+
+def prepare_host_storage_layout(root_dir: Path, env_values: dict[str, str]) -> None:
+    storage_raw = env_values.get("STORAGE_PATH", "").strip()
+    seq_storage_raw = env_values.get("SEQ_STORAGE_PATH", "").strip()
+    if not storage_raw:
+        fail("STORAGE_PATH is missing from runtime env")
+    if not seq_storage_raw:
+        fail("SEQ_STORAGE_PATH is missing from runtime env")
+
+    storage_dir = resolve_runtime_path(root_dir, storage_raw)
+    seq_storage_dir = resolve_runtime_path(root_dir, seq_storage_raw)
+    mode = _storage_dir_mode(env_values)
+
+    _ensure_storage_directory(storage_dir, mode)
+    _check_storage_directory_permissions(storage_dir)
 
     for dirname in REQUIRED_STORAGE_DIRS:
-        path = ctx.storage_dir / dirname
+        if dirname == "seq":
+            continue
+        path = storage_dir / dirname
         _ensure_storage_directory(path, mode)
         _check_storage_directory_permissions(path)
 
-    log_ok("Storage directories exist and are readable/writable/deletable")
+    _ensure_seq_storage_directory(seq_storage_dir, mode, env_values)
+
+
+def check_storage_writable(ctx: object) -> None:
+    log_info("Checking storage layout and host-side permissions")
+
+    prepare_host_storage_layout(ctx.root_dir, ctx.runtime_values)
+
+    log_ok("Storage directories exist and host-side permissions are valid")
 
 
 def check_backend_storage_permissions(ctx: object) -> None:

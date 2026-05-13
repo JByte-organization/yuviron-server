@@ -51,27 +51,13 @@ class SecurityAuditTests(unittest.TestCase):
             self.assertEqual(["ALL"], services[service_name]["cap_drop"])
             self.assertIn("user", services[service_name])
 
-        seq_init = services["seq-init"]
-        self.assertEqual("0:0", seq_init["user"])
-        self.assertEqual("no", seq_init["restart"])
-        self.assertIs(seq_init["read_only"], True)
-        self.assertEqual("none", seq_init["network_mode"])
-        self.assertEqual(["ALL"], seq_init["cap_drop"])
-        self.assertEqual(["CHOWN", "DAC_OVERRIDE", "FOWNER"], seq_init["cap_add"])
-        self.assertEqual(["no-new-privileges:true"], seq_init["security_opt"])
-        self.assertEqual(
-            ["/bin/sh", "-ec", 'chown -R "${SEQ_UID:-1000}:${SEQ_GID:-1000}" /data'],
-            seq_init["entrypoint"],
-        )
+        self.assertNotIn("seq-init", services)
 
         seq = services["seq"]
         self.assertEqual("${SEQ_UID:-1000}:${SEQ_GID:-1000}", seq["user"])
         self.assertEqual(["ALL"], seq["cap_drop"])
         self.assertEqual(["NET_BIND_SERVICE"], seq["cap_add"])
-        self.assertEqual(
-            {"seq-init": {"condition": "service_completed_successfully"}},
-            seq["depends_on"],
-        )
+        self.assertNotIn("depends_on", seq)
 
     def test_seq_root_is_no_longer_allowed_for_prod_audit(self) -> None:
         report = security.AuditReport()
@@ -92,7 +78,7 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertEqual(1, len(report.errors))
         self.assertIn("seq: explicitly runs as root", report.errors[0].message)
 
-    def test_seq_init_root_is_documented_one_shot_exception(self) -> None:
+    def test_seq_init_root_is_not_allowed_for_prod_audit(self) -> None:
         report = security.AuditReport()
 
         security._audit_container_hardening(
@@ -108,9 +94,9 @@ class SecurityAuditTests(unittest.TestCase):
             report,
         )
 
-        self.assertEqual([], report.errors)
-        self.assertEqual(1, len(report.warnings))
-        self.assertIn("by documented exception", report.warnings[0].message)
+        self.assertEqual(1, len(report.errors))
+        self.assertEqual([], report.warnings)
+        self.assertIn("seq-init: explicitly runs as root", report.errors[0].message)
 
     def test_dotnet_services_use_shared_dockerfile_and_hardening(self) -> None:
         root = SCRIPTS_ROOT.parent

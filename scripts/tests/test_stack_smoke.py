@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
@@ -52,6 +53,28 @@ class StackSmokeTests(unittest.TestCase):
                 )
 
         log_warn.assert_not_called()
+
+    def test_stack_up_prepares_host_storage_before_compose_up(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            runtime_env = root / "generated" / "dev" / "deploy.env"
+            runtime_env.parent.mkdir(parents=True)
+            runtime_env.write_text("STORAGE_PATH=storage/dev\nSEQ_STORAGE_PATH=storage/dev/seq\n", encoding="utf-8")
+            context = SimpleNamespace(runtime_env=runtime_env)
+            args = SimpleNamespace(environment="dev", project_root=str(root))
+
+            with (
+                patch.object(stack, "create_compose_context", return_value=context),
+                patch.object(stack.preflight_core, "prepare_host_storage_layout") as prepare_mock,
+                patch.object(stack, "run_compose") as run_compose_mock,
+            ):
+                stack.cmd_up(args)
+
+        prepare_mock.assert_called_once_with(
+            root,
+            {"STORAGE_PATH": "storage/dev", "SEQ_STORAGE_PATH": "storage/dev/seq"},
+        )
+        run_compose_mock.assert_called_once_with(context, "up", "-d", "--build", "--remove-orphans")
 
 
 if __name__ == "__main__":

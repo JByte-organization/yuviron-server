@@ -490,6 +490,8 @@ def cmd_up(args: argparse.Namespace) -> int:
     root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
 
     context = create_compose_context(root_dir, environment, ensure_generated=True)
+    runtime_values = parse_env_file(context.runtime_env)
+    preflight_core.prepare_host_storage_layout(root_dir, runtime_values)
     run_compose(context, "up", "-d", "--build", "--remove-orphans")
     return 0
 

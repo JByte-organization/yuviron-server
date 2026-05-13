@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from os import stat as os_stat
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -100,6 +101,55 @@ class PreflightGeneratedTests(unittest.TestCase):
             self.assertIn("--domain=example.com", command)
             self.assertIn("--apps=client", command)
             self.assertIn("--extra-routes=log=seq:80", command)
+
+
+class PreflightStorageTests(unittest.TestCase):
+    def test_prepare_host_storage_layout_uses_runtime_seq_storage_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            env_values = {
+                "STORAGE_PATH": "storage/dev",
+                "SEQ_STORAGE_PATH": "observability/seq",
+                "SEQ_UID": "12345",
+                "SEQ_GID": "12345",
+                "STORAGE_DIR_MODE": "0777",
+            }
+
+            preflight_core.prepare_host_storage_layout(root, env_values)
+
+            self.assertTrue((root / "storage" / "dev" / "avatars").is_dir())
+            self.assertTrue((root / "storage" / "dev" / "banners").is_dir())
+            self.assertTrue((root / "storage" / "dev" / "covers").is_dir())
+            self.assertTrue((root / "storage" / "dev" / "temp").is_dir())
+            self.assertTrue((root / "storage" / "dev" / "tracks").is_dir())
+            self.assertFalse((root / "storage" / "dev" / "seq").exists())
+            seq_storage = root / "observability" / "seq"
+            self.assertTrue(seq_storage.is_dir())
+            seq_stat = os_stat(seq_storage)
+            seq_mode = seq_stat.st_mode & 0o777
+            if seq_stat.st_uid == 12345:
+                self.assertEqual(0o700, seq_mode & 0o700)
+            elif seq_stat.st_gid == 12345:
+                self.assertEqual(0o070, seq_mode & 0o070)
+            else:
+                self.assertEqual(0o007, seq_mode & 0o007)
+
+    def test_prepare_host_storage_layout_rejects_root_seq_uid(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            with self.assertRaises(CommandError) as raised:
+                preflight_core.prepare_host_storage_layout(
+                    root,
+                    {
+                        "STORAGE_PATH": "storage/dev",
+                        "SEQ_STORAGE_PATH": "storage/dev/seq",
+                        "SEQ_UID": "0",
+                        "SEQ_GID": "1000",
+                    },
+                )
+
+        self.assertIn("SEQ_UID must be a non-root numeric id", str(raised.exception))
 
 
 if __name__ == "__main__":

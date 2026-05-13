@@ -122,36 +122,11 @@ services:
     memswap_limit: ${RABBITMQ_MEMSWAP_LIMIT:-512m}
     cpus: ${RABBITMQ_CPUS:-0.5}
 
-  seq-init:
-    image: datalust/seq:2025.2
-    container_name: ${COMPOSE_PROJECT_NAME}-seq-init
-    user: "0:0"
-    restart: "no"
-    read_only: true
-    network_mode: "none"
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - DAC_OVERRIDE
-      - FOWNER
-    security_opt:
-      - no-new-privileges:true
-    volumes:
-      - ${SEQ_STORAGE_PATH}:/data
-    entrypoint:
-      - /bin/sh
-      - -ec
-      - chown -R "${SEQ_UID:-1000}:${SEQ_GID:-1000}" /data
-
   seq:
     image: datalust/seq:2025.2
     container_name: ${COMPOSE_PROJECT_NAME}-seq
     user: "${SEQ_UID:-1000}:${SEQ_GID:-1000}"
     restart: ${RESTART_POLICY}
-    depends_on:
-      seq-init:
-        condition: service_completed_successfully
     cap_drop:
       - ALL
     cap_add:
