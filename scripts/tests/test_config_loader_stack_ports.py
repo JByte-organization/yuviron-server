@@ -11,9 +11,16 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from core.config_loader import render_stack_values
+from core.models import VALID_ENVIRONMENTS
+from core.tls import DEFAULT_CERT_MODE_BY_ENV
 
 
 class ConfigLoaderStackPortsTests(unittest.TestCase):
+    def test_default_cert_mode_policy_covers_known_environments(self) -> None:
+        self.assertEqual(VALID_ENVIRONMENTS, set(DEFAULT_CERT_MODE_BY_ENV))
+        self.assertEqual("shared", DEFAULT_CERT_MODE_BY_ENV["dev"])
+        self.assertEqual("per-route", DEFAULT_CERT_MODE_BY_ENV["prod"])
+
     def test_dev_uses_non_privileged_default_edge_ports(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

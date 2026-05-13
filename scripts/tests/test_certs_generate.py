@@ -61,6 +61,21 @@ class CertsGenerateTests(unittest.TestCase):
             "shared",
         )
 
+    def test_missing_runtime_cert_mode_uses_environment_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root_dir = Path(temp_dir).resolve()
+            warning = (
+                "NGINX_CERT_MODE is missing from generated runtime env; using environment default. "
+                "Regenerate runtime config to use the current environment default."
+            )
+
+            with patch.object(certs, "log_warn") as log_warn:
+                self.assertEqual("shared", certs._resolve_nginx_cert_mode(root_dir, "dev"))
+                self.assertEqual("per-route", certs._resolve_nginx_cert_mode(root_dir, "prod"))
+
+        self.assertEqual(2, log_warn.call_count)
+        log_warn.assert_any_call(warning)
+
     def test_letsencrypt_provider_runs_certbot_webroot_and_copies_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root_dir = Path(temp_dir).resolve()
