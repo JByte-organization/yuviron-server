@@ -88,6 +88,7 @@ class GenerateConfigTests(unittest.TestCase):
             expected_htpasswd = os.path.relpath(output_dir / "htpasswd", ROOT_DIR / "infra")
             self.assertIn(f"NGINX_BASIC_AUTH_FILE={Path(expected_htpasswd).as_posix()}", deploy_env)
             self.assertIn("NGINX_ADMIN_ALLOWLIST=127.0.0.1/32,10.8.0.0/24", deploy_env)
+            self.assertIn("NGINX_CERT_MODE=shared", deploy_env)
             self.assertIn("MYSQL_ROOT_PASSWORD=test-only-root-password", deploy_env)
             self.assertIn("HTTP_PORT=18080", stack_env)
             self.assertIn("GENERATION_DOMAIN=example.com", manifest_env)

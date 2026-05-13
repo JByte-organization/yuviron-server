@@ -24,6 +24,7 @@ class ConfigLoaderStackPortsTests(unittest.TestCase):
         self.assertEqual(values["HTTP_PORT"], "8080")
         self.assertEqual(values["HTTPS_PORT"], "8443")
         self.assertEqual(values["NGINX_CERT_GROUP_ID"], str(os.getgid()))
+        self.assertEqual(values["NGINX_CERT_MODE"], "shared")
         self.assertEqual(values["CERT_FILE"], "../certs/dev-example.com.pem")
         self.assertEqual(values["KEY_FILE"], "../certs/dev-example.com-key.pem")
         self.assertEqual(values["STORAGE_PATH"], "../storage/dev")
@@ -38,6 +39,7 @@ class ConfigLoaderStackPortsTests(unittest.TestCase):
 
         self.assertEqual(values["HTTP_PORT"], "80")
         self.assertEqual(values["HTTPS_PORT"], "443")
+        self.assertEqual(values["NGINX_CERT_MODE"], "per-route")
 
     def test_restart_policy_is_environment_specific(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

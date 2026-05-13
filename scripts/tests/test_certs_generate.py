@@ -58,6 +58,7 @@ class CertsGenerateTests(unittest.TestCase):
             "dev",
             "example.com",
             ["dev-api.example.com"],
+            "shared",
         )
 
     def test_letsencrypt_provider_runs_certbot_webroot_and_copies_output(self) -> None:
@@ -71,12 +72,16 @@ class CertsGenerateTests(unittest.TestCase):
                     "api|api.example.com|backend:5073",
                 ],
             )
-            (root_dir / "generated" / "prod" / "stack.env").write_text("HTTP_PORT=80\n", encoding="utf-8")
+            (root_dir / "generated" / "prod" / "stack.env").write_text(
+                "HTTP_PORT=80\nNGINX_CERT_MODE=per-route\n",
+                encoding="utf-8",
+            )
 
-            live_dir = root_dir / "certs" / "letsencrypt" / "config" / "live" / "prod-example.com"
-            live_dir.mkdir(parents=True, exist_ok=True)
-            (live_dir / "fullchain.pem").write_text("fullchain\n", encoding="utf-8")
-            (live_dir / "privkey.pem").write_text("privkey\n", encoding="utf-8")
+            for host in ["example.com", "api.example.com"]:
+                live_dir = root_dir / "certs" / "letsencrypt" / "config" / "live" / f"prod-route-{host}"
+                live_dir.mkdir(parents=True, exist_ok=True)
+                (live_dir / "fullchain.pem").write_text(f"fullchain {host}\n", encoding="utf-8")
+                (live_dir / "privkey.pem").write_text(f"privkey {host}\n", encoding="utf-8")
 
             args = Namespace(
                 environment="prod",
@@ -110,6 +115,7 @@ class CertsGenerateTests(unittest.TestCase):
                 root_dir / "certs" / "acme-challenge",
             )
             reload_nginx.assert_called_once_with(root_dir, "prod")
+            self.assertEqual(2, run_command.call_count)
             self.assertEqual(
                 [
                     "certbot",
@@ -124,7 +130,7 @@ class CertsGenerateTests(unittest.TestCase):
                     "--logs-dir",
                     str(root_dir / "logs" / "prod" / "letsencrypt"),
                     "--cert-name",
-                    "prod-example.com",
+                    "prod-route-example.com",
                     "--email",
                     "ops@example.com",
                     "--agree-tos",
@@ -135,14 +141,48 @@ class CertsGenerateTests(unittest.TestCase):
                     "http",
                     "-d",
                     "example.com",
+                ],
+                run_command.call_args_list[0].args[0],
+            )
+            self.assertEqual(
+                [
+                    "certbot",
+                    "certonly",
+                    "--webroot",
+                    "--webroot-path",
+                    str(root_dir / "certs" / "acme-challenge"),
+                    "--config-dir",
+                    str(root_dir / "certs" / "letsencrypt" / "config"),
+                    "--work-dir",
+                    str(root_dir / "certs" / "letsencrypt" / "work"),
+                    "--logs-dir",
+                    str(root_dir / "logs" / "prod" / "letsencrypt"),
+                    "--cert-name",
+                    "prod-route-api.example.com",
+                    "--email",
+                    "ops@example.com",
+                    "--agree-tos",
+                    "--non-interactive",
+                    "--keep-until-expiring",
+                    "--expand",
+                    "--preferred-challenges",
+                    "http",
                     "-d",
                     "api.example.com",
                 ],
-                run_command.call_args.args[0],
+                run_command.call_args_list[1].args[0],
             )
-            self.assertEqual("fullchain\n", (root_dir / "certs" / "prod-example.com.pem").read_text())
-            self.assertEqual("privkey\n", (root_dir / "certs" / "prod-example.com-key.pem").read_text())
-            self.assertEqual(0o640, (root_dir / "certs" / "prod-example.com-key.pem").stat().st_mode & 0o777)
+            self.assertEqual("fullchain example.com\n", (root_dir / "certs" / "prod" / "example.com.pem").read_text())
+            self.assertEqual("privkey example.com\n", (root_dir / "certs" / "prod" / "example.com-key.pem").read_text())
+            self.assertEqual(
+                "fullchain api.example.com\n",
+                (root_dir / "certs" / "prod" / "api.example.com.pem").read_text(),
+            )
+            self.assertEqual(
+                "privkey api.example.com\n",
+                (root_dir / "certs" / "prod" / "api.example.com-key.pem").read_text(),
+            )
+            self.assertEqual(0o640, (root_dir / "certs" / "prod" / "api.example.com-key.pem").stat().st_mode & 0o777)
 
     def test_force_renewal_uses_explicit_certbot_issue_mode(self) -> None:
         self.assertEqual("--force-renewal", certs._certbot_issue_mode(True))
@@ -211,15 +251,19 @@ class CertsGenerateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root_dir = Path(temp_dir).resolve()
             _write_routes(root_dir, "prod", ["client|example.com|client-app:3000"])
-            (root_dir / "generated" / "prod" / "stack.env").write_text("HTTP_PORT=80\n", encoding="utf-8")
+            (root_dir / "generated" / "prod" / "stack.env").write_text(
+                "HTTP_PORT=80\nNGINX_CERT_MODE=per-route\n",
+                encoding="utf-8",
+            )
 
-            live_dir = root_dir / "certs" / "letsencrypt" / "config" / "live" / "prod-example.com"
+            live_dir = root_dir / "certs" / "letsencrypt" / "config" / "live" / "prod-route-example.com"
             live_dir.mkdir(parents=True, exist_ok=True)
             (live_dir / "fullchain.pem").write_text("new-fullchain\n", encoding="utf-8")
             (live_dir / "privkey.pem").write_text("new-privkey\n", encoding="utf-8")
             (root_dir / "certs").mkdir(parents=True, exist_ok=True)
-            (root_dir / "certs" / "prod-example.com.pem").write_text("old-fullchain\n", encoding="utf-8")
-            (root_dir / "certs" / "prod-example.com-key.pem").write_text("old-privkey\n", encoding="utf-8")
+            (root_dir / "certs" / "prod").mkdir(parents=True, exist_ok=True)
+            (root_dir / "certs" / "prod" / "example.com.pem").write_text("old-fullchain\n", encoding="utf-8")
+            (root_dir / "certs" / "prod" / "example.com-key.pem").write_text("old-privkey\n", encoding="utf-8")
 
             args = Namespace(
                 environment="prod",
@@ -257,7 +301,7 @@ class CertsGenerateTests(unittest.TestCase):
                     "--logs-dir",
                     str(root_dir / "logs" / "prod" / "letsencrypt"),
                     "--cert-name",
-                    "prod-example.com",
+                    "prod-route-example.com",
                     "--non-interactive",
                     "--preferred-challenges",
                     "http",
@@ -265,9 +309,9 @@ class CertsGenerateTests(unittest.TestCase):
                 ],
                 run_command.call_args.args[0],
             )
-            self.assertEqual("new-fullchain\n", (root_dir / "certs" / "prod-example.com.pem").read_text())
-            self.assertEqual("new-privkey\n", (root_dir / "certs" / "prod-example.com-key.pem").read_text())
-            self.assertEqual(0o640, (root_dir / "certs" / "prod-example.com-key.pem").stat().st_mode & 0o777)
+            self.assertEqual("new-fullchain\n", (root_dir / "certs" / "prod" / "example.com.pem").read_text())
+            self.assertEqual("new-privkey\n", (root_dir / "certs" / "prod" / "example.com-key.pem").read_text())
+            self.assertEqual(0o640, (root_dir / "certs" / "prod" / "example.com-key.pem").stat().st_mode & 0o777)
 
 
 if __name__ == "__main__":

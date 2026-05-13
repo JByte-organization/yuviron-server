@@ -29,7 +29,26 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("server_name api.example.com;", rendered)
         self.assertIn("proxy_pass http://backend:5073;", rendered)
         self.assertIn("client_max_body_size 50m;", rendered)
+        self.assertIn("ssl_certificate /etc/nginx/certs/dev-example.com.pem;", rendered)
+        self.assertIn("api.example.com /etc/nginx/certs/dev-example.com.pem;", rendered)
         self.assertNotIn("auth_basic_user_file", rendered)
+
+    def test_render_can_map_each_route_to_its_own_certificate(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [("api", "api.example.com", "backend:5073", "50m")],
+            SCRIPTS_ROOT / "templates",
+            {
+                "ENVIRONMENT": "prod",
+                "BASE_DOMAIN": "example.com",
+                "NGINX_CERT_MODE": "per-route",
+            },
+        )
+
+        self.assertIn("default /etc/nginx/certs/prod-example.com.pem;", rendered)
+        self.assertIn("api.example.com /etc/nginx/certs/prod/api.example.com.pem;", rendered)
+        self.assertIn("api.example.com /etc/nginx/certs/prod/api.example.com-key.pem;", rendered)
+        self.assertIn("ssl_certificate $route_ssl_certificate;", rendered)
+        self.assertIn("ssl_certificate_key $route_ssl_certificate_key;", rendered)
 
     def test_render_uses_nginx_worker_processes_env_value(self) -> None:
         rendered = render_nginx_conf_modular(
