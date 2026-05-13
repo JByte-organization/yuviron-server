@@ -83,6 +83,7 @@ Management routes (`seq`, `aspire` и т.п.) закрываются двумя 
 Для frontend healthcheck не требуется отдельный `/api/health` endpoint во frontend-репозитории.
 Сам nginx также имеет Docker healthcheck: контейнер локально проверяет `http://127.0.0.1/health`, срок действия `/etc/nginx/certs/cert.pem` и HTTPS/TLS endpoint на `127.0.0.1:443`.
 `/health` объявлен в default HTTP/HTTPS server-блоках до `return 444`, поэтому проверка не зависит от внешнего `Host`, но всё равно ловит проблемы TLS listener и истёкший сертификат.
+В nginx template `worker_processes` зафиксирован как `1`, потому что nginx внутри контейнера с `NGINX_CPUS=0.25` может видеть CPU всего Docker-хоста. `worker_processes auto` в таком режиме создаёт лишние воркеры, которые конкурируют за один и тот же CPU quota и попадают под throttling.
 
 Такой подход позволяет:
 
