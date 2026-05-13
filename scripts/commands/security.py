@@ -23,7 +23,12 @@ if __package__ in {None, ""}:
 
 from core.env import parse_env_file, parse_routes_file, resolve_runtime_env
 from core.env_validation import ERROR as ENV_ERROR
-from core.env_validation import is_token_key, validate_runtime_env
+from core.env_validation import (
+    SENSITIVE_SECRET_KEYS,
+    WEAK_SECRET_VALUES as CORE_WEAK_SECRET_VALUES,
+    validate_runtime_env,
+    weak_secret_reason,
+)
 from core.models import MANAGEMENT_ROUTE_NAMES
 from core.paths import resolve_root_dir, resolve_runtime_path
 from core.tls import (
@@ -45,27 +50,10 @@ STATEFUL_SERVICES = {"mysql", "redis", "rabbitmq", "seq"}
 ALLOWED_PUBLISHED_PORT_SERVICES = {"nginx"}
 ALLOWED_NGINX_CONTAINER_PORTS = {"80", "443"}
 
-SENSITIVE_ENV_KEYS = (
-    "MYSQL_ROOT_PASSWORD",
-    "MYSQL_PASSWORD",
-    "RABBITMQ_DEFAULT_PASS",
-    "ASPIRE_FRONTEND_BROWSER_TOKEN",
-    "ASPIRE_OTLP_API_KEY",
-)
+SENSITIVE_ENV_KEYS = SENSITIVE_SECRET_KEYS
 
 WEAK_SECRET_VALUES = {
-    "admin",
-    "admin123",
-    "change_me",
-    "changeme",
-    "default",
-    "dev",
-    "password",
-    "password123",
-    "root",
-    "secret",
-    "test",
-    "yuviron",
+    *CORE_WEAK_SECRET_VALUES,
 }
 
 SECRET_KEY_RE = re.compile(
@@ -283,19 +271,7 @@ def _audit_published_ports(services: dict[str, dict[str, Any]], report: AuditRep
 
 
 def _weak_secret_reason(key: str, value: str, environment: str) -> str:
-    stripped = value.strip()
-    lowered = stripped.lower()
-    if not stripped:
-        return "empty value"
-    if lowered in WEAK_SECRET_VALUES:
-        return "well-known default value"
-    if "strong_password_1234" in lowered:
-        return "template-like password value"
-    if environment == "prod" and "dev" in lowered:
-        return "dev-looking value in prod"
-    if environment == "prod" and not is_token_key(key) and len(stripped) < 16:
-        return "short production secret"
-    return ""
+    return weak_secret_reason(key, value, environment)
 
 
 def _audit_default_passwords(env_values: dict[str, str], environment: str, report: AuditReport) -> None:

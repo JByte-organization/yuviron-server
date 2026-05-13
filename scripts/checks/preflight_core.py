@@ -244,7 +244,8 @@ def check_required_env_vars(ctx: object) -> None:
 def check_env_policy(ctx: object) -> None:
     log_info("Checking env safety policy")
 
-    issues = validate_runtime_env(ctx.runtime_values, ctx.environment)
+    strict = bool(getattr(ctx, "strict", False))
+    issues = validate_runtime_env(ctx.runtime_values, ctx.environment, check_weak_secrets=strict)
     warnings = [issue for issue in issues if issue.severity != ERROR]
     errors = [issue for issue in issues if issue.severity == ERROR]
 
@@ -254,6 +255,10 @@ def check_env_policy(ctx: object) -> None:
     if errors:
         details = "\n".join(f"- {issue.key}: {issue.message}" for issue in errors)
         fail(f"Unsafe env values for {ctx.environment}:\n{details}")
+
+    if strict and warnings:
+        details = "\n".join(f"- {issue.key}: {issue.message}" for issue in warnings)
+        fail(f"Env safety warnings for {ctx.environment} in strict mode:\n{details}")
 
     log_ok("Env safety policy passed")
 

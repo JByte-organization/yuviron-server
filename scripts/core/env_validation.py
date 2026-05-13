@@ -16,6 +16,29 @@ PROD_MIN_TOKEN_LENGTH = 32
 NON_PROD_MIN_TOKEN_LENGTH = 16
 DEFAULT_ENV_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "env" / "schema.json"
 
+SENSITIVE_SECRET_KEYS = (
+    "MYSQL_ROOT_PASSWORD",
+    "MYSQL_PASSWORD",
+    "RABBITMQ_DEFAULT_PASS",
+    "ASPIRE_FRONTEND_BROWSER_TOKEN",
+    "ASPIRE_OTLP_API_KEY",
+)
+
+WEAK_SECRET_VALUES = {
+    "admin",
+    "admin123",
+    "change_me",
+    "changeme",
+    "default",
+    "dev",
+    "password",
+    "password123",
+    "root",
+    "secret",
+    "test",
+    "yuviron",
+}
+
 _TOKEN_KEY_RE = re.compile(r"(?:^|[_\-.])(?:TOKEN|API[_\-.]?KEY|SECRET)(?:$|[_\-.])", re.IGNORECASE)
 _TRUTHY = {"1", "true", "yes", "on"}
 _BOOLEAN_VALUES = {"0", "1", "false", "no", "off", "on", "true", "yes"}
@@ -42,6 +65,37 @@ def _normalized_value(value: str) -> str:
 
 def _is_truthy(value: str) -> bool:
     return _normalized_value(value).lower() in _TRUTHY
+
+
+def weak_secret_reason(key: str, value: str, environment: str) -> str:
+    stripped = _normalized_value(value)
+    lowered = stripped.lower()
+    if not stripped:
+        return "empty value"
+    if lowered in WEAK_SECRET_VALUES:
+        return "well-known default value"
+    if "strong_password_1234" in lowered:
+        return "template-like password value"
+    if environment == "prod" and "dev" in lowered:
+        return "dev-looking value in prod"
+    if environment == "prod" and not is_token_key(key) and len(stripped) < 16:
+        return "short production secret"
+    return ""
+
+
+def validate_weak_secret_values(env_values: dict[str, str], environment: str) -> list[EnvValidationIssue]:
+    severity = ERROR if environment == "prod" else WARN
+    issues: list[EnvValidationIssue] = []
+
+    for key in SENSITIVE_SECRET_KEYS:
+        if key not in env_values:
+            continue
+
+        reason = weak_secret_reason(key, env_values.get(key, ""), environment)
+        if reason:
+            issues.append(EnvValidationIssue(severity, key, reason))
+
+    return issues
 
 
 @lru_cache(maxsize=4)
@@ -237,6 +291,7 @@ def validate_runtime_env(
     environment: str,
     *,
     validate_schema: bool = True,
+    check_weak_secrets: bool = False,
 ) -> list[EnvValidationIssue]:
     issues: list[EnvValidationIssue] = []
     is_prod = environment == "prod"
@@ -293,5 +348,8 @@ def validate_runtime_env(
                     f"secret-like value is too short ({len(token)} chars, minimum {min_token_length})",
                 )
             )
+
+    if check_weak_secrets:
+        issues.extend(validate_weak_secret_values(env_values, environment))
 
     return issues

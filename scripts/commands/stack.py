@@ -35,6 +35,7 @@ class PreflightContext:
     environment: str
     strict_generated: bool
     allow_regenerate: bool
+    strict: bool = False
     isolated: bool = False
     dry_run: bool = False
     compose_context: ComposeContext | None = None
@@ -532,6 +533,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         environment=environment,
         strict_generated=bool(strict_generated),
         allow_regenerate=bool(allow_regenerate),
+        strict=bool(args.strict),
         isolated=bool(args.isolated),
         dry_run=bool(args.dry_run),
     )
@@ -638,6 +640,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     preflight_parser.add_argument("project_root", nargs="?")
     preflight_parser.add_argument("--isolated", action="store_true", help="Run preflight in a temporary isolated compose project")
     preflight_parser.add_argument("--dry-run", action="store_true", help="Use docker compose dry-run for container-start checks")
+    preflight_parser.add_argument("--strict", action="store_true", help="Treat env warnings as failures and enable strict secret checks")
     preflight_parser.add_argument("--no-header", action="store_true", help=argparse.SUPPRESS)
 
     strict_group = preflight_parser.add_mutually_exclusive_group()

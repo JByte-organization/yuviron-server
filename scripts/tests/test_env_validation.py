@@ -12,6 +12,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from checks import preflight_core
+from cli import build_parser
 from core.config_loader import load_frontend_apps
 from core.env import parse_env_file
 from core.env_validation import (
@@ -120,6 +121,45 @@ class EnvValidationTests(unittest.TestCase):
         )
 
         self.assertEqual([("ASPIRE_FRONTEND_BROWSER_TOKEN", WARN)], [(issue.key, issue.severity) for issue in issues])
+
+    def test_strict_secret_check_flags_weak_prod_passwords_as_errors(self) -> None:
+        issues = validate_runtime_env(
+            {
+                "MYSQL_ROOT_PASSWORD": "strong-root-password-2026",
+                "MYSQL_PASSWORD": "password",
+                "RABBITMQ_DEFAULT_PASS": "dev-rabbit-password",
+            },
+            "prod",
+            validate_schema=False,
+            check_weak_secrets=True,
+        )
+
+        errors = {(issue.key, issue.severity, issue.message) for issue in issues}
+        self.assertIn(("MYSQL_PASSWORD", ERROR, "well-known default value"), errors)
+        self.assertIn(("RABBITMQ_DEFAULT_PASS", ERROR, "dev-looking value in prod"), errors)
+
+    def test_preflight_strict_fails_prod_on_weak_password(self) -> None:
+        ctx = SimpleNamespace(
+            environment="prod",
+            strict=True,
+            runtime_values={
+                "MYSQL_ROOT_PASSWORD": "strong-root-password-2026",
+                "MYSQL_PASSWORD": "password",
+            },
+        )
+
+        with self.assertRaises(CommandError) as raised:
+            preflight_core.check_env_policy(ctx)
+
+        message = str(raised.exception)
+        self.assertIn("Unsafe env values for prod", message)
+        self.assertIn("MYSQL_PASSWORD", message)
+        self.assertIn("well-known default value", message)
+
+    def test_preflight_parser_accepts_strict(self) -> None:
+        args = build_parser().parse_args(["stack", "preflight", "prod", "--strict"])
+
+        self.assertTrue(args.strict)
 
     def test_preflight_env_policy_fails_prod_with_actionable_errors(self) -> None:
         ctx = SimpleNamespace(
