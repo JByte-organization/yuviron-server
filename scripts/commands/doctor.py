@@ -9,7 +9,7 @@ import shutil
 import socket
 import subprocess
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -21,6 +21,7 @@ if __package__ in {None, ""}:
 from checks import preflight_core, preflight_nginx
 from commands.stack import DEFAULT_ROOT, PreflightContext
 from core.env import parse_env_file, parse_routes_file
+from core.findings import ERROR, WARN, Finding as DoctorFinding, Report as DoctorReport
 from core.paths import resolve_root_dir, resolve_runtime_path
 from core.tls import (
     NGINX_CERT_MODE_PER_ROUTE,
@@ -32,9 +33,6 @@ from core.ui import log_err, log_info, log_ok, log_warn
 from core.validators import CommandError, fail, resolve_prompted_environment
 
 
-ERROR = "ERROR"
-WARN = "WARN"
-
 DNS_PORT = 53
 HTTP_PORT = 80
 HTTPS_PORT = 443
@@ -42,13 +40,6 @@ CERT_EXPIRY_WARN_SECONDS = 7 * 24 * 60 * 60
 
 ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 UFW_DEFAULT_RE = re.compile(r"Default:\s*(?P<incoming>[^,\n]+)\s*\(incoming\)", re.IGNORECASE)
-
-
-@dataclass(frozen=True)
-class DoctorFinding:
-    severity: str
-    check: str
-    message: str
 
 
 @dataclass(frozen=True)
@@ -62,25 +53,6 @@ class FirewallAnalysis:
     ok_message: str
     errors: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
-
-
-@dataclass
-class DoctorReport:
-    findings: list[DoctorFinding] = field(default_factory=list)
-
-    def error(self, check: str, message: str) -> None:
-        self.findings.append(DoctorFinding(ERROR, check, message))
-
-    def warn(self, check: str, message: str) -> None:
-        self.findings.append(DoctorFinding(WARN, check, message))
-
-    @property
-    def errors(self) -> list[DoctorFinding]:
-        return [finding for finding in self.findings if finding.severity == ERROR]
-
-    @property
-    def warnings(self) -> list[DoctorFinding]:
-        return [finding for finding in self.findings if finding.severity == WARN]
 
 
 def _run_command(

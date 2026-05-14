@@ -7,7 +7,6 @@ import re
 import stat
 import subprocess
 import sys
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +28,7 @@ from core.env_validation import (
     validate_runtime_env,
     weak_secret_reason,
 )
+from core.findings import ERROR, WARN, Finding as AuditFinding, Report as AuditReport
 from core.models import MANAGEMENT_ROUTE_NAMES
 from core.paths import resolve_root_dir, resolve_runtime_path
 from core.tls import (
@@ -42,9 +42,6 @@ from core.validators import fail, resolve_prompted_environment
 
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[2]
-
-ERROR = "ERROR"
-WARN = "WARN"
 
 STATEFUL_SERVICES = {"mysql", "redis", "rabbitmq", "seq"}
 ALLOWED_PUBLISHED_PORT_SERVICES = {"nginx"}
@@ -66,32 +63,6 @@ SECRET_ASSIGNMENT_RE = re.compile(
     re.IGNORECASE,
 )
 ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-(.*?))?\}")
-
-
-@dataclass(frozen=True)
-class AuditFinding:
-    severity: str
-    check: str
-    message: str
-
-
-@dataclass
-class AuditReport:
-    findings: list[AuditFinding] = field(default_factory=list)
-
-    def error(self, check: str, message: str) -> None:
-        self.findings.append(AuditFinding(ERROR, check, message))
-
-    def warn(self, check: str, message: str) -> None:
-        self.findings.append(AuditFinding(WARN, check, message))
-
-    @property
-    def errors(self) -> list[AuditFinding]:
-        return [item for item in self.findings if item.severity == ERROR]
-
-    @property
-    def warnings(self) -> list[AuditFinding]:
-        return [item for item in self.findings if item.severity == WARN]
 
 
 def _as_bool(value: Any) -> bool:
