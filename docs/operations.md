@@ -39,7 +39,7 @@
 * nginx конфигурацию
 * compose конфигурацию
 * свежесть generated-файлов через `generated/<env>/manifest.env`
-* валидность значений маршрутов для nginx: host, upstream `service:port`, диапазон портов и `client_max_body_size`
+* валидность значений маршрутов для nginx: host, upstream `service:port`, диапазон портов, `client_max_body_size` и `has_auth_endpoints`
 * соответствие upstream services из `routes.env` сервисам полной compose-конфигурации
 
 Если `generated/<env>/manifest.env` устарел после обновления source-файлов, `preflight dev` автоматически пересобирает generated config и повторяет проверку. Для `prod` это поведение включается только явно: `./scripts/cli.py stack preflight prod --allow-regenerate` или `ALLOW_REGENERATE=1`.

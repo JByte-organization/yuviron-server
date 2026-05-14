@@ -2,6 +2,7 @@ routes:
   api:
     target: backend:5073
     client_max_body_size: 50m
+    has_auth_endpoints: true
     environments: [dev, prod]
 
   client:

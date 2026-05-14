@@ -77,7 +77,7 @@ CLI является единым интерфейсом для работы с�
 * nginx конфигурацию
 * compose конфигурацию
 * свежесть generated-файлов через `generated/<env>/manifest.env`
-* валидность значений маршрутов для nginx: host, upstream `service:port`, диапазон портов и `client_max_body_size`
+* валидность значений маршрутов для nginx: host, upstream `service:port`, диапазон портов, `client_max_body_size` и `has_auth_endpoints`
 * соответствие upstream services из `routes.env` сервисам полной compose-конфигурации
 * в `--strict` режиме — weak/default secrets; для `prod` такие значения считаются `ERROR` и блокируют preflight
 

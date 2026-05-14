@@ -136,7 +136,7 @@ dev-aspire.yuviron.com     -> aspire-dashboard:18888
 * `api` идёт в backend на `5073`.
 * `seq` и `aspire` считаются management routes и получают HTTP Basic Auth плюс `NGINX_ADMIN_ALLOWLIST`.
 * `/health` обслуживается самим edge nginx для healthcheck и smoke.
-* API routes получают nginx rate limiting.
+* API routes получают общий nginx rate limiting, а routes с `has_auth_endpoints: true` дополнительно получают более строгий limit для `/auth`, `/login`, `/token` и похожих endpoint'ов.
 * каталог `certs/` монтируется в nginx read-only; в `shared` режиме routes используют общий SAN/wildcard cert, а в `per-route` режиме nginx выбирает cert/key по SNI host через сгенерированную map.
 
 ---

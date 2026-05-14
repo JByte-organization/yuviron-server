@@ -73,8 +73,8 @@ scripts/templates/proxy-params.conf
 
 Различия между окружениями задаются через `env/<env>.env`, `env/common.env`, `config/routes.yml`, `config/apps.yml` и сгенерированные файлы в `generated/<env>/`.
 
-Финальные маршруты nginx берёт не напрямую из `config/routes.yml`, а из `generated/<env>/routes.env`.
-Перед рендерингом генератор nginx валидирует route name, host, upstream, `client_max_body_size`, а также публичные rate-limit значения `NGINX_PUBLIC_RATE_LIMIT` и `NGINX_PUBLIC_RATE_BURST`; Jinja2 работает в режиме `StrictUndefined`, чтобы ошибка в шаблоне или контексте падала на генерации, а не превращалась в битый nginx config.
+Финальные hosts/upstreams nginx берёт из генерации на основе `config/routes.yml`, а компактное runtime-представление пишет в `generated/<env>/routes.env`.
+Перед рендерингом генератор nginx валидирует route name, host, upstream, `client_max_body_size`, `has_auth_endpoints`, а также публичные rate-limit значения `NGINX_PUBLIC_RATE_LIMIT` и `NGINX_PUBLIC_RATE_BURST`; Jinja2 работает в режиме `StrictUndefined`, чтобы ошибка в шаблоне или контексте падала на генерации, а не превращалась в битый nginx config.
 Security headers задаются в nginx templates: `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`; deprecated `X-XSS-Protection` намеренно не используется. HTTPS server-блоки повторяют эти headers рядом с HSTS, потому что nginx не наследует `add_header` с уровня `http`, если на уровне `server` уже задан свой `add_header`.
 Default CSP остаётся совместимой с dev/Next.js и содержит вынесенные отдельно dev-послабления `'unsafe-inline'` / `'unsafe-eval'`. При генерации `prod` nginx config с такой политикой CLI печатает критический warning. Для публичного prod нужно задать строгую политику через `NGINX_CONTENT_SECURITY_POLICY` в `env/prod.env`, например без unsafe sources.
 TLS policy задаётся явно на уровне `http` через named profiles в `scripts/core/render_nginx.py`: `TLS_POLICY_INTERMEDIATE`, `TLS_POLICY_MODERN` и `DEFAULT_TLS_POLICY = TLS_POLICY_INTERMEDIATE`. Default policy разрешает только `TLSv1.2` и `TLSv1.3`, а `ssl_ciphers` фиксирует современные AEAD suites для TLS 1.2 по intermediate-профилю Mozilla SSL Config Generator. TLS 1.3 использует набор suites OpenSSL/nginx для TLS 1.3. Для TLS 1.2 включён server cipher order (`ssl_prefer_server_ciphers on`), TLS sessions кешируются в shared cache на 1 день, session tickets отключены. TLS policy валидируется перед рендерингом: старые протоколы, неизвестные протоколы и явно слабые cipher markers вроде CBC/RC4/DES отклоняются. OCSP stapling намеренно не включён по умолчанию для private/self-signed окружений; его стоит добавлять отдельным public profile, когда cert chain и resolver управляются как часть публичного деплоя.
@@ -176,6 +176,17 @@ NGINX_PUBLIC_RATE_BURST=40
 Значения по умолчанию лежат в `env/common.env`; для dev/prod override можно указать те же ключи в `env/dev.env` или `env/prod.env` и затем перегенерировать runtime-файлы.
 
 Формат валидируется генератором: rate должен выглядеть как `20r/s` или `30r/m`, burst должен быть положительным целым числом.
+
+Для auth endpoint'ов используется отдельная зона `api_auth` с более строгим лимитом `10r/m`. Она включается не по имени route, а через флаг в `config/routes.yml`:
+
+```yaml
+routes:
+  api:
+    target: backend:5073
+    has_auth_endpoints: true
+```
+
+Если появится ещё один публичный backend route с `/auth`, `/login`, `/token`, `/refresh` и похожими endpoint'ами, укажи для него `has_auth_endpoints: true`, и генератор добавит отдельный nginx location с `api_auth`.
 
 ### Frontend resource limits
 
