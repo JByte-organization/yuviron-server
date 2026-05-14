@@ -145,6 +145,7 @@ def load_routes(path: Path) -> Dict[str, Route]:
         target = raw.get("target")
         host_strategy = raw.get("host_strategy")
         client_max_body_size = raw.get("client_max_body_size")
+        has_auth_endpoints = raw.get("has_auth_endpoints", False)
         environments = raw.get("environments", ["dev", "prod"])
 
         if app and target:
@@ -172,6 +173,9 @@ def load_routes(path: Path) -> Dict[str, Route]:
             if not CLIENT_MAX_BODY_SIZE_PATTERN.fullmatch(client_max_body_size):
                 fail(f"Invalid client_max_body_size in route '{name}': {client_max_body_size}")
 
+        if not isinstance(has_auth_endpoints, bool):
+            fail(f"routes.{name}.has_auth_endpoints must be a boolean")
+
         if not isinstance(environments, list) or not environments:
             fail(f"routes.{name}.environments must be a non-empty list")
 
@@ -189,6 +193,7 @@ def load_routes(path: Path) -> Dict[str, Route]:
             host_strategy=host_strategy,
             environments=tuple(normalized_envs),
             client_max_body_size=client_max_body_size,
+            has_auth_endpoints=has_auth_endpoints,
         )
 
     return result

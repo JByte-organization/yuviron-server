@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import yaml
 
@@ -31,7 +31,7 @@ def render_apps_env(selected_apps: List[FrontendApp], optional_apps: List[Fronte
     )
 
 
-def render_routes_env(route_lines: List[Tuple[str, str, str, str]]) -> str:
+def render_routes_env(route_lines: List[tuple]) -> str:
     return "\n".join(f"{name}|{host}|{upstream}" for name, host, upstream, *_ in route_lines) + "\n"
 
 

@@ -68,6 +68,7 @@ class Route:
     target: Optional[str] = None
     host_strategy: Optional[str] = None
     client_max_body_size: Optional[str] = None
+    has_auth_endpoints: bool = False
 
 
 @dataclass(frozen=True)

@@ -95,11 +95,17 @@ def resolve_routes(ctx: GenerationContext, apps, routes_cfg):
 
     DEFAULT_MAX_BODY_SIZE = "5m"
 
-    def add_route(name: str, host: str, upstream: str, max_body_size: str = DEFAULT_MAX_BODY_SIZE) -> None:
+    def add_route(
+        name: str,
+        host: str,
+        upstream: str,
+        max_body_size: str = DEFAULT_MAX_BODY_SIZE,
+        has_auth_endpoints: bool = False,
+    ) -> None:
         if name in seen_names:
             fail(f"Duplicate route name generated: {name}")
         seen_names.add(name)
-        lines.append((name, host, upstream, max_body_size))
+        lines.append((name, host, upstream, max_body_size, has_auth_endpoints))
 
     if "client" not in routes_cfg:
         client = apps["client"]
@@ -108,7 +114,7 @@ def resolve_routes(ctx: GenerationContext, apps, routes_cfg):
 
     if "api" not in routes_cfg:
         host = ctx.resolve_host("api", "subdomain")
-        add_route("api", host, "backend:5073", "50m")
+        add_route("api", host, "backend:5073", "50m", True)
 
     for route_name, route in routes_cfg.items():
         if ctx.env_name not in route.environments:
@@ -127,6 +133,7 @@ def resolve_routes(ctx: GenerationContext, apps, routes_cfg):
                 ctx.resolve_host(route_name, host_strategy),
                 f"{app.service_name}:{app.port}",
                 route.client_max_body_size or DEFAULT_MAX_BODY_SIZE,
+                route.has_auth_endpoints,
             )
             continue
 
@@ -136,6 +143,7 @@ def resolve_routes(ctx: GenerationContext, apps, routes_cfg):
             ctx.resolve_host(route_name, host_strategy),
             route.target or "",
             route.client_max_body_size or DEFAULT_MAX_BODY_SIZE,
+            route.has_auth_endpoints,
         )
 
     for name, target in parse_extra_routes(",".join(ctx.extra_routes_raw)):

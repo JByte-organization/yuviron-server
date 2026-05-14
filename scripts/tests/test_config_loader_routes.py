@@ -14,6 +14,37 @@ from core.validators import CommandError
 
 
 class ConfigLoaderRoutesTests(unittest.TestCase):
+    def test_load_routes_reads_has_auth_endpoints_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            routes_file = Path(temp_dir) / "routes.yml"
+            routes_file.write_text(
+                "routes:\n"
+                "  public-api:\n"
+                "    target: backend:5073\n"
+                "    has_auth_endpoints: true\n",
+                encoding="utf-8",
+            )
+
+            routes = load_routes(routes_file)
+
+        self.assertTrue(routes["public-api"].has_auth_endpoints)
+
+    def test_load_routes_rejects_non_boolean_has_auth_endpoints(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            routes_file = Path(temp_dir) / "routes.yml"
+            routes_file.write_text(
+                "routes:\n"
+                "  api:\n"
+                "    target: backend:5073\n"
+                "    has_auth_endpoints: 'yes'\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(CommandError) as raised:
+                load_routes(routes_file)
+
+        self.assertIn("has_auth_endpoints must be a boolean", str(raised.exception))
+
     def test_load_routes_rejects_injected_target(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             routes_file = Path(temp_dir) / "routes.yml"
