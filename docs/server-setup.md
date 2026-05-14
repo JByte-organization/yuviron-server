@@ -99,3 +99,26 @@ cd /opt/yuviron-server
 После добавления пользователя необходимо перелогиниться.
 
 ---
+
+## Production env checklist
+
+Перед первым `prod` запуском не оставляй значения из `env/example.env` без ревью. Минимальный чеклист для `env/prod.env`:
+
+* `ASPNETCORE_ENVIRONMENT=Production`
+* если в окружении или CI дополнительно задан `DOTNET_ENVIRONMENT`, он тоже должен быть `Production`
+* `Swagger__Enabled=false`
+* `MYSQL_ROOT_PASSWORD` не равен `root`
+* production secrets/tokens/passwords не короткие и не похожи на dev/template значения
+
+После редактирования `env/prod.env` перегенерируй runtime config и проверь уже итоговый `generated/prod/deploy.env`:
+
+```bash
+python3 scripts/init.py --env prod --domain yuviron.com --no-up
+./scripts/cli.py stack preflight prod --strict
+./scripts/cli.py security audit prod --strict
+grep -E '^(ASPNETCORE_ENVIRONMENT|DOTNET_ENVIRONMENT)=' generated/prod/deploy.env
+```
+
+`stack preflight` и `security audit` блокируют `ASPNETCORE_ENVIRONMENT=Development` для `prod`, но явная проверка полезна после ручного копирования `env/example.env` в `env/prod.env`.
+
+---
