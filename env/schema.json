@@ -218,6 +218,10 @@
       "type": "string",
       "enum": ["shared", "per-route"]
     },
+    "NGINX_CONTENT_SECURITY_POLICY": {
+      "type": "string",
+      "minLength": 1
+    },
     "NGINX_PRIVATE_ACCESS_CIDRS": {
       "type": "string",
       "format": "cidr-list"
