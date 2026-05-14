@@ -6,6 +6,17 @@ EF_STARTUP_PROJECT="${MIGRATOR_STARTUP_PROJECT:-src/Yuviron.Api/Yuviron.Api.cspr
 EF_CONFIGURATION="${MIGRATOR_CONFIGURATION:-Release}"
 EF_OBJ_DIR="/tmp/ef-obj"
 
+case "${ASPNETCORE_ENVIRONMENT:-}" in
+    [Pp][Rr][Oo][Dd][Uu][Cc][Tt][Ii][Oo][Nn])
+        if [ "${ALLOW_PRODUCTION_MIGRATE:-false}" != "true" ]; then
+            echo "Refusing to run EF Core migrations in Production." >&2
+            echo "Set ALLOW_PRODUCTION_MIGRATE=true for this one-off migrator run." >&2
+            exit 1
+        fi
+        echo "Production migration override accepted via ALLOW_PRODUCTION_MIGRATE=true"
+        ;;
+esac
+
 mkdir -p "${EF_OBJ_DIR}"
 rm -rf "${EF_OBJ_DIR:?}"/* "${EF_OBJ_DIR}"/.[!.]* "${EF_OBJ_DIR}"/..?* 2>/dev/null || true
 cp -R /src/src/Yuviron.Infrastructure/obj/. "${EF_OBJ_DIR}/"

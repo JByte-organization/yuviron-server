@@ -51,6 +51,10 @@
     "Swagger__Enabled"
   ],
   "properties": {
+    "ALLOW_PRODUCTION_MIGRATE": {
+      "type": "string",
+      "enum": ["false", "true"]
+    },
     "ASPNETCORE_ENVIRONMENT": {
       "type": "string",
       "enum": ["Development", "Staging", "Production"]

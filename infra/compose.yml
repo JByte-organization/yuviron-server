@@ -201,6 +201,7 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME}-migrator
     environment:
       <<: *dotnet-env
+      ALLOW_PRODUCTION_MIGRATE: ${ALLOW_PRODUCTION_MIGRATE:-false}
     depends_on:
       mysql:
         condition: service_healthy
