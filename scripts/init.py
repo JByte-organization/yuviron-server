@@ -12,6 +12,7 @@ if __package__ in {None, ""}:
 
 from core.docker import ensure_shared_network, read_var_from_env_file, run
 from core.htpasswd import resolve_htpasswd_path
+from core.preflight import resolve_generation_settings
 from core.ui import (
     BCYAN,
     BGREEN,
@@ -39,7 +40,7 @@ from core.ui import (
     resolve_environment_input,
     resolve_required_input,
 )
-from core.validators import CommandError, require_command, require_file, validate_domain, warn_if_dev_like_domain
+from core.validators import CommandError, require_command, require_file
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -190,9 +191,18 @@ def main(argv: list[str] | None = None) -> int:
         routes = default_extra_routes
 
     print_section("Валидация")
-    domain = validate_domain(domain)
+    settings = resolve_generation_settings(
+        environment=environment,
+        domain=domain,
+        apps=apps,
+        extra_routes=routes,
+        warn_on_dev_like_domain=True,
+    )
+    environment = settings.environment
+    domain = settings.domain
+    apps = settings.apps
+    routes = settings.extra_routes
     log_ok(f"Домен корректен: {BOLD}{domain}{RESET}")
-    warn_if_dev_like_domain(environment, domain)
 
     require_command("python3")
     require_command("docker")

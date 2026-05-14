@@ -34,6 +34,7 @@ from core.models import (  # noqa: E402
     VALID_ENVIRONMENTS,
 )
 from core.paths import compose_relative_path  # noqa: E402
+from core.preflight import resolve_generation_settings  # noqa: E402
 from core.render_compose import (  # noqa: E402
     render_apps_env,
     render_env_file,
@@ -44,7 +45,7 @@ from core.render_compose import (  # noqa: E402
 )
 from core.render_nginx import render_nginx_conf_modular  # noqa: E402
 from core.ui import log_warn  # noqa: E402
-from core.validators import CommandError, fail, validate_domain  # noqa: E402
+from core.validators import CommandError, fail  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -147,8 +148,14 @@ def main() -> None:
     args = parse_args()
 
     root_dir = Path(__file__).resolve().parent.parent
-    env_name = args.env.strip()
-    base_domain = validate_domain(args.domain)
+    settings = resolve_generation_settings(
+        environment=args.env,
+        domain=args.domain,
+        apps=args.apps,
+        extra_routes=args.extra_routes,
+    )
+    env_name = settings.environment
+    base_domain = settings.domain
     output_dir = Path(args.output_dir).resolve() if args.output_dir else (root_dir / "generated" / env_name)
 
     apps_config_path = root_dir / "config" / "apps.yml"
@@ -169,7 +176,7 @@ def main() -> None:
     apps = load_frontend_apps(apps_config_path)
     routes_cfg = load_routes(routes_config_path)
 
-    selected_keys, optional_keys = resolve_selected_apps(apps, args.apps)
+    selected_keys, optional_keys = resolve_selected_apps(apps, settings.apps)
     selected_apps = [apps[key] for key in selected_keys]
     optional_apps = [apps[key] for key in optional_keys]
 
@@ -179,7 +186,7 @@ def main() -> None:
         base_domain=base_domain,
         output_dir=output_dir,
         selected_app_keys=tuple(selected_keys),
-        extra_routes_raw=tuple(normalize_csv(args.extra_routes)),
+        extra_routes_raw=tuple(normalize_csv(settings.extra_routes)),
     )
 
     route_lines = resolve_routes(ctx, apps, routes_cfg)
