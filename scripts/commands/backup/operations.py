@@ -39,6 +39,8 @@ MYSQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 BACKUP_REMOTE_SAFE_PATH_RE = re.compile(r"^[A-Za-z0-9._~+/=-]+$")
 BACKUP_REMOTE_SHELL_META_RE = re.compile(r"[;&|`$(){}<>*?\\\"']")
 BACKUP_REMOTE_SCP_RE = re.compile(r"^[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+:.+")
+TRUTHY_VALUES = {"1", "true", "yes", "on"}
+FALSEY_VALUES = {"0", "false", "no", "off"}
 
 
 def _validate_backup_remote_path(raw_path: str, root_dir: Path) -> Path | None:
@@ -67,6 +69,35 @@ def _validate_backup_remote_path(raw_path: str, root_dir: Path) -> Path | None:
     if not destination.is_absolute():
         destination = root_dir / destination
     return destination.resolve()
+
+
+def _read_bool_env(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None or raw_value.strip() == "":
+        return default
+
+    normalized = raw_value.strip().lower()
+    if normalized in TRUTHY_VALUES:
+        return True
+    if normalized in FALSEY_VALUES:
+        return False
+
+    fail(f"Invalid {name}: expected one of 1/0, true/false, yes/no, on/off")
+
+
+def _resolve_restore_test_min_tables(
+    raw_value: int | None,
+    option_name: str = "--restore-test-min-tables",
+) -> int:
+    min_tables = raw_value
+    if min_tables is None:
+        try:
+            min_tables = int(os.getenv("RESTORE_TEST_MIN_TABLES", "1"))
+        except ValueError:
+            fail("RESTORE_TEST_MIN_TABLES must be an integer")
+    if min_tables < 0:
+        fail(f"{option_name} must be >= 0")
+    return min_tables
 
 
 def cmd_backup_create(args: argparse.Namespace) -> int:
@@ -98,6 +129,13 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
     backup_envs_raw = os.getenv("BACKUP_ENVS", "dev,prod")
     mysql_service_name = os.getenv("MYSQL_SERVICE_NAME", "mysql")
     backend_service_name = os.getenv("BACKEND_SERVICE_NAME", "backend")
+    run_restore_test_after_create = (
+        not getattr(args, "skip_restore_test", False)
+        and _read_bool_env("BACKUP_RESTORE_TEST_AFTER_CREATE", True)
+    )
+    restore_test_min_tables = _resolve_restore_test_min_tables(
+        getattr(args, "restore_test_min_tables", None)
+    ) if run_restore_test_after_create else 1
 
     requested_envs = [item.strip() for item in backup_envs_raw.split(",") if item.strip()]
     available_envs: list[str] = []
@@ -125,6 +163,7 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
 
     backup_components: list[str] = []
     backup_envs_with_data: list[str] = []
+    backup_mysql_envs_with_data: list[str] = []
     backup_warnings: list[str] = []
     stopped_backends: list[str] = []
     backends_restarted = False
@@ -132,6 +171,8 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
     def mark_component(env_name: str, component: str) -> None:
         _append_unique(backup_envs_with_data, env_name)
         _append_unique(backup_components, f"{env_name}:{component}")
+        if component == "mysql":
+            _append_unique(backup_mysql_envs_with_data, env_name)
 
     def mark_warning(message: str) -> None:
         _append_unique(backup_warnings, message)
@@ -411,6 +452,13 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
             logger.warn("Nothing was backed up")
             return 0
 
+        if not run_restore_test_after_create:
+            logger.warn("Automatic restore-test after backup create is disabled")
+            mark_warning("restore-test-skipped")
+        elif not backup_mysql_envs_with_data:
+            logger.warn("No MySQL dumps were included; automatic restore-test is skipped")
+            mark_warning("restore-test-skipped-no-mysql-dumps")
+
         write_metadata(tmp_snapshot_dir / "metadata.json")
 
         logger.info("Creating final unified snapshot archive")
@@ -420,6 +468,15 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
             raise CommandError("Final archive was not created correctly")
 
         _validate_tar(final_archive)
+
+        if run_restore_test_after_create and backup_mysql_envs_with_data:
+            _run_archive_restore_tests(
+                archive_file=final_archive,
+                paths=paths,
+                environments=backup_mysql_envs_with_data,
+                min_tables=restore_test_min_tables,
+                logger=logger,
+            )
 
         copy_offsite(final_archive)
         cleanup_old_backups()
@@ -805,6 +862,56 @@ def _restore_mysql_dump_into_standalone_container(
     _check_restored_mysql_tables(container_name, database_name, min_tables, logger)
 
 
+def _run_archive_restore_tests(
+    *,
+    archive_file: Path,
+    paths: object,
+    environments: list[str],
+    min_tables: int,
+    logger: BackupLogger,
+) -> None:
+    if min_tables < 0:
+        fail("--restore-test-min-tables must be >= 0")
+    if not environments:
+        logger.info("Automatic restore-test skipped: no environments with MySQL dumps")
+        return
+
+    paths.backup_restore_test_tmp.mkdir(parents=True, exist_ok=True)
+    timestamp_utc = time.strftime("%Y-%m-%dT%H-%M-%SZ")
+    work_dir = paths.backup_restore_test_tmp / f"post-create-{timestamp_utc}-{os.getpid()}"
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info("Automatic restore-test started for: " + ", ".join(environments))
+    logger.info(f"Archive: {archive_file}")
+
+    try:
+        snapshot_dir = _extract_snapshot_dir(archive_file, work_dir)
+        for environment in environments:
+            env_snapshot_dir = _resolve_snapshot_env_dir(snapshot_dir, environment)
+            mysql_dump = env_snapshot_dir / "mysql.sql.gz"
+            if not mysql_dump.is_file():
+                fail(f"MySQL dump not found for automatic restore-test ({environment}): {mysql_dump}")
+
+            container_name = _restore_test_container_name(environment, timestamp_utc)
+            database_name = _validate_mysql_identifier(f"restore_{environment}", "database name")
+
+            try:
+                _restore_mysql_dump_into_standalone_container(
+                    mysql_dump,
+                    container_name=container_name,
+                    database_name=database_name,
+                    min_tables=min_tables,
+                    logger=logger,
+                )
+                logger.info(f"Automatic restore-test passed for {environment}")
+            finally:
+                run(["docker", "rm", "-f", container_name], check=False, capture_output=True)
+
+        logger.info("Automatic restore-test completed successfully")
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+
 def cmd_backup_restore_test(args: argparse.Namespace) -> int:
     root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
     load_dotenv_if_exists(root_dir / ".env")
@@ -822,11 +929,7 @@ def cmd_backup_restore_test(args: argparse.Namespace) -> int:
     work_dir = paths.backup_restore_test_tmp / f"{environment}-{timestamp_utc}-{os.getpid()}"
     container_name = _restore_test_container_name(environment, timestamp_utc)
     database_name = _validate_mysql_identifier(f"restore_{environment}", "database name")
-    min_tables = args.min_tables
-    if min_tables is None:
-        min_tables = int(os.getenv("RESTORE_TEST_MIN_TABLES", "1"))
-    if min_tables < 0:
-        fail("--min-tables must be >= 0")
+    min_tables = _resolve_restore_test_min_tables(args.min_tables, "--min-tables")
 
     work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1200,6 +1303,17 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     backup_sub = backup_parser.add_subparsers(dest="backup_action", required=True)
 
     create_parser = backup_sub.add_parser("create", help="Create backup archive")
+    create_parser.add_argument(
+        "--skip-restore-test",
+        action="store_true",
+        help="Skip automatic MySQL restore-test after creating the archive",
+    )
+    create_parser.add_argument(
+        "--restore-test-min-tables",
+        type=int,
+        default=None,
+        help="Minimum restored base tables required during automatic restore-test",
+    )
     create_parser.add_argument("project_root", nargs="?")
     create_parser.set_defaults(handler=cmd_backup_create)
 

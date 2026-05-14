@@ -102,6 +102,10 @@
       "type": "string",
       "minLength": 1
     },
+    "BACKUP_RESTORE_TEST_AFTER_CREATE": {
+      "type": "string",
+      "format": "boolean"
+    },
     "BACKUP_RETENTION_DAYS": {
       "type": "string",
       "format": "positive-integer"
@@ -281,6 +285,18 @@
     "RESTART_POLICY": {
       "type": "string",
       "enum": ["always", "no", "on-failure", "unless-stopped"]
+    },
+    "RESTORE_TEST_HEALTH_TIMEOUT": {
+      "type": "string",
+      "format": "positive-integer"
+    },
+    "RESTORE_TEST_MIN_TABLES": {
+      "type": "string",
+      "format": "non-negative-integer"
+    },
+    "RESTORE_TEST_MYSQL_READY_TIMEOUT": {
+      "type": "string",
+      "format": "positive-integer"
     },
     "RabbitMQ__Host": {
       "type": "string",

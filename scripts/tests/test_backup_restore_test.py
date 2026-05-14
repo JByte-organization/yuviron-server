@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
@@ -144,6 +144,140 @@ class BackupRestoreTestTests(unittest.TestCase):
 
         self.assertIn("expected at least 1", str(raised.exception))
 
+    def test_run_archive_restore_tests_imports_each_mysql_dump_from_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            paths = SimpleNamespace(backup_restore_test_tmp=root / "restore-test")
+            archive = root / "backup.tar.gz"
+            archive.write_text("archive", encoding="utf-8")
+            snapshot_dir = root / "snapshot"
+            dev_dump = snapshot_dir / "dev" / "mysql.sql.gz"
+            prod_dump = snapshot_dir / "prod" / "mysql.sql.gz"
+            dev_dump.parent.mkdir(parents=True)
+            prod_dump.parent.mkdir(parents=True)
+            dev_dump.write_text("dev", encoding="utf-8")
+            prod_dump.write_text("prod", encoding="utf-8")
+            logger = SimpleNamespace(info=lambda _message: None)
+
+            with patch.object(operations.time, "strftime", return_value="2026-05-12T07-30-00Z"):
+                with patch.object(operations.os, "getpid", return_value=1234):
+                    with patch.object(operations, "_extract_snapshot_dir", return_value=snapshot_dir):
+                        with patch.object(operations, "_restore_mysql_dump_into_standalone_container") as restore_mock:
+                            with patch.object(operations, "run") as run_mock:
+                                operations._run_archive_restore_tests(
+                                    archive_file=archive,
+                                    paths=paths,
+                                    environments=["dev", "prod"],
+                                    min_tables=5,
+                                    logger=logger,
+                                )
+
+        restore_mock.assert_has_calls(
+            [
+                call(
+                    dev_dump,
+                    container_name="restore-test-dev-2026-05-12-07-30-00-1234",
+                    database_name="restore_dev",
+                    min_tables=5,
+                    logger=logger,
+                ),
+                call(
+                    prod_dump,
+                    container_name="restore-test-prod-2026-05-12-07-30-00-1234",
+                    database_name="restore_prod",
+                    min_tables=5,
+                    logger=logger,
+                ),
+            ]
+        )
+        cleanup_calls = [item.args[0] for item in run_mock.call_args_list]
+        self.assertIn(["docker", "rm", "-f", "restore-test-dev-2026-05-12-07-30-00-1234"], cleanup_calls)
+        self.assertIn(["docker", "rm", "-f", "restore-test-prod-2026-05-12-07-30-00-1234"], cleanup_calls)
+
+    def test_backup_create_runs_automatic_restore_test_for_mysql_dumps(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            generated = root / "generated" / "dev"
+            generated.mkdir(parents=True)
+            runtime_env = generated / "deploy.env"
+            runtime_env.write_text(
+                "\n".join(
+                    [
+                        "MYSQL_ROOT_PASSWORD=root-password",
+                        "MYSQL_DATABASE=yuviron_dev",
+                        "COMPOSE_PROJECT_NAME=yuviron-dev",
+                        f"STORAGE_PATH={root / 'storage' / 'dev'}",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (generated / "routes.env").write_text("client|dev.example.test\n", encoding="utf-8")
+            (generated / "stack.env").write_text("", encoding="utf-8")
+            storage_dir = root / "storage" / "dev"
+            storage_dir.mkdir(parents=True)
+            (storage_dir / "file.txt").write_text("data", encoding="utf-8")
+
+            paths = SimpleNamespace(
+                backup_tmp=root / "backups" / "tmp",
+                backup_archive_dir=root / "backups" / "archives",
+                backup_restore_test_tmp=root / "backups" / "restore-test",
+                backup_log_dir=root / "backups" / "logs",
+            )
+            context = SimpleNamespace(
+                runtime_env=runtime_env,
+                build_compose_cmd=lambda *parts: ["docker", "compose", *parts],
+            )
+
+            def fake_stream(_cmd: list[str], out_file: Path) -> tuple[int, str]:
+                out_file.write_bytes(b"dump")
+                return 0, ""
+
+            def fake_run(cmd: list[str], **_kwargs: object) -> SimpleNamespace:
+                if cmd[:2] == ["git", "-C"]:
+                    return SimpleNamespace(returncode=0, stdout="abc123\n", stderr="")
+                if cmd[:3] == ["docker", "volume", "inspect"]:
+                    return SimpleNamespace(returncode=1, stdout="", stderr="")
+                if cmd[:2] == ["tar", "-czf"]:
+                    Path(cmd[2]).write_bytes(b"archive")
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            env = {
+                "BACKUP_ENVS": "dev",
+                "BACKUP_REMOTE_PATH": "",
+                "BACKUP_RETENTION_DAYS": "14",
+                "BACKUP_RESTORE_TEST_AFTER_CREATE": "1",
+            }
+
+            with patch.dict(operations.os.environ, env, clear=False):
+                with patch.object(operations, "load_dotenv_if_exists"):
+                    with patch.object(operations, "_resolve_backup_paths", return_value=paths):
+                        with patch.object(operations, "ensure_generated_env"):
+                            with patch.object(operations, "generated_exists", return_value=True):
+                                with patch.object(operations, "create_compose_context", return_value=context):
+                                    with patch.object(operations, "_service_exists", side_effect=lambda _ctx, service: service == "mysql"):
+                                        with patch.object(operations, "_service_running", side_effect=lambda _ctx, service: service == "mysql"):
+                                            with patch.object(operations, "_stream_command_stdout_to_gzip", side_effect=fake_stream):
+                                                with patch.object(operations, "_validate_gzip"):
+                                                    with patch.object(operations, "_validate_tar"):
+                                                        with patch.object(operations, "run", side_effect=fake_run):
+                                                            with patch.object(operations, "_run_archive_restore_tests") as restore_test_mock:
+                                                                result = operations.cmd_backup_create(
+                                                                    SimpleNamespace(
+                                                                        project_root=str(root),
+                                                                        skip_restore_test=False,
+                                                                        restore_test_min_tables=3,
+                                                                    )
+                                                                )
+
+            self.assertEqual(0, result)
+            restore_test_mock.assert_called_once()
+            kwargs = restore_test_mock.call_args.kwargs
+            self.assertEqual(paths, kwargs["paths"])
+            self.assertEqual(["dev"], kwargs["environments"])
+            self.assertEqual(3, kwargs["min_tables"])
+            self.assertTrue(kwargs["archive_file"].is_file())
+
     def test_restore_test_rejects_negative_min_tables(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -222,6 +356,27 @@ class BackupRestoreTestTests(unittest.TestCase):
         self.assertEqual("dev", args.environment)
         self.assertEqual("backup.tar.gz", args.archive)
         self.assertIs(args.handler, operations.cmd_backup_restore_test)
+
+    def test_create_parser_accepts_restore_test_controls(self) -> None:
+        parser = operations.argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command", required=True)
+        operations.register(subparsers)
+
+        args = parser.parse_args(
+            [
+                "backup",
+                "create",
+                "--skip-restore-test",
+                "--restore-test-min-tables",
+                "4",
+                "/srv/project",
+            ]
+        )
+
+        self.assertTrue(args.skip_restore_test)
+        self.assertEqual(4, args.restore_test_min_tables)
+        self.assertEqual("/srv/project", args.project_root)
+        self.assertIs(args.handler, operations.cmd_backup_create)
 
 
 if __name__ == "__main__":
