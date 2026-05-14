@@ -33,6 +33,8 @@ DEFAULT_NGINX_WORKER_PROCESSES = "auto"
 NGINX_RATE_LIMIT_PATTERN = re.compile(r"^[1-9][0-9]*r/[sm]$")
 NGINX_RATE_BURST_PATTERN = re.compile(r"^[1-9][0-9]*$")
 NGINX_WORKER_PROCESSES_PATTERN = re.compile(r"^(?:auto|[1-9][0-9]*)$")
+NGINX_RATE_LIMIT_ZONES = frozenset({"api_general", "api_auth", "api_upload"})
+NGINX_UPLOAD_LOCATION_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 NGINX_TLS_POLICY_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_-]*$")
 NGINX_TLS_CIPHER_PATTERN = re.compile(r"^[A-Z0-9-]+$")
 NGINX_TLS_DIRECTIVE_VALUE_PATTERN = re.compile(r"^[A-Za-z0-9:._-]+$")
@@ -61,6 +63,19 @@ CONTENT_SECURITY_POLICY_DEV_UNSAFE_DIRECTIVES = {
     "script-src": ("'unsafe-inline'", "'unsafe-eval'"),
 }
 CONTENT_SECURITY_POLICY_UNSAFE_TOKENS = frozenset({"'unsafe-inline'", "'unsafe-eval'"})
+NginxRouteTuple = tuple[
+    str,
+    str,
+    str,
+    str,
+    bool,
+    str | None,
+    str | None,
+    tuple[str, ...],
+    str | None,
+    str | None,
+    str | None,
+]
 
 
 def _render_content_security_policy(extra_directives: Mapping[str, tuple[str, ...]] | None = None) -> str:
@@ -184,7 +199,13 @@ def _validate_nginx_route(
     route_upstream: str,
     route_max_body_size: str,
     route_has_auth_endpoints: bool,
-) -> tuple[str, str, str, str, bool]:
+    route_rate_limit_zone: str | None,
+    route_rate_limit_burst: str | None,
+    route_upload_locations: tuple[str, ...],
+    route_upload_client_max_body_size: str | None,
+    route_upload_rate_limit_zone: str | None,
+    route_upload_rate_limit_burst: str | None,
+) -> NginxRouteTuple:
     route_name = _require_safe_nginx_value(route_name, "route name", route_name)
     if not NAME_PATTERN.fullmatch(route_name):
         fail(f"Invalid nginx route name: {route_name!r}")
@@ -208,17 +229,118 @@ def _validate_nginx_route(
     if not isinstance(route_has_auth_endpoints, bool):
         fail(f"Invalid nginx has_auth_endpoints for route '{route_name}': expected boolean")
 
-    return route_name, route_host, route_upstream, route_max_body_size, route_has_auth_endpoints
+    route_rate_limit_zone = _validate_nginx_route_rate_limit_zone(
+        route_name,
+        "rate_limit_zone",
+        route_rate_limit_zone,
+    )
+    route_rate_limit_burst = _validate_nginx_route_rate_limit_burst(
+        route_name,
+        "rate_limit_burst",
+        route_rate_limit_burst,
+    )
+    if route_rate_limit_burst and not route_rate_limit_zone:
+        fail(f"Invalid nginx route '{route_name}': rate_limit_zone is required when rate_limit_burst is set")
+
+    route_upload_locations = _validate_nginx_upload_locations(route_name, route_upload_locations)
+    route_upload_client_max_body_size = _validate_optional_client_max_body_size(
+        route_name,
+        "upload_client_max_body_size",
+        route_upload_client_max_body_size,
+    )
+    route_upload_rate_limit_zone = _validate_nginx_route_rate_limit_zone(
+        route_name,
+        "upload_rate_limit_zone",
+        route_upload_rate_limit_zone,
+    )
+    route_upload_rate_limit_burst = _validate_nginx_route_rate_limit_burst(
+        route_name,
+        "upload_rate_limit_burst",
+        route_upload_rate_limit_burst,
+    )
+    if (route_upload_client_max_body_size or route_upload_rate_limit_zone or route_upload_rate_limit_burst) and not route_upload_locations:
+        fail(f"Invalid nginx route '{route_name}': upload_locations is required when upload settings are set")
+    if route_upload_rate_limit_zone and not route_upload_rate_limit_burst:
+        fail(f"Invalid nginx route '{route_name}': upload_rate_limit_burst is required when upload_rate_limit_zone is set")
+    if route_upload_rate_limit_burst and not route_upload_rate_limit_zone:
+        fail(f"Invalid nginx route '{route_name}': upload_rate_limit_zone is required when upload_rate_limit_burst is set")
+
+    return (
+        route_name,
+        route_host,
+        route_upstream,
+        route_max_body_size,
+        route_has_auth_endpoints,
+        route_rate_limit_zone,
+        route_rate_limit_burst,
+        route_upload_locations,
+        route_upload_client_max_body_size,
+        route_upload_rate_limit_zone,
+        route_upload_rate_limit_burst,
+    )
 
 
-def _unpack_route_line(route_line: tuple) -> tuple[str, str, str, str, bool]:
+def _validate_nginx_route_rate_limit_zone(route_name: str, field_name: str, value: object) -> str | None:
+    if value is None or value == "":
+        return None
+    value = _require_safe_nginx_value(route_name, field_name, value)
+    if value not in NGINX_RATE_LIMIT_ZONES:
+        allowed = ", ".join(sorted(NGINX_RATE_LIMIT_ZONES))
+        fail(f"Invalid nginx {field_name} for route '{route_name}': expected one of {allowed}")
+    return value
+
+
+def _validate_nginx_route_rate_limit_burst(route_name: str, field_name: str, value: object) -> str | None:
+    if value is None or value == "":
+        return None
+    value = _require_safe_nginx_value(route_name, field_name, str(value))
+    if not NGINX_RATE_BURST_PATTERN.fullmatch(value):
+        fail(f"Invalid nginx {field_name} for route '{route_name}': expected a positive integer")
+    return value
+
+
+def _validate_nginx_upload_locations(route_name: str, value: object) -> tuple[str, ...]:
+    if value is None or value == "":
+        return ()
+    if not isinstance(value, (list, tuple)):
+        fail(f"Invalid nginx upload_locations for route '{route_name}': expected list/tuple")
+    if not value:
+        return ()
+
+    locations: list[str] = []
+    seen: set[str] = set()
+    for raw_item in value:
+        item = _require_safe_nginx_value(route_name, "upload_locations", str(raw_item).strip().strip("/"))
+        if not NGINX_UPLOAD_LOCATION_PATTERN.fullmatch(item):
+            fail(f"Invalid nginx upload_locations for route '{route_name}': invalid path segment {raw_item!r}")
+        lowered = item.lower()
+        if lowered in seen:
+            fail(f"Invalid nginx upload_locations for route '{route_name}': duplicate segment {item!r}")
+        seen.add(lowered)
+        locations.append(item)
+
+    return tuple(locations)
+
+
+def _validate_optional_client_max_body_size(route_name: str, field_name: str, value: object) -> str | None:
+    if value is None or value == "":
+        return None
+    value = _require_safe_nginx_value(route_name, field_name, value)
+    if not CLIENT_MAX_BODY_SIZE_PATTERN.fullmatch(value):
+        fail(f"Invalid nginx {field_name} for route '{route_name}': {value!r}")
+    return value
+
+
+def _unpack_route_line(route_line: tuple) -> NginxRouteTuple:
     if len(route_line) == 4:
         route_name, route_host, route_upstream, route_max_body_size = route_line
-        return route_name, route_host, route_upstream, route_max_body_size, False
+        return route_name, route_host, route_upstream, route_max_body_size, False, None, None, (), None, None, None
     if len(route_line) == 5:
         route_name, route_host, route_upstream, route_max_body_size, route_has_auth_endpoints = route_line
-        return route_name, route_host, route_upstream, route_max_body_size, route_has_auth_endpoints
-    fail(f"Invalid nginx route tuple length: {len(route_line)}. Expected 4 or 5 values")
+        return route_name, route_host, route_upstream, route_max_body_size, route_has_auth_endpoints, None, None, (), None, None, None
+    if len(route_line) == 11:
+        return route_line
+    fail(f"Invalid nginx route tuple length: {len(route_line)}. Expected 4, 5, or 11 values")
     raise AssertionError("unreachable")
 
 
@@ -399,17 +521,55 @@ def render_nginx_conf_modular(
         environment_name,
         base_domain,
     )
+    nginx_public_rate_limit = _validate_nginx_rate_limit(
+        "NGINX_PUBLIC_RATE_LIMIT",
+        _env_value(env_values, "NGINX_PUBLIC_RATE_LIMIT", DEFAULT_NGINX_PUBLIC_RATE_LIMIT),
+    )
+    nginx_public_rate_burst = _validate_nginx_rate_burst(
+        "NGINX_PUBLIC_RATE_BURST",
+        _env_value(env_values, "NGINX_PUBLIC_RATE_BURST", DEFAULT_NGINX_PUBLIC_RATE_BURST),
+    )
 
     # Build routes context
     routes: list[dict[str, object]] = []
     for route_line in route_lines:
-        route_name, route_host, route_upstream, route_max_body_size, route_has_auth_endpoints = _unpack_route_line(route_line)
-        route_name, route_host, route_upstream, route_max_body_size, route_has_auth_endpoints = _validate_nginx_route(
+        (
             route_name,
             route_host,
             route_upstream,
             route_max_body_size,
             route_has_auth_endpoints,
+            route_rate_limit_zone,
+            route_rate_limit_burst,
+            route_upload_locations,
+            route_upload_client_max_body_size,
+            route_upload_rate_limit_zone,
+            route_upload_rate_limit_burst,
+        ) = _unpack_route_line(route_line)
+        (
+            route_name,
+            route_host,
+            route_upstream,
+            route_max_body_size,
+            route_has_auth_endpoints,
+            route_rate_limit_zone,
+            route_rate_limit_burst,
+            route_upload_locations,
+            route_upload_client_max_body_size,
+            route_upload_rate_limit_zone,
+            route_upload_rate_limit_burst,
+        ) = _validate_nginx_route(
+            route_name,
+            route_host,
+            route_upstream,
+            route_max_body_size,
+            route_has_auth_endpoints,
+            route_rate_limit_zone,
+            route_rate_limit_burst,
+            route_upload_locations,
+            route_upload_client_max_body_size,
+            route_upload_rate_limit_zone,
+            route_upload_rate_limit_burst,
         )
         route_is_management = route_name in MANAGEMENT_ROUTE_NAMES
         route_ssl_certificate = default_ssl_certificate
@@ -430,6 +590,13 @@ def render_nginx_conf_modular(
             "has_auth_endpoints": route_has_auth_endpoints,
             "ssl_certificate": route_ssl_certificate,
             "ssl_certificate_key": route_ssl_certificate_key,
+            "rate_limit_zone": route_rate_limit_zone,
+            "rate_limit_burst": route_rate_limit_burst or nginx_public_rate_burst,
+            "upload_locations": route_upload_locations,
+            "upload_locations_pattern": "|".join(route_upload_locations),
+            "upload_client_max_body_size": route_upload_client_max_body_size or route_max_body_size,
+            "upload_rate_limit_zone": route_upload_rate_limit_zone,
+            "upload_rate_limit_burst": route_upload_rate_limit_burst,
         })
 
     context = {
@@ -438,14 +605,8 @@ def render_nginx_conf_modular(
         "default_ssl_certificate": default_ssl_certificate,
         "default_ssl_certificate_key": default_ssl_certificate_key,
         "nginx_cert_mode": nginx_cert_mode,
-        "nginx_public_rate_limit": _validate_nginx_rate_limit(
-            "NGINX_PUBLIC_RATE_LIMIT",
-            _env_value(env_values, "NGINX_PUBLIC_RATE_LIMIT", DEFAULT_NGINX_PUBLIC_RATE_LIMIT),
-        ),
-        "nginx_public_rate_burst": _validate_nginx_rate_burst(
-            "NGINX_PUBLIC_RATE_BURST",
-            _env_value(env_values, "NGINX_PUBLIC_RATE_BURST", DEFAULT_NGINX_PUBLIC_RATE_BURST),
-        ),
+        "nginx_public_rate_limit": nginx_public_rate_limit,
+        "nginx_public_rate_burst": nginx_public_rate_burst,
         "nginx_worker_processes": _validate_nginx_worker_processes(
             "NGINX_WORKER_PROCESSES",
             _env_value(env_values, "NGINX_WORKER_PROCESSES", DEFAULT_NGINX_WORKER_PROCESSES),

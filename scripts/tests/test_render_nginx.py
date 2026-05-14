@@ -34,6 +34,8 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("ssl_certificate /etc/nginx/certs/dev-example.com.pem;", rendered)
         self.assertIn("api.example.com /etc/nginx/certs/dev-example.com.pem;", rendered)
         self.assertNotIn("auth_basic_user_file", rendered)
+        self.assertNotIn("limit_req zone=api_general", rendered)
+        self.assertNotIn("location ~* ^/(media|upload|uploads|files|file)", rendered)
 
     def test_render_can_map_each_route_to_its_own_certificate(self) -> None:
         rendered = render_nginx_conf_modular(
@@ -174,7 +176,21 @@ class RenderNginxTests(unittest.TestCase):
 
     def test_render_uses_public_rate_limit_env_values(self) -> None:
         rendered = render_nginx_conf_modular(
-            [("api", "api.example.com", "backend:5073", "50m")],
+            [
+                (
+                    "public-api",
+                    "public-api.example.com",
+                    "backend:5073",
+                    "50m",
+                    False,
+                    "api_general",
+                    None,
+                    (),
+                    None,
+                    None,
+                    None,
+                )
+            ],
             SCRIPTS_ROOT / "templates",
             {
                 "NGINX_PUBLIC_RATE_LIMIT": "20r/s",
@@ -184,6 +200,39 @@ class RenderNginxTests(unittest.TestCase):
 
         self.assertIn("limit_req_zone $binary_remote_addr zone=api_general:10m  rate=20r/s;", rendered)
         self.assertIn("limit_req zone=api_general burst=40 nodelay;", rendered)
+
+    def test_render_route_rate_limit_and_upload_locations_do_not_depend_on_api_name(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [
+                (
+                    "backend-public",
+                    "backend-public.example.com",
+                    "backend:5073",
+                    "25m",
+                    True,
+                    "api_general",
+                    "9",
+                    ("media", "upload", "files"),
+                    "50m",
+                    "api_upload",
+                    "2",
+                )
+            ],
+            SCRIPTS_ROOT / "templates",
+        )
+
+        self.assertIn("server_name backend-public.example.com;", rendered)
+        self.assertIn("limit_req zone=api_general burst=9 nodelay;", rendered)
+        self.assertIn("location ~* ^/(media|upload|files)(/|$) {", rendered)
+        self.assertIn("client_max_body_size 50m;", rendered)
+        self.assertIn("limit_req zone=api_upload burst=2 nodelay;", rendered)
+
+    def test_nginx_route_template_does_not_branch_on_route_name_api(self) -> None:
+        template = (SCRIPTS_ROOT / "templates" / "03-routes.conf.j2").read_text(encoding="utf-8")
+
+        self.assertNotIn('route.name == "api"', template)
+        self.assertIn("route.rate_limit_zone", template)
+        self.assertIn("route.upload_locations", template)
 
     def test_render_auth_rate_limit_follows_route_flag_not_route_name(self) -> None:
         rendered = render_nginx_conf_modular(

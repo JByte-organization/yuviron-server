@@ -51,8 +51,8 @@
             auth_basic_user_file /etc/nginx/htpasswd;
             {% endif %}
 
-            {% if route.name == "api" %}
-            limit_req zone=api_general burst={{ nginx_public_rate_burst }} nodelay;
+            {% if route.rate_limit_zone %}
+            limit_req zone={{ route.rate_limit_zone }} burst={{ route.rate_limit_burst }} nodelay;
             limit_req_status 429;
             {% endif %}
 
@@ -96,12 +96,14 @@
         }
         {% endif %}
 
-        {% if route.name == "api" %}
-        location ~* ^/(media|upload|uploads|files|file) {
-            client_max_body_size 50m;
+        {% if route.upload_locations %}
+        location ~* ^/({{ route.upload_locations_pattern }}) {
+            client_max_body_size {{ route.upload_client_max_body_size }};
 
-            limit_req zone=api_upload burst=2 nodelay;
+            {% if route.upload_rate_limit_zone %}
+            limit_req zone={{ route.upload_rate_limit_zone }} burst={{ route.upload_rate_limit_burst }} nodelay;
             limit_req_status 429;
+            {% endif %}
 
             proxy_request_buffering off;
 
