@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import sys
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +15,14 @@ if str(SCRIPTS_ROOT) not in sys.path:
 
 from commands.backup import operations
 from core.validators import CommandError
+
+
+def _write_tar_gz(path: Path, members: dict[str, bytes]) -> None:
+    with tarfile.open(path, "w:gz") as archive:
+        for name, content in members.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(content)
+            archive.addfile(info, io.BytesIO(content))
 
 
 class BackupRestoreTestTests(unittest.TestCase):
@@ -143,6 +153,80 @@ class BackupRestoreTestTests(unittest.TestCase):
                 operations._check_restored_mysql_tables("restore-test-dev", "restore_dev", 1, logger)
 
         self.assertIn("expected at least 1", str(raised.exception))
+
+    def test_validate_redis_persistence_archive_accepts_non_empty_aof_or_rdb(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            archive = Path(temp_dir) / "volume_redis_data.tar.gz"
+            _write_tar_gz(
+                archive,
+                {
+                    "./appendonlydir/appendonly.aof.1.incr.aof": b"*1\r\n$4\r\nPING\r\n",
+                    "./appendonlydir/appendonly.aof.manifest": b"file appendonly.aof.1.incr.aof seq 1 type i\n",
+                },
+            )
+
+            operations._validate_redis_persistence_archive(archive)
+
+    def test_validate_redis_persistence_archive_rejects_empty_aof_or_rdb(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            archive = Path(temp_dir) / "volume_redis_data.tar.gz"
+            _write_tar_gz(
+                archive,
+                {
+                    "./appendonlydir/appendonly.aof.1.incr.aof": b"",
+                    "./appendonlydir/appendonly.aof.manifest": b"file appendonly.aof.1.incr.aof seq 1 type i\n",
+                },
+            )
+
+            with self.assertRaises(CommandError) as raised:
+                operations._validate_redis_persistence_archive(archive)
+
+        self.assertIn("non-empty AOF/RDB file", str(raised.exception))
+
+    def test_backup_verify_rejects_empty_redis_persistence_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            paths = SimpleNamespace(
+                backup_archive_dir=root / "archives",
+                backup_restore_test_tmp=root / "restore-test",
+                backup_log_dir=root / "logs",
+            )
+            paths.backup_archive_dir.mkdir(parents=True)
+
+            snapshot_dir = root / "snapshot" / "backup_2026-05-12T00-00-00Z"
+            env_dir = snapshot_dir / "dev"
+            env_dir.mkdir(parents=True)
+            _write_tar_gz(
+                env_dir / "volume_redis_data.tar.gz",
+                {"./appendonlydir/appendonly.aof.1.incr.aof": b""},
+            )
+
+            archive = paths.backup_archive_dir / "backup_2026-05-12T00-00-00Z.tar.gz"
+            with tarfile.open(archive, "w:gz") as outer_archive:
+                outer_archive.add(snapshot_dir, arcname=snapshot_dir.name)
+
+            def fake_run(cmd: list[str], **_kwargs: object) -> SimpleNamespace:
+                if cmd[:2] == ["tar", "-xzf"]:
+                    with tarfile.open(cmd[2], "r:gz") as input_archive:
+                        try:
+                            input_archive.extractall(cmd[4], filter="data")
+                        except TypeError:
+                            input_archive.extractall(cmd[4])
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            with patch.object(operations, "load_dotenv_if_exists"):
+                with patch.object(operations, "_resolve_backup_paths", return_value=paths):
+                    with patch.object(operations, "run", side_effect=fake_run):
+                        with self.assertRaises(CommandError) as raised:
+                            operations.cmd_backup_verify(
+                                SimpleNamespace(
+                                    project_root=str(root),
+                                    archive=str(archive),
+                                    full=False,
+                                )
+                            )
+
+        self.assertIn("non-empty AOF/RDB file", str(raised.exception))
 
     def test_run_archive_restore_tests_imports_each_mysql_dump_from_archive(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
