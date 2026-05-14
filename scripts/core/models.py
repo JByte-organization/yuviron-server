@@ -69,6 +69,12 @@ class Route:
     host_strategy: Optional[str] = None
     client_max_body_size: Optional[str] = None
     has_auth_endpoints: bool = False
+    rate_limit_zone: Optional[str] = None
+    rate_limit_burst: Optional[str] = None
+    upload_locations: Tuple[str, ...] = ()
+    upload_client_max_body_size: Optional[str] = None
+    upload_rate_limit_zone: Optional[str] = None
+    upload_rate_limit_burst: Optional[str] = None
 
 
 @dataclass(frozen=True)

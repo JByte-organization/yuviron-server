@@ -26,6 +26,9 @@ from .validators import ensure_file, ensure_mapping, fail
 
 
 NGINX_WORKER_PROCESSES_PATTERN = re.compile(r"^(?:auto|[1-9][0-9]*)$")
+NGINX_RATE_LIMIT_ZONES = frozenset({"api_general", "api_auth", "api_upload"})
+NGINX_RATE_LIMIT_BURST_PATTERN = re.compile(r"^[1-9][0-9]*$")
+NGINX_UPLOAD_LOCATION_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def read_text(path: Path) -> str:
@@ -73,6 +76,48 @@ def parse_extra_routes(raw: str) -> List[Tuple[str, str]]:
         parsed.append((name, target))
 
     return parsed
+
+
+def _load_route_rate_limit_zone(route_name: str, raw: object, field_name: str) -> str | None:
+    if raw is None:
+        return None
+
+    value = str(raw).strip()
+    if value not in NGINX_RATE_LIMIT_ZONES:
+        allowed = ", ".join(sorted(NGINX_RATE_LIMIT_ZONES))
+        fail(f"routes.{route_name}.{field_name} must be one of: {allowed}")
+    return value
+
+
+def _load_route_rate_limit_burst(route_name: str, raw: object, field_name: str) -> str | None:
+    if raw is None:
+        return None
+
+    value = str(raw).strip()
+    if not NGINX_RATE_LIMIT_BURST_PATTERN.fullmatch(value):
+        fail(f"routes.{route_name}.{field_name} must be a positive integer")
+    return value
+
+
+def _load_upload_locations(route_name: str, raw: object) -> Tuple[str, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or not raw:
+        fail(f"routes.{route_name}.upload_locations must be a non-empty list")
+
+    locations: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        value = str(item).strip().strip("/")
+        if not NGINX_UPLOAD_LOCATION_PATTERN.fullmatch(value):
+            fail(f"routes.{route_name}.upload_locations contains invalid path segment: {item!r}")
+        lowered = value.lower()
+        if lowered in seen:
+            fail(f"routes.{route_name}.upload_locations contains duplicate segment: {value}")
+        seen.add(lowered)
+        locations.append(value)
+
+    return tuple(locations)
 
 
 def load_frontend_apps(path: Path) -> Dict[str, FrontendApp]:
@@ -146,6 +191,20 @@ def load_routes(path: Path) -> Dict[str, Route]:
         host_strategy = raw.get("host_strategy")
         client_max_body_size = raw.get("client_max_body_size")
         has_auth_endpoints = raw.get("has_auth_endpoints", False)
+        rate_limit_zone = _load_route_rate_limit_zone(name, raw.get("rate_limit_zone"), "rate_limit_zone")
+        rate_limit_burst = _load_route_rate_limit_burst(name, raw.get("rate_limit_burst"), "rate_limit_burst")
+        upload_locations = _load_upload_locations(name, raw.get("upload_locations"))
+        upload_client_max_body_size = raw.get("upload_client_max_body_size")
+        upload_rate_limit_zone = _load_route_rate_limit_zone(
+            name,
+            raw.get("upload_rate_limit_zone"),
+            "upload_rate_limit_zone",
+        )
+        upload_rate_limit_burst = _load_route_rate_limit_burst(
+            name,
+            raw.get("upload_rate_limit_burst"),
+            "upload_rate_limit_burst",
+        )
         environments = raw.get("environments", ["dev", "prod"])
 
         if app and target:
@@ -173,8 +232,23 @@ def load_routes(path: Path) -> Dict[str, Route]:
             if not CLIENT_MAX_BODY_SIZE_PATTERN.fullmatch(client_max_body_size):
                 fail(f"Invalid client_max_body_size in route '{name}': {client_max_body_size}")
 
+        if upload_client_max_body_size is not None:
+            upload_client_max_body_size = str(upload_client_max_body_size).strip()
+            if not CLIENT_MAX_BODY_SIZE_PATTERN.fullmatch(upload_client_max_body_size):
+                fail(f"Invalid upload_client_max_body_size in route '{name}': {upload_client_max_body_size}")
+
         if not isinstance(has_auth_endpoints, bool):
             fail(f"routes.{name}.has_auth_endpoints must be a boolean")
+
+        if rate_limit_burst and not rate_limit_zone:
+            fail(f"routes.{name}.rate_limit_zone must be set before rate_limit_burst")
+
+        if (upload_rate_limit_zone or upload_rate_limit_burst or upload_client_max_body_size) and not upload_locations:
+            fail(f"routes.{name}.upload_locations must be set before upload-specific settings")
+        if upload_rate_limit_zone and not upload_rate_limit_burst:
+            fail(f"routes.{name}.upload_rate_limit_burst must be set when upload_rate_limit_zone is set")
+        if upload_rate_limit_burst and not upload_rate_limit_zone:
+            fail(f"routes.{name}.upload_rate_limit_zone must be set before upload_rate_limit_burst")
 
         if not isinstance(environments, list) or not environments:
             fail(f"routes.{name}.environments must be a non-empty list")
@@ -194,6 +268,12 @@ def load_routes(path: Path) -> Dict[str, Route]:
             environments=tuple(normalized_envs),
             client_max_body_size=client_max_body_size,
             has_auth_endpoints=has_auth_endpoints,
+            rate_limit_zone=rate_limit_zone,
+            rate_limit_burst=rate_limit_burst,
+            upload_locations=upload_locations,
+            upload_client_max_body_size=upload_client_max_body_size,
+            upload_rate_limit_zone=upload_rate_limit_zone,
+            upload_rate_limit_burst=upload_rate_limit_burst,
         )
 
     return result

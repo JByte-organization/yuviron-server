@@ -101,11 +101,31 @@ def resolve_routes(ctx: GenerationContext, apps, routes_cfg):
         upstream: str,
         max_body_size: str = DEFAULT_MAX_BODY_SIZE,
         has_auth_endpoints: bool = False,
+        rate_limit_zone: str | None = None,
+        rate_limit_burst: str | None = None,
+        upload_locations: tuple[str, ...] = (),
+        upload_client_max_body_size: str | None = None,
+        upload_rate_limit_zone: str | None = None,
+        upload_rate_limit_burst: str | None = None,
     ) -> None:
         if name in seen_names:
             fail(f"Duplicate route name generated: {name}")
         seen_names.add(name)
-        lines.append((name, host, upstream, max_body_size, has_auth_endpoints))
+        lines.append(
+            (
+                name,
+                host,
+                upstream,
+                max_body_size,
+                has_auth_endpoints,
+                rate_limit_zone,
+                rate_limit_burst,
+                upload_locations,
+                upload_client_max_body_size,
+                upload_rate_limit_zone,
+                upload_rate_limit_burst,
+            )
+        )
 
     if "client" not in routes_cfg:
         client = apps["client"]
@@ -134,6 +154,12 @@ def resolve_routes(ctx: GenerationContext, apps, routes_cfg):
                 f"{app.service_name}:{app.port}",
                 route.client_max_body_size or DEFAULT_MAX_BODY_SIZE,
                 route.has_auth_endpoints,
+                route.rate_limit_zone,
+                route.rate_limit_burst,
+                route.upload_locations,
+                route.upload_client_max_body_size,
+                route.upload_rate_limit_zone,
+                route.upload_rate_limit_burst,
             )
             continue
 
@@ -144,6 +170,12 @@ def resolve_routes(ctx: GenerationContext, apps, routes_cfg):
             route.target or "",
             route.client_max_body_size or DEFAULT_MAX_BODY_SIZE,
             route.has_auth_endpoints,
+            route.rate_limit_zone,
+            route.rate_limit_burst,
+            route.upload_locations,
+            route.upload_client_max_body_size,
+            route.upload_rate_limit_zone,
+            route.upload_rate_limit_burst,
         )
 
     for name, target in parse_extra_routes(",".join(ctx.extra_routes_raw)):
