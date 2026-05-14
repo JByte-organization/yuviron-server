@@ -76,15 +76,27 @@
             log_not_found off;
         }
 
-        {% if route.name == "api" %}
+        {% if route.has_auth_endpoints %}
         location ~* ^/(auth|account|login|register|token|refresh) {
+            {% if route.basic_auth %}
+            {% for cidr in route.admin_allowlist %}
+            allow {{ cidr }};
+            {% endfor %}
+            deny all;
+
+            auth_basic "Yuviron internal";
+            auth_basic_user_file /etc/nginx/htpasswd;
+            {% endif %}
+
             limit_req zone=api_auth burst=3 nodelay;
             limit_req_status 429;
 
             proxy_pass http://{{ route.upstream }};
             include /etc/nginx/proxy-params.conf;
         }
+        {% endif %}
 
+        {% if route.name == "api" %}
         location ~* ^/(media|upload|uploads|files|file) {
             client_max_body_size 50m;
 

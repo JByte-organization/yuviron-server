@@ -185,6 +185,25 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("limit_req_zone $binary_remote_addr zone=api_general:10m  rate=20r/s;", rendered)
         self.assertIn("limit_req zone=api_general burst=40 nodelay;", rendered)
 
+    def test_render_auth_rate_limit_follows_route_flag_not_route_name(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [("public-api", "public-api.example.com", "backend:5073", "50m", True)],
+            SCRIPTS_ROOT / "templates",
+        )
+
+        self.assertIn("server_name public-api.example.com;", rendered)
+        self.assertIn("location ~* ^/(auth|account|login|register|token|refresh) {", rendered)
+        self.assertIn("limit_req zone=api_auth burst=3 nodelay;", rendered)
+
+    def test_render_skips_auth_rate_limit_without_route_flag(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [("api", "api.example.com", "backend:5073", "50m", False)],
+            SCRIPTS_ROOT / "templates",
+        )
+
+        self.assertNotIn("location ~* ^/(auth|account|login|register|token|refresh) {", rendered)
+        self.assertNotIn("limit_req zone=api_auth burst=3 nodelay;", rendered)
+
     def test_render_adds_csp_and_removes_deprecated_xss_protection_header(self) -> None:
         rendered = render_nginx_conf_modular(
             [("api", "api.example.com", "backend:5073", "50m")],

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import ipaddress
 import re
 from pathlib import Path
-from typing import Iterable, Mapping, Tuple
+from typing import Iterable, Mapping
 
 from jinja2 import Environment, StrictUndefined
 
@@ -182,7 +182,8 @@ def _validate_nginx_route(
     route_host: str,
     route_upstream: str,
     route_max_body_size: str,
-) -> tuple[str, str, str, str]:
+    route_has_auth_endpoints: bool,
+) -> tuple[str, str, str, str, bool]:
     route_name = _require_safe_nginx_value(route_name, "route name", route_name)
     if not NAME_PATTERN.fullmatch(route_name):
         fail(f"Invalid nginx route name: {route_name!r}")
@@ -203,7 +204,21 @@ def _validate_nginx_route(
     if not CLIENT_MAX_BODY_SIZE_PATTERN.fullmatch(route_max_body_size):
         fail(f"Invalid nginx client_max_body_size for route '{route_name}': {route_max_body_size!r}")
 
-    return route_name, route_host, route_upstream, route_max_body_size
+    if not isinstance(route_has_auth_endpoints, bool):
+        fail(f"Invalid nginx has_auth_endpoints for route '{route_name}': expected boolean")
+
+    return route_name, route_host, route_upstream, route_max_body_size, route_has_auth_endpoints
+
+
+def _unpack_route_line(route_line: tuple) -> tuple[str, str, str, str, bool]:
+    if len(route_line) == 4:
+        route_name, route_host, route_upstream, route_max_body_size = route_line
+        return route_name, route_host, route_upstream, route_max_body_size, False
+    if len(route_line) == 5:
+        route_name, route_host, route_upstream, route_max_body_size, route_has_auth_endpoints = route_line
+        return route_name, route_host, route_upstream, route_max_body_size, route_has_auth_endpoints
+    fail(f"Invalid nginx route tuple length: {len(route_line)}. Expected 4 or 5 values")
+    raise AssertionError("unreachable")
 
 
 def _env_value(env_values: Mapping[str, str] | None, key: str, default: str) -> object:
@@ -347,7 +362,7 @@ def _validate_nginx_tls_policy(policy: NginxTlsPolicy) -> dict[str, object]:
 
 
 def render_nginx_conf_modular(
-    route_lines: Iterable[Tuple[str, str, str, str]],
+    route_lines: Iterable[tuple],
     template_dir: str | Path,
     env_values: Mapping[str, str] | None = None,
 ) -> str:
@@ -355,7 +370,9 @@ def render_nginx_conf_modular(
     Render nginx config from modular templates in order (01-*, 02-*, 03-*).
     
     Args:
-        route_lines: Iterable of (route_name, route_host, route_upstream, route_max_body_size) tuples
+        route_lines: Iterable of route tuples:
+            (route_name, route_host, route_upstream, route_max_body_size)
+            or (route_name, route_host, route_upstream, route_max_body_size, has_auth_endpoints)
         template_dir: Directory containing modular templates (01-*.j2, 02-*.j2, etc)
         env_values: Optional resolved environment values for nginx template settings.
     
@@ -384,12 +401,14 @@ def render_nginx_conf_modular(
 
     # Build routes context
     routes: list[dict[str, object]] = []
-    for route_name, route_host, route_upstream, route_max_body_size in route_lines:
-        route_name, route_host, route_upstream, route_max_body_size = _validate_nginx_route(
+    for route_line in route_lines:
+        route_name, route_host, route_upstream, route_max_body_size, route_has_auth_endpoints = _unpack_route_line(route_line)
+        route_name, route_host, route_upstream, route_max_body_size, route_has_auth_endpoints = _validate_nginx_route(
             route_name,
             route_host,
             route_upstream,
             route_max_body_size,
+            route_has_auth_endpoints,
         )
         route_is_management = route_name in MANAGEMENT_ROUTE_NAMES
         route_ssl_certificate = default_ssl_certificate
@@ -407,6 +426,7 @@ def render_nginx_conf_modular(
             "log_name": f"{route_name}-{route_host.replace('.', '_')}",
             "upstream": route_upstream,
             "client_max_body_size": route_max_body_size,
+            "has_auth_endpoints": route_has_auth_endpoints,
             "ssl_certificate": route_ssl_certificate,
             "ssl_certificate_key": route_ssl_certificate_key,
         })

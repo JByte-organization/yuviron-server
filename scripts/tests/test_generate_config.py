@@ -95,6 +95,7 @@ class GenerateConfigTests(unittest.TestCase):
             self.assertIn("GENERATION_APP_KEYS=client,admin,backoffice", manifest_env)
             self.assertIn("GENERATION_EXTRA_ROUTES=", manifest_env)
             self.assertIn("allow 10.8.0.0/24;", nginx_conf)
+            self.assertIn("limit_req zone=api_auth burst=3 nodelay;", nginx_conf)
             self.assertNotIn("YV_DEV_ASPIRE_2026", deploy_env)
 
     def test_prod_generate_config_maps_routes_to_per_route_certificates(self) -> None:
