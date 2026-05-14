@@ -73,6 +73,7 @@ https://api.yuviron.com
 ./scripts/cli.py stack smoke dev
 ./scripts/cli.py backup create
 ./scripts/cli.py backup verify
+./scripts/cli.py backup verify --full
 ./scripts/cli.py backup restore-test dev
 ./scripts/cli.py security audit dev
 ./scripts/cli.py tools docker-clean --mode report
@@ -126,7 +127,7 @@ yuviron-server/
 * Всегда запускайте `preflight` перед `up`.
 * Проверяйте env перед запуском prod.
 * Делайте backup перед обновлениями.
-* Используйте `backup verify`, а не только `backup create`.
+* `backup create` автоматически проверяет MySQL-дампы через restore-test; периодически запускайте `backup verify --full` для полного сценария.
 * Не запускайте CLI от root без необходимости.
 
 ## Лицензия / License

@@ -23,8 +23,11 @@
 ### Полный цикл
 
 ```bash
-./scripts/cli.py backup create && ./scripts/cli.py backup verify
+./scripts/cli.py backup create
+./scripts/cli.py backup verify --full
 ```
+
+`backup create` по умолчанию уже запускает logical restore-test для MySQL-дампов, попавших в свежий архив. `backup verify --full` остаётся отдельной более тяжёлой проверкой полного restore-сценария.
 
 ---
 
@@ -47,6 +50,8 @@ BACKUP_TMP=./backups/tmp
 BACKUP_LOG_DIR=./backups/logs
 BACKUP_ARCHIVE_DIR=./backups/archives
 BACKUP_RESTORE_TEST_TMP=./backups/restore-test
+BACKUP_RESTORE_TEST_AFTER_CREATE=1
+RESTORE_TEST_MIN_TABLES=1
 
 BACKUP_ENVS=dev,prod
 
@@ -83,6 +88,28 @@ BACKEND_SERVICE_NAME=backend
 
 ```bash
 ./scripts/cli.py backup create
+```
+
+После создания финального `backup_*.tar.gz` команда автоматически извлекает этот архив в `BACKUP_RESTORE_TEST_TMP`, поднимает временный `mysql:8.4`, импортирует каждый включённый `mysql.sql.gz` в отдельную временную базу и проверяет минимум восстановленных таблиц. Off-site copy и ротация выполняются только после успешного restore-test.
+
+Порог таблиц можно задать флагом или переменной:
+
+```bash
+./scripts/cli.py backup create --restore-test-min-tables 5
+```
+
+```env
+RESTORE_TEST_MIN_TABLES=5
+```
+
+Для аварийного ручного запуска проверку можно отключить:
+
+```bash
+./scripts/cli.py backup create --skip-restore-test
+```
+
+```env
+BACKUP_RESTORE_TEST_AFTER_CREATE=0
 ```
 
 ### Проверка восстановления

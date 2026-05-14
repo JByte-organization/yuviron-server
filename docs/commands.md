@@ -180,8 +180,11 @@ CLI является единым интерфейсом для работы с�
 ### Полный цикл
 
 ```bash
-./scripts/cli.py backup create && ./scripts/cli.py backup verify
+./scripts/cli.py backup create
+./scripts/cli.py backup verify --full
 ```
+
+`backup create` автоматически проверяет свежий архив через restore-test MySQL-дампов. Для ручной аварийной операции проверку можно пропустить: `./scripts/cli.py backup create --skip-restore-test`.
 
 ### Restore-test
 

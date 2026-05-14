@@ -158,7 +158,7 @@ git pull
 * Всегда запускать `preflight` перед `up`
 * Проверять env перед запуском prod
 * Делать backup перед обновлениями
-* Использовать `verify`, а не только `create`
+* Учитывать, что `backup create` запускает restore-test MySQL-дампов; для полного сценария дополнительно использовать `backup verify --full`
 * Не запускать CLI от root без необходимости
 
 Seq запускается non-root под `${SEQ_UID:-1000}:${SEQ_GID:-1000}`. Права для bind-mounted `${SEQ_STORAGE_PATH}` готовятся на хосте командами `stack up` и `preflight`: каталог создаётся заранее и проверяется на доступность для runtime uid/gid Seq, поэтому отдельный root-контейнер для `chown` не нужен.
