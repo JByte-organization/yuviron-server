@@ -97,7 +97,7 @@
         {% endif %}
 
         {% if route.upload_locations %}
-        location ~* ^/({{ route.upload_locations_pattern }}) {
+        location ~* ^/({{ route.upload_locations_pattern }})(/|$) {
             client_max_body_size {{ route.upload_client_max_body_size }};
 
             {% if route.upload_rate_limit_zone %}
