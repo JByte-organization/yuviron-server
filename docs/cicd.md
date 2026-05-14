@@ -45,7 +45,7 @@ shared/frontend/.github/workflows/deploy-prod.yml
 
 1. синхронизировать source repo в `src/yuviron-backend` или `src/yuviron-frontend`
 2. выполнить preflight
-3. собрать/поднять стек через `./scripts/cli.py stack up <env>`
+3. собрать/поднять стек через `./scripts/cli.py stack up <env>`; команда перед основным `up` явно запускает EF Core migrator через compose profile `migrate`
 4. выполнить `./scripts/cli.py stack smoke <env>`
 5. показать compose status и хвосты логов
 6. после успешного deploy подрезать Docker build cache через `tools docker-clean`

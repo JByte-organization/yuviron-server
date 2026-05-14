@@ -27,7 +27,7 @@ python3 -m unittest scripts/tests/test_generate_config.py
 YUVIRON_RUN_DOCKER_E2E=1 python3 -m unittest scripts/tests/test_stack_e2e_dry_run.py
 ```
 
-Тест собирает минимальный временный проект, создаёт fixture `env/dev.env`, запускает `init.py`, добавляет dummy TLS files для preflight-проверки путей, затем выполняет `preflight` и `up` через `docker compose --dry-run`.
+Тест собирает минимальный временный проект, создаёт fixture `env/dev.env`, запускает `init.py`, добавляет dummy TLS files для preflight-проверки путей, затем выполняет `preflight` и `up` через `docker compose --dry-run`; `up --dry-run` также проверяет migrator profile `migrate`.
 
 ## Принципы
 

@@ -154,7 +154,7 @@ Nginx Edge
 
 Frontend services генерируются из `config/apps.yml` в `generated/<env>/compose.frontends.yml`. Это позволяет включать/выключать frontend apps конфигурацией, не копируя compose-секции вручную.
 
-Backend использует общие `.NET` build args, env и hardening-профиль из YAML anchors `x-dotnet-*` в `infra/compose.yml`. Такой же профиль используют `migrator` и `media-worker`.
+Backend использует общие `.NET` build args, env и hardening-профиль из YAML anchors `x-dotnet-*` в `infra/compose.yml`. Такой же профиль используют `migrator` и `media-worker`; `migrator` запускается явно через compose profile `migrate`, а не как `depends_on` init-service backend.
 
 ---
 

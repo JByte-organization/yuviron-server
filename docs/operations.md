@@ -345,6 +345,11 @@ seq
 aspire-dashboard
 ```
 
-Отдельный `migrator` может завершаться после успешного применения своей одноразовой работы и не отображаться в списке активных контейнеров. Его успешный exit code включает post-check: после `dotnet ef database update` запускается `dotnet ef migrations list`, и контейнер падает, если остаются pending migrations.
+Отдельный `migrator` запускается как one-off команда через compose profile `migrate` перед `stack up` и обычно не отображается в списке активных контейнеров. Его успешный exit code включает post-check: после `dotnet ef database update` запускается `dotnet ef migrations list`, и контейнер падает, если остаются pending migrations. При необходимости миграции можно запустить явно:
+
+```bash
+./scripts/cli.py stack migrate dev
+./scripts/cli.py stack migrate prod
+```
 
 ---

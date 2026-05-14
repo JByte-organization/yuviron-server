@@ -89,9 +89,22 @@ CLI является единым интерфейсом для работы с�
 ./scripts/cli.py stack up dev
 ./scripts/cli.py stack up prod
 ./scripts/cli.py stack up dev --dry-run
+./scripts/cli.py stack up dev --skip-migrate
 ```
 
-`--dry-run` использует `docker compose --dry-run` и не запускает контейнеры. Для `up` дополнительно используется `--no-start`, чтобы Compose проверил план создания/build без ожидания health dependencies.
+Перед основным `up` CLI запускает EF Core migrator как one-off compose run через profile `migrate`, поэтому миграции выполняются при каждом обычном `stack up`. `--skip-migrate` оставлен для аварийных случаев, когда нужно поднять сервисы без DB migration step.
+
+`--dry-run` использует `docker compose --dry-run` и не запускает контейнеры. Для migrator dry-run проверяется compose-план profile `migrate`; для основного `up` дополнительно используется `--no-start`, чтобы Compose проверил план создания/build без ожидания health dependencies.
+
+### Миграции БД
+
+```bash
+./scripts/cli.py stack migrate dev
+./scripts/cli.py stack migrate prod
+./scripts/cli.py stack migrate dev --dry-run
+```
+
+`stack migrate` явно запускает EF Core migration контейнер через compose profile `migrate`. Внутри `infra/docker/dotnet/migrator.sh` сначала выполняется `dotnet ef database update`, затем `dotnet ef migrations list`; команда падает, если после update остаются pending migrations.
 
 ---
 
