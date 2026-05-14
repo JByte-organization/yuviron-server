@@ -39,6 +39,14 @@ class EnvValidationTests(unittest.TestCase):
 
         self.assertEqual([], missing)
 
+    def test_env_templates_do_not_duplicate_keys(self) -> None:
+        common_keys = set(parse_env_file(ROOT_DIR / "env" / "common.env"))
+        example_keys = set(parse_env_file(ROOT_DIR / "env" / "example.env"))
+
+        duplicates = sorted(common_keys & example_keys)
+
+        self.assertEqual([], duplicates)
+
     def test_env_schema_declares_compose_env_keys(self) -> None:
         schema = load_env_schema()
         apps = load_frontend_apps(ROOT_DIR / "config" / "apps.yml")
