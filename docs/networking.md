@@ -112,7 +112,14 @@ generated/dev/Corefile
 
 * берёт актуальный список hosts из `generated/dev/routes.env`
 * отправляет route hosts на IP из `--ip`
-* все остальные DNS-запросы форвардятся на upstream public resolvers
+* ограничивает доступ CoreDNS через `acl`: по умолчанию разрешён только Tailnet CIDR `100.64.0.0/10`, остальные клиенты блокируются
+* все остальные разрешённые DNS-запросы форвардятся на upstream public resolvers `1.1.1.1` и `8.8.8.8`
+
+Если CoreDNS должен обслуживать не Tailscale, а другую приватную сеть, укажи разрешённые сети явно. Флаг можно повторять или передавать через запятую:
+
+```bash
+./scripts/cli.py dns generate --env dev --domain yuviron.com --ip 100.81.228.68 --acl-net 100.64.0.0/10 --acl-net 10.8.0.0/24
+```
 
 После изменения `config/routes.yml`, `config/apps.yml`, набора apps или base domain сначала перегенерируй runtime config, затем Corefile:
 

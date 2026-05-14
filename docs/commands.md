@@ -209,7 +209,13 @@ CoreDNS on Windows — optional local DNS endpoint для dev-доменов. О
 generated/<env>/Corefile
 ```
 
-Каждый route host получает A/hosts-запись на указанный `--ip`. Остальные DNS-запросы форвардятся на `8.8.8.8` и `1.1.1.1`.
+Каждый route host получает A/hosts-запись на указанный `--ip`. Corefile включает `acl`: по умолчанию разрешён только `100.64.0.0/10`, остальные клиенты блокируются перед `hosts`/`forward`. Остальные разрешённые DNS-запросы форвардятся на `1.1.1.1` и `8.8.8.8`, cache TTL — `300` секунд.
+
+Для другой приватной сети можно указать `--acl-net`:
+
+```bash
+./scripts/cli.py dns generate --env dev --domain yuviron.com --ip 100.81.228.68 --acl-net 10.8.0.0/24
+```
 
 Corefile не редактируется вручную. После изменения routes/apps/domain нужно перегенерировать runtime config и снова выполнить `dns generate`.
 
