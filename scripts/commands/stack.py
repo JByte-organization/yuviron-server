@@ -27,6 +27,8 @@ from core.validators import CommandError, ensure_command, fail, resolve_prompted
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[2]
 PREFLIGHT_CLEANUP_MOUNT = "/preflight-cleanup"
+MIGRATOR_PROFILE = "migrate"
+MIGRATOR_SERVICE = "migrator"
 
 
 @dataclass
@@ -488,6 +490,37 @@ def _show_compose_ps(context: ComposeContext) -> None:
     print()
 
 
+def _run_migrator(context: ComposeContext, *, dry_run: bool = False) -> None:
+    if dry_run:
+        log_info("Validating EF Core migrator compose plan in dry-run mode")
+        run_compose(
+            context,
+            "--profile",
+            MIGRATOR_PROFILE,
+            "--dry-run",
+            "up",
+            "--no-start",
+            "--build",
+            "--remove-orphans",
+            MIGRATOR_SERVICE,
+        )
+        return
+
+    log_info("Running EF Core migrations")
+    run_compose(
+        context,
+        "--profile",
+        MIGRATOR_PROFILE,
+        "run",
+        "--rm",
+        "--build",
+        "-T",
+        "--remove-orphans",
+        MIGRATOR_SERVICE,
+    )
+    log_ok("EF Core migrations completed")
+
+
 def cmd_up(args: argparse.Namespace) -> int:
     environment = resolve_prompted_environment(args.environment)
     root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
@@ -495,11 +528,22 @@ def cmd_up(args: argparse.Namespace) -> int:
     context = create_compose_context(root_dir, environment, ensure_generated=True)
     runtime_values = parse_env_file(context.runtime_env)
     preflight_core.prepare_host_storage_layout(root_dir, runtime_values)
+    if not bool(getattr(args, "skip_migrate", False)):
+        _run_migrator(context, dry_run=bool(getattr(args, "dry_run", False)))
     if bool(getattr(args, "dry_run", False)):
         log_info("Running docker compose up in dry-run mode")
         run_compose(context, "--dry-run", "up", "--no-start", "--build", "--remove-orphans")
     else:
         run_compose(context, "up", "-d", "--build", "--remove-orphans")
+    return 0
+
+
+def cmd_migrate(args: argparse.Namespace) -> int:
+    environment = resolve_prompted_environment(args.environment)
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+
+    context = create_compose_context(root_dir, environment, ensure_generated=True)
+    _run_migrator(context, dry_run=bool(getattr(args, "dry_run", False)))
     return 0
 
 
@@ -628,7 +672,14 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     up_parser.add_argument("environment", nargs="?")
     up_parser.add_argument("project_root", nargs="?")
     up_parser.add_argument("--dry-run", action="store_true", help="Validate compose up plan without starting containers")
+    up_parser.add_argument("--skip-migrate", action="store_true", help="Skip the EF Core migrator before starting services")
     up_parser.set_defaults(handler=cmd_up)
+
+    migrate_parser = stack_sub.add_parser("migrate", help="Run EF Core database migrations")
+    migrate_parser.add_argument("environment", nargs="?")
+    migrate_parser.add_argument("project_root", nargs="?")
+    migrate_parser.add_argument("--dry-run", action="store_true", help="Validate migrator compose plan without starting containers")
+    migrate_parser.set_defaults(handler=cmd_migrate)
 
     down_parser = stack_sub.add_parser("down", help="Stop stack")
     down_parser.add_argument("environment", nargs="?")

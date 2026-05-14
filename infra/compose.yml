@@ -187,6 +187,8 @@ services:
 
   migrator:
     <<: *dotnet-hardening
+    profiles:
+      - migrate
     build:
       <<: *dotnet-build
       target: migrator
@@ -231,8 +233,6 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      migrator:
-        condition: service_completed_successfully
     networks:
       - default
     healthcheck:
@@ -267,8 +267,6 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      migrator:
-        condition: service_completed_successfully
     networks:
       - default
     mem_limit: ${MEDIA_WORKER_MEM_LIMIT:-768m}

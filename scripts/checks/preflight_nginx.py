@@ -169,7 +169,6 @@ def check_nginx_config(ctx: object) -> None:
         log_info("No new containers were started by preflight")
 
     if started.returncode != 0:
-        _print_service_logs_on_failure(ctx, "migrator")
         _print_service_logs_on_failure(ctx, "backend")
         fail("Failed to start nginx upstream dependencies")
 

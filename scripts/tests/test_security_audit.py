@@ -126,6 +126,10 @@ class SecurityAuditTests(unittest.TestCase):
             self.assertEqual(["ALL"], service["cap_drop"])
             self.assertEqual(["no-new-privileges:true"], service["security_opt"])
 
+        self.assertEqual(["migrate"], services["migrator"]["profiles"])
+        self.assertNotIn("migrator", services["backend"]["depends_on"])
+        self.assertNotIn("migrator", services["media-worker"]["depends_on"])
+
     def test_dotnet_migrator_uses_writable_msbuild_extensions_path(self) -> None:
         root = SCRIPTS_ROOT.parent
         dockerfile = (root / "infra" / "docker" / "dotnet" / "Dockerfile").read_text(encoding="utf-8")
