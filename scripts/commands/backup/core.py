@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+import tarfile
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -68,7 +69,33 @@ def _validate_gzip(path: Path) -> None:
 
 
 def _validate_tar(path: Path) -> None:
-    subprocess.check_call(["tar", "-tzf", str(path)])
+    subprocess.check_call(["tar", "-tzf", str(path)], stdout=subprocess.DEVNULL)
+
+
+def _is_redis_persistence_member(member_name: str) -> bool:
+    name = member_name.replace("\\", "/").lstrip("./").lower()
+    filename = name.rsplit("/", maxsplit=1)[-1]
+    return filename.endswith(".aof") or filename.endswith(".rdb")
+
+
+def _validate_redis_persistence_archive(path: Path) -> None:
+    _validate_tar(path)
+
+    try:
+        with tarfile.open(path, "r:gz") as archive:
+            persistence_members = [
+                member
+                for member in archive.getmembers()
+                if member.isfile() and _is_redis_persistence_member(member.name)
+            ]
+    except tarfile.TarError as exc:
+        raise CommandError(f"Invalid Redis persistence archive: {path}: {exc}") from exc
+
+    if not persistence_members:
+        raise CommandError(f"Redis persistence archive does not contain an AOF/RDB file: {path}")
+
+    if not any(member.size > 0 for member in persistence_members):
+        raise CommandError(f"Redis persistence archive does not contain a non-empty AOF/RDB file: {path}")
 
 
 def _stream_command_stdout_to_gzip(cmd: list[str], out_file: Path) -> tuple[int, str]:

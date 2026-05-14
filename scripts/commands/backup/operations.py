@@ -30,6 +30,7 @@ from .core import (
     _stream_command_stdout_to_gzip,
     _stream_gzip_to_stdin,
     _validate_gzip,
+    _validate_redis_persistence_archive,
     _validate_tar,
 )
 from .docker_utils import _service_exists, _service_running, _wait_for_mysql_ready
@@ -331,7 +332,10 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
             out_file.unlink(missing_ok=True)
             raise CommandError(f"Volume archive is empty: {out_file}")
 
-        _validate_tar(out_file)
+        if logical_name == "redis":
+            _validate_redis_persistence_archive(out_file)
+        else:
+            _validate_tar(out_file)
         logger.info(f"Volume archive created: {out_file}")
         mark_component(env_name, f"volume-{logical_name}")
 
@@ -1075,7 +1079,10 @@ def cmd_backup_verify(args: argparse.Namespace) -> int:
                 volume_file = env_dir / volume_name
                 if not volume_file.is_file():
                     continue
-                _validate_tar(volume_file)
+                if volume_name == "volume_redis_data.tar.gz":
+                    _validate_redis_persistence_archive(volume_file)
+                else:
+                    _validate_tar(volume_file)
                 logger.info(f"Validated named volume archive: {volume_name} for {env_name}")
                 has_any = True
 
