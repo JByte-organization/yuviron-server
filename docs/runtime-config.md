@@ -74,7 +74,7 @@ scripts/templates/proxy-params.conf
 Различия между окружениями задаются через `env/<env>.env`, `env/common.env`, `config/routes.yml`, `config/apps.yml` и сгенерированные файлы в `generated/<env>/`.
 
 Финальные hosts/upstreams nginx берёт из генерации на основе `config/routes.yml`, а компактное runtime-представление пишет в `generated/<env>/routes.env`.
-Перед рендерингом генератор nginx валидирует route name, host, upstream, `client_max_body_size`, `has_auth_endpoints`, а также публичные rate-limit значения `NGINX_PUBLIC_RATE_LIMIT` и `NGINX_PUBLIC_RATE_BURST`; Jinja2 работает в режиме `StrictUndefined`, чтобы ошибка в шаблоне или контексте падала на генерации, а не превращалась в битый nginx config.
+Перед рендерингом генератор nginx валидирует route name, host, upstream, `client_max_body_size`, `has_auth_endpoints`, route-level rate-limit и upload-настройки, а также публичные rate-limit значения `NGINX_PUBLIC_RATE_LIMIT` и `NGINX_PUBLIC_RATE_BURST`; Jinja2 работает в режиме `StrictUndefined`, чтобы ошибка в шаблоне или контексте падала на генерации, а не превращалась в битый nginx config.
 Security headers задаются только на уровне HTTPS `server` blocks: `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `X-XSS-Protection`, `Referrer-Policy`, `Permissions-Policy` и HSTS используют `always`. На уровне `http` эти headers намеренно не задаются, потому что nginx не дополняет `add_header` из `http`, если в `server` уже есть свои `add_header`; такой глобальный блок выглядел бы как защита, но фактически перекрывался бы server-level headers. `X-XSS-Protection` оставлен только для совместимости со scanner checks и выставлен в `0`, чтобы не включать deprecated browser XSS Auditor; основная защита от XSS остаётся за CSP.
 Default CSP остаётся совместимой с dev/Next.js и содержит вынесенные отдельно dev-послабления `'unsafe-inline'` / `'unsafe-eval'`. При генерации `prod` nginx config с такой политикой CLI печатает критический warning. Для публичного prod нужно задать строгую политику через `NGINX_CONTENT_SECURITY_POLICY` в `env/prod.env`, например без unsafe sources.
 TLS policy задаётся явно на уровне `http` через named profiles в `scripts/core/render_nginx.py`: `TLS_POLICY_INTERMEDIATE`, `TLS_POLICY_MODERN` и `DEFAULT_TLS_POLICY = TLS_POLICY_INTERMEDIATE`. Default policy разрешает только `TLSv1.2` и `TLSv1.3`, а `ssl_ciphers` фиксирует современные AEAD suites для TLS 1.2 по intermediate-профилю Mozilla SSL Config Generator. TLS 1.3 использует набор suites OpenSSL/nginx для TLS 1.3. Для TLS 1.2 включён server cipher order (`ssl_prefer_server_ciphers on`), TLS sessions кешируются в shared cache на 1 день, session tickets отключены. TLS policy валидируется перед рендерингом: старые протоколы, неизвестные протоколы и явно слабые cipher markers вроде CBC/RC4/DES отклоняются. OCSP stapling намеренно не включён по умолчанию для private/self-signed окружений; его стоит добавлять отдельным public profile, когда cert chain и resolver управляются как часть публичного деплоя.
@@ -166,28 +166,32 @@ HTTPS_PORT=8443
 
 ### Nginx rate limit
 
-Публичный rate limit для основного API location настраивается через env:
+Публичные rate-limit zones объявлены в nginx global template, а включение конкретного limit на route задаётся в `config/routes.yml`, не по имени route. Значение `NGINX_PUBLIC_RATE_LIMIT` управляет скоростью зоны `api_general`, а `NGINX_PUBLIC_RATE_BURST` используется как default `burst` для route, где указан `rate_limit_zone`, но не указан `rate_limit_burst`:
 
 ```env
 NGINX_PUBLIC_RATE_LIMIT=20r/s
 NGINX_PUBLIC_RATE_BURST=40
 ```
 
-`NGINX_PUBLIC_RATE_LIMIT` попадает в `limit_req_zone ... rate=...`, а `NGINX_PUBLIC_RATE_BURST` — в `limit_req ... burst=...`.
 Значения по умолчанию лежат в `env/common.env`; для dev/prod override можно указать те же ключи в `env/dev.env` или `env/prod.env` и затем перегенерировать runtime-файлы.
 
 Формат валидируется генератором: rate должен выглядеть как `20r/s` или `30r/m`, burst должен быть положительным целым числом.
 
-Для auth endpoint'ов используется отдельная зона `api_auth` с более строгим лимитом `10r/m`. Она включается не по имени route, а через флаг в `config/routes.yml`:
+Для auth endpoint'ов используется отдельная зона `api_auth` с более строгим лимитом `10r/m`. Она включается через флаг в `config/routes.yml`. Upload location тоже описывается на route: список `upload_locations` превращается в отдельный nginx location с `proxy_request_buffering off`, опциональным `upload_client_max_body_size` и upload-specific rate limit.
 
 ```yaml
 routes:
-  api:
+  public-api:
     target: backend:5073
+    rate_limit_zone: api_general
     has_auth_endpoints: true
+    upload_locations: [media, upload, uploads, files, file]
+    upload_client_max_body_size: 50m
+    upload_rate_limit_zone: api_upload
+    upload_rate_limit_burst: 2
 ```
 
-Если появится ещё один публичный backend route с `/auth`, `/login`, `/token`, `/refresh` и похожими endpoint'ами, укажи для него `has_auth_endpoints: true`, и генератор добавит отдельный nginx location с `api_auth`.
+Если появится ещё один публичный backend route с `/auth`, `/login`, `/token`, `/refresh` и похожими endpoint'ами, укажи для него `has_auth_endpoints: true`, и генератор добавит отдельный nginx location с `api_auth`. Если route называется не `api`, rate limits и upload handling всё равно работают через эти route-поля.
 
 ### Frontend resource limits
 
