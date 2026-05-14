@@ -17,6 +17,7 @@ class PythonRequirementsTests(unittest.TestCase):
 
         self.assertIn("PyYAML==6.0.2", requirements)
         self.assertIn("Jinja2==3.1.6", requirements)
+        self.assertIn("jsonschema==4.10.3", requirements)
         self.assertFalse(any(">=" in line for line in requirements if line.strip() and not line.startswith("#")))
 
 

@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from jsonschema import Draft202012Validator, FormatChecker, ValidationError
+
 
 ERROR = "ERROR"
 WARN = "WARN"
@@ -46,6 +48,7 @@ _DOCKER_MEMORY_RE = re.compile(r"^[1-9][0-9]*[bkmgBKMG]?$")
 _DOCKER_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
 _DOMAIN_RE = re.compile(r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]+(?:\.(?!-)[A-Za-z0-9-]+)*\.?$")
 _NGINX_RATE_RE = re.compile(r"^[1-9][0-9]*r/[sm]$")
+ENV_FORMAT_CHECKER = FormatChecker()
 
 
 @dataclass(frozen=True)
@@ -142,124 +145,173 @@ def schema_required_keys(schema: dict[str, Any] | None = None) -> tuple[str, ...
     return tuple(str(item) for item in raw_required if isinstance(item, str))
 
 
-def _format_validation_message(format_name: str, value: str) -> str:
-    if format_name == "boolean":
-        if value.lower() not in _BOOLEAN_VALUES:
-            return "must be a boolean-like value"
-        return ""
-
-    if format_name == "cidr-list":
-        try:
-            cidrs = [item.strip() for item in value.split(",") if item.strip()]
-            if not cidrs:
-                return "must contain at least one IP/CIDR value"
-            for cidr in cidrs:
-                ipaddress.ip_network(cidr, strict=False)
-        except ValueError:
-            return "must be a comma-separated IP/CIDR list"
-        return ""
-
-    if format_name == "csv":
-        if any(not item.strip() for item in value.split(",")):
-            return "must be a comma-separated list without empty items"
-        return ""
-
-    if format_name == "docker-memory":
-        if not _DOCKER_MEMORY_RE.fullmatch(value):
-            return "must be a Docker memory value like 128m or 1g"
-        return ""
-
-    if format_name == "docker-name":
-        if not _DOCKER_NAME_RE.fullmatch(value):
-            return "must be a Docker-compatible name"
-        return ""
-
-    if format_name == "domain":
-        if not _DOMAIN_RE.fullmatch(value):
-            return "must be a domain name"
-        return ""
-
-    if format_name == "nginx-rate":
-        if not _NGINX_RATE_RE.fullmatch(value):
-            return "must be an nginx rate like 20r/s or 30r/m"
-        return ""
-
-    if format_name == "non-negative-integer":
-        try:
-            parsed = int(value, 10)
-        except ValueError:
-            return "must be a non-negative integer"
-        if parsed < 0:
-            return "must be a non-negative integer"
-        return ""
-
-    if format_name == "port":
-        try:
-            parsed = int(value, 10)
-        except ValueError:
-            return "must be a TCP port number"
-        if parsed < 1 or parsed > 65535:
-            return "must be a TCP port number between 1 and 65535"
-        return ""
-
-    if format_name == "positive-integer":
-        try:
-            parsed = int(value, 10)
-        except ValueError:
-            return "must be a positive integer"
-        if parsed <= 0:
-            return "must be a positive integer"
-        return ""
-
-    if format_name == "positive-number":
-        try:
-            parsed = float(value)
-        except ValueError:
-            return "must be a positive number"
-        if parsed <= 0:
-            return "must be a positive number"
-        return ""
-
-    if format_name == "url":
-        parsed = urlparse(value)
-        if not parsed.scheme or not parsed.netloc:
-            return "must be a URL with scheme and host"
-        return ""
-
-    return ""
+def _string_value(value: object) -> str | None:
+    return value if isinstance(value, str) else None
 
 
-def _validate_schema_rule(key: str, raw_value: str, rule: dict[str, Any]) -> list[EnvValidationIssue]:
-    value = _normalized_value(raw_value)
-    issues: list[EnvValidationIssue] = []
+@ENV_FORMAT_CHECKER.checks("boolean")
+def _check_boolean_format(value: object) -> bool:
+    text = _string_value(value)
+    return text is None or text.lower() in _BOOLEAN_VALUES
 
-    if value == "":
-        return issues
 
-    expected_type = rule.get("type")
-    if expected_type not in {None, "string"}:
-        issues.append(EnvValidationIssue(ERROR, key, f"uses unsupported schema type {expected_type!r}"))
+@ENV_FORMAT_CHECKER.checks("cidr-list")
+def _check_cidr_list_format(value: object) -> bool:
+    text = _string_value(value)
+    if text is None:
+        return True
 
-    enum_values = rule.get("enum")
-    if isinstance(enum_values, list) and value not in enum_values:
-        allowed = ", ".join(str(item) for item in enum_values)
-        issues.append(EnvValidationIssue(ERROR, key, f"must be one of: {allowed}"))
+    cidrs = [item.strip() for item in text.split(",") if item.strip()]
+    if not cidrs:
+        return False
 
-    min_length = rule.get("minLength")
-    if isinstance(min_length, int) and len(value) < min_length:
-        issues.append(EnvValidationIssue(ERROR, key, f"must be at least {min_length} chars"))
+    try:
+        for cidr in cidrs:
+            ipaddress.ip_network(cidr, strict=False)
+    except ValueError:
+        return False
+    return True
 
-    pattern = rule.get("pattern")
-    if isinstance(pattern, str) and re.fullmatch(pattern, value) is None:
-        issues.append(EnvValidationIssue(ERROR, key, f"must match env/schema.json pattern {pattern!r}"))
 
-    format_name = rule.get("format")
-    if isinstance(format_name, str):
-        message = _format_validation_message(format_name, value)
-        if message:
-            issues.append(EnvValidationIssue(ERROR, key, message))
+@ENV_FORMAT_CHECKER.checks("csv")
+def _check_csv_format(value: object) -> bool:
+    text = _string_value(value)
+    return text is None or all(item.strip() for item in text.split(","))
 
-    return issues
+
+@ENV_FORMAT_CHECKER.checks("docker-memory")
+def _check_docker_memory_format(value: object) -> bool:
+    text = _string_value(value)
+    return text is None or bool(_DOCKER_MEMORY_RE.fullmatch(text))
+
+
+@ENV_FORMAT_CHECKER.checks("docker-name")
+def _check_docker_name_format(value: object) -> bool:
+    text = _string_value(value)
+    return text is None or bool(_DOCKER_NAME_RE.fullmatch(text))
+
+
+@ENV_FORMAT_CHECKER.checks("domain")
+def _check_domain_format(value: object) -> bool:
+    text = _string_value(value)
+    return text is None or bool(_DOMAIN_RE.fullmatch(text))
+
+
+@ENV_FORMAT_CHECKER.checks("nginx-rate")
+def _check_nginx_rate_format(value: object) -> bool:
+    text = _string_value(value)
+    return text is None or bool(_NGINX_RATE_RE.fullmatch(text))
+
+
+@ENV_FORMAT_CHECKER.checks("non-negative-integer")
+def _check_non_negative_integer_format(value: object) -> bool:
+    text = _string_value(value)
+    if text is None:
+        return True
+    try:
+        return int(text, 10) >= 0
+    except ValueError:
+        return False
+
+
+@ENV_FORMAT_CHECKER.checks("port")
+def _check_port_format(value: object) -> bool:
+    text = _string_value(value)
+    if text is None:
+        return True
+    try:
+        parsed = int(text, 10)
+    except ValueError:
+        return False
+    return 1 <= parsed <= 65535
+
+
+@ENV_FORMAT_CHECKER.checks("positive-integer")
+def _check_positive_integer_format(value: object) -> bool:
+    text = _string_value(value)
+    if text is None:
+        return True
+    try:
+        return int(text, 10) > 0
+    except ValueError:
+        return False
+
+
+@ENV_FORMAT_CHECKER.checks("positive-number")
+def _check_positive_number_format(value: object) -> bool:
+    text = _string_value(value)
+    if text is None:
+        return True
+    try:
+        return float(text) > 0
+    except ValueError:
+        return False
+
+
+@ENV_FORMAT_CHECKER.checks("url")
+def _check_url_format(value: object) -> bool:
+    text = _string_value(value)
+    if text is None:
+        return True
+
+    parsed = urlparse(text)
+    return bool(parsed.scheme and parsed.netloc)
+
+
+FORMAT_ERROR_MESSAGES = {
+    "boolean": "must be a boolean-like value",
+    "cidr-list": "must be a comma-separated IP/CIDR list",
+    "csv": "must be a comma-separated list without empty items",
+    "docker-memory": "must be a Docker memory value like 128m or 1g",
+    "docker-name": "must be a Docker-compatible name",
+    "domain": "must be a domain name",
+    "nginx-rate": "must be an nginx rate like 20r/s or 30r/m",
+    "non-negative-integer": "must be a non-negative integer",
+    "port": "must be a TCP port number between 1 and 65535",
+    "positive-integer": "must be a positive integer",
+    "positive-number": "must be a positive number",
+    "url": "must be a URL with scheme and host",
+}
+
+
+def _runtime_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    return {**schema, "additionalProperties": True}
+
+
+def _schema_instance(env_values: dict[str, str]) -> dict[str, str]:
+    return {
+        key: value
+        for key, raw_value in env_values.items()
+        for value in [_normalized_value(raw_value)]
+        if value
+    }
+
+
+def _schema_error_key(error: ValidationError) -> str:
+    if error.validator == "required":
+        match = re.search(r"'([^']+)' is a required property", error.message)
+        if match:
+            return match.group(1)
+    if error.path:
+        return str(next(iter(error.path)))
+    return "<env>"
+
+
+def _schema_error_message(error: ValidationError) -> str:
+    if error.validator == "required":
+        return "is required by env/schema.json"
+    if error.validator == "enum" and isinstance(error.validator_value, list):
+        allowed = ", ".join(str(item) for item in error.validator_value)
+        return f"must be one of: {allowed}"
+    if error.validator == "minLength" and isinstance(error.validator_value, int):
+        return f"must be at least {error.validator_value} chars"
+    if error.validator == "pattern" and isinstance(error.validator_value, str):
+        return f"must match env/schema.json pattern {error.validator_value!r}"
+    if error.validator == "format" and isinstance(error.validator_value, str):
+        return FORMAT_ERROR_MESSAGES.get(error.validator_value, error.message)
+    if error.validator == "type":
+        return f"must satisfy env/schema.json type {error.validator_value!r}"
+    return error.message
 
 
 def validate_env_schema(env_values: dict[str, str], environment: str, schema: dict[str, Any] | None = None) -> list[EnvValidationIssue]:
@@ -268,20 +320,21 @@ def validate_env_schema(env_values: dict[str, str], environment: str, schema: di
     schema = schema or load_env_schema()
     issues: list[EnvValidationIssue] = []
 
-    for key in schema_required_keys(schema):
-        if not _normalized_value(env_values.get(key, "")):
-            issues.append(EnvValidationIssue(ERROR, key, "is required by env/schema.json"))
-
     additional_properties = schema.get("additionalProperties", True)
-    for key, value in sorted(env_values.items()):
+    for key in sorted(env_values):
         rules = _schema_rules_for_key(key, schema)
         if not rules:
             if additional_properties is False:
                 issues.append(EnvValidationIssue(WARN, key, "is not declared in env/schema.json"))
             continue
 
-        for rule in rules:
-            issues.extend(_validate_schema_rule(key, value, rule))
+    validator = Draft202012Validator(_runtime_schema(schema), format_checker=ENV_FORMAT_CHECKER)
+    schema_errors = sorted(
+        validator.iter_errors(_schema_instance(env_values)),
+        key=lambda error: (_schema_error_key(error), error.validator, error.message),
+    )
+    for error in schema_errors:
+        issues.append(EnvValidationIssue(ERROR, _schema_error_key(error), _schema_error_message(error)))
 
     return issues
 
