@@ -88,6 +88,7 @@ def _security_headers(content_security_policy: str) -> tuple[dict[str, str], ...
         {"name": "Content-Security-Policy", "value": content_security_policy},
         {"name": "X-Frame-Options", "value": "DENY"},
         {"name": "X-Content-Type-Options", "value": "nosniff"},
+        {"name": "X-XSS-Protection", "value": "0"},
         {"name": "Referrer-Policy", "value": "strict-origin-when-cross-origin"},
         {"name": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()"},
     )

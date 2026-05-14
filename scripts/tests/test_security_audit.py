@@ -21,7 +21,7 @@ class SecurityAuditTests(unittest.TestCase):
         root = SCRIPTS_ROOT.parent
         common_env = security.parse_env_file(root / "env" / "common.env")
 
-        self.assertEqual("100.64.0.0/10", common_env["NGINX_PRIVATE_ACCESS_CIDRS"])
+        self.assertEqual("100.81.228.0/24", common_env["NGINX_PRIVATE_ACCESS_CIDRS"])
         self.assertEqual("127.0.0.1/32,${NGINX_PRIVATE_ACCESS_CIDRS}", common_env["NGINX_ADMIN_ALLOWLIST"])
 
     def test_dotnet_rabbitmq_password_is_derived_from_default_password(self) -> None:
@@ -151,16 +151,17 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertIn("pending migrations remain", migrator_script)
         self.assertIn("exit 1", migrator_script)
 
-    def test_nginx_healthcheck_covers_http_https_and_cert_expiry(self) -> None:
+    def test_nginx_healthcheck_covers_http_and_cert_expiry_without_tls_handshake_probe(self) -> None:
         root = SCRIPTS_ROOT.parent
         compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
         healthcheck = compose["services"]["nginx"]["healthcheck"]["test"][1]
         ssl_defaults = (root / "scripts" / "templates" / "02-ssl-defaults.conf.j2").read_text(encoding="utf-8")
 
         self.assertIn("http://127.0.0.1/health", healthcheck)
+        self.assertIn("grep -qx 'edge-nginx-ok'", healthcheck)
         self.assertIn("openssl x509 -checkend 0", healthcheck)
-        self.assertIn("openssl s_client", healthcheck)
-        self.assertIn("127.0.0.1:443", healthcheck)
+        self.assertNotIn("openssl s_client", healthcheck)
+        self.assertNotIn("127.0.0.1:443", healthcheck)
         self.assertGreaterEqual(ssl_defaults.count("location = /health"), 2)
 
     def test_aspire_dashboard_has_shellless_healthcheck(self) -> None:

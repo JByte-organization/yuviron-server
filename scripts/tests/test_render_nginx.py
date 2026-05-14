@@ -204,7 +204,7 @@ class RenderNginxTests(unittest.TestCase):
         self.assertNotIn("location ~* ^/(auth|account|login|register|token|refresh) {", rendered)
         self.assertNotIn("limit_req zone=api_auth burst=3 nodelay;", rendered)
 
-    def test_render_adds_csp_and_removes_deprecated_xss_protection_header(self) -> None:
+    def test_render_adds_security_headers_including_legacy_xss_scanner_header(self) -> None:
         rendered = render_nginx_conf_modular(
             [("api", "api.example.com", "backend:5073", "50m")],
             SCRIPTS_ROOT / "templates",
@@ -214,7 +214,7 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("default-src 'self';", rendered)
         self.assertIn("object-src 'none';", rendered)
         self.assertIn("frame-ancestors 'none';", rendered)
-        self.assertNotIn("X-XSS-Protection", rendered)
+        self.assertIn('add_header X-XSS-Protection "0" always;', rendered)
 
     def test_prod_render_warns_when_csp_contains_unsafe_sources(self) -> None:
         with patch("core.render_nginx.log_warn") as log_warn:
