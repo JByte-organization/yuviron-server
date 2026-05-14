@@ -159,6 +159,17 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertIn("127.0.0.1:443", healthcheck)
         self.assertGreaterEqual(ssl_defaults.count("location = /health"), 2)
 
+    def test_mysql_healthcheck_runs_sql_query_instead_of_ping(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
+        healthcheck = compose["services"]["mysql"]["healthcheck"]["test"]
+
+        self.assertEqual("CMD-SHELL", healthcheck[0])
+        self.assertIn("mysql -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD", healthcheck[1])
+        self.assertIn("-e 'SELECT 1'", healthcheck[1])
+        self.assertIn(">/dev/null 2>&1", healthcheck[1])
+        self.assertNotIn("mysqladmin ping", healthcheck[1])
+
     def test_nginx_mounts_generated_basic_auth_file(self) -> None:
         root = SCRIPTS_ROOT.parent
         compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
