@@ -128,6 +128,7 @@ class GenerateConfigTests(unittest.TestCase):
             )
 
             self.assertNotIn("ERROR:", result.stderr)
+            self.assertIn("production nginx Content-Security-Policy", result.stderr)
             self.assertEqual(0, result.returncode)
             deploy_env = (output_dir / "deploy.env").read_text(encoding="utf-8")
             nginx_conf = (output_dir / "nginx.conf").read_text(encoding="utf-8")
