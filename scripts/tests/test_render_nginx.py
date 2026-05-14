@@ -258,15 +258,17 @@ class RenderNginxTests(unittest.TestCase):
 
         self.assertIn("Invalid nginx NGINX_CONTENT_SECURITY_POLICY", str(raised.exception))
 
-    def test_https_servers_repeat_security_headers_with_hsts(self) -> None:
+    def test_security_headers_live_only_in_https_server_blocks_with_hsts(self) -> None:
         rendered = render_nginx_conf_modular(
             [("api", "api.example.com", "backend:5073", "50m")],
             SCRIPTS_ROOT / "templates",
         )
+        http_block_before_first_server = rendered.split("    server {", 1)[0]
 
+        self.assertNotIn("add_header Content-Security-Policy", http_block_before_first_server)
         self.assertEqual(
             rendered.count("add_header Strict-Transport-Security"),
-            rendered.count("add_header Content-Security-Policy") - 1,
+            rendered.count("add_header Content-Security-Policy"),
         )
 
     def test_render_rejects_invalid_public_rate_limit(self) -> None:

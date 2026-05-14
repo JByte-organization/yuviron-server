@@ -27,12 +27,6 @@ http {
     limit_req_zone $binary_remote_addr zone=api_upload:10m   rate=5r/m;
     # -------------------------------------------------------------------
 
-    # -- Security headers -----------------------------------------------
-    {% for header in security_headers %}
-    add_header {{ header.name }} "{{ header.value }}" always;
-    {% endfor %}
-    # -------------------------------------------------------------------
-
     # -- Gzip compression settings --------------------------------------
     gzip on;
     gzip_comp_level 5;
