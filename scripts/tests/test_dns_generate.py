@@ -24,12 +24,26 @@ class DnsGenerateTests(unittest.TestCase):
         )
 
         self.assertIn("yuviron.com {", content)
-        self.assertIn("100.81.228.68 dev.yuviron.com", content)
-        self.assertIn("100.81.228.68 dev-api.yuviron.com", content)
-        self.assertEqual(2, content.count("    acl {\n"))
-        self.assertEqual(2, content.count("        allow net 100.64.0.0/10\n"))
-        self.assertEqual(2, content.count("        block\n"))
-        self.assertIn("ttl 60", content)
+        self.assertIn("# Yuviron private dev domains via CoreDNS", content)
+        self.assertIn("# All yuviron.com names resolve to the target IP below.", content)
+        self.assertIn("# Fallback recursive DNS is restricted by acl to: 100.64.0.0/10", content)
+        self.assertIn("#   dev.yuviron.com", content)
+        self.assertIn("# Fallback public DNS resolvers", content)
+        self.assertIn("CoreDNS cannot become\n# an open recursive resolver", content)
+        self.assertIn("template IN A", content)
+        self.assertIn(r"match (^|\.)yuviron\.com\.$", content)
+        self.assertIn('answer "{{ .Name }} 60 IN A 100.81.228.68"', content)
+        self.assertIn("template IN AAAA", content)
+        self.assertIn("rcode NXDOMAIN", content)
+        self.assertIn("log", content)
+        self.assertIn("errors", content)
+        self.assertNotIn("hosts {", content)
+        self.assertEqual(1, content.count("    acl {\n"))
+        self.assertEqual(1, content.count("    # Allow recursive DNS queries only from configured private networks.\n"))
+        self.assertEqual(1, content.count("        allow net 100.64.0.0/10\n"))
+        self.assertEqual(1, content.count("        block\n"))
+        self.assertIn("# Resolve yuviron.com and all subdomains to the private target IP.", content)
+        self.assertIn("# Resolve all other allowed queries through public DNS.", content)
         self.assertIn("forward . 1.1.1.1 8.8.8.8", content)
         self.assertIn("cache 300", content)
 
@@ -42,8 +56,8 @@ class DnsGenerateTests(unittest.TestCase):
             acl_nets=("100.64.0.0/10", "10.8.0.0/24"),
         )
 
-        self.assertEqual(2, content.count("        allow net 100.64.0.0/10\n"))
-        self.assertEqual(2, content.count("        allow net 10.8.0.0/24\n"))
+        self.assertEqual(1, content.count("        allow net 100.64.0.0/10\n"))
+        self.assertEqual(1, content.count("        allow net 10.8.0.0/24\n"))
 
     def test_acl_nets_are_normalized_and_deduplicated(self) -> None:
         acl_nets = dns._validate_acl_nets(["100.64.0.1/10, 10.8.0.12/24", "10.8.0.0/24"])
@@ -90,8 +104,8 @@ class DnsGenerateTests(unittest.TestCase):
             self.assertTrue(corefile.is_file())
             content = corefile.read_text(encoding="utf-8")
 
-        self.assertIn("100.81.228.68 dev.yuviron.com", content)
-        self.assertIn("100.81.228.68 dev-api.yuviron.com", content)
+        self.assertIn('answer "{{ .Name }} 60 IN A 100.81.228.68"', content)
+        self.assertIn("template IN AAAA", content)
         self.assertIn("allow net 100.64.0.0/10", content)
         self.assertIn("cache 300", content)
 
