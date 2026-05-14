@@ -75,7 +75,7 @@ cd /opt/yuviron-server
 python3 -m pip install -r requirements.txt
 ```
 
-Версии `PyYAML` для YAML-конфигурации и `Jinja2` для nginx templates зафиксированы в `requirements.txt`, чтобы CI и серверные установки были воспроизводимыми.
+Версии `PyYAML` для YAML-конфигурации, `Jinja2` для nginx templates и `jsonschema` для runtime env validation зафиксированы в `requirements.txt`, чтобы CI и серверные установки были воспроизводимыми.
 
 ---
 
