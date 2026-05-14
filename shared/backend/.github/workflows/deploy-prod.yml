@@ -73,7 +73,20 @@ jobs:
           mkdir -p "$(dirname "$API_CONFIG_PATH")"
           mkdir -p "$(dirname "$WORKER_CONFIG_PATH")"
 
-          python3 - <<'PY' > "$API_CONFIG_PATH"
+          umask 077
+          API_CONFIG_TMP="$(mktemp "$(dirname "$API_CONFIG_PATH")/.appsettings.${ENV_FILE}.api.XXXXXX")"
+          WORKER_CONFIG_TMP="$(mktemp "$(dirname "$WORKER_CONFIG_PATH")/.appsettings.${ENV_FILE}.worker.XXXXXX")"
+          cleanup_tmp_configs() {
+            if [ -n "${API_CONFIG_TMP:-}" ]; then
+              rm -f "$API_CONFIG_TMP"
+            fi
+            if [ -n "${WORKER_CONFIG_TMP:-}" ]; then
+              rm -f "$WORKER_CONFIG_TMP"
+            fi
+          }
+          trap cleanup_tmp_configs EXIT
+
+          python3 - <<'PY' > "$API_CONFIG_TMP"
           import json
           import os
 
@@ -128,7 +141,7 @@ jobs:
           print(json.dumps(config, ensure_ascii=False, indent=2))
           PY
 
-          python3 - <<'PY' > "$WORKER_CONFIG_PATH"
+          python3 - <<'PY' > "$WORKER_CONFIG_TMP"
           import json
           import os
 
@@ -141,8 +154,14 @@ jobs:
           print(json.dumps(config, ensure_ascii=False, indent=2))
           PY
 
-          python3 -m json.tool "$API_CONFIG_PATH" >/dev/null
-          python3 -m json.tool "$WORKER_CONFIG_PATH" >/dev/null
+          python3 -m json.tool "$API_CONFIG_TMP" >/dev/null
+          python3 -m json.tool "$WORKER_CONFIG_TMP" >/dev/null
+
+          mv -f "$API_CONFIG_TMP" "$API_CONFIG_PATH"
+          API_CONFIG_TMP=""
+          mv -f "$WORKER_CONFIG_TMP" "$WORKER_CONFIG_PATH"
+          WORKER_CONFIG_TMP=""
+          trap - EXIT
 
       - name: Cleanup stale migrator run containers before deploy
         if: always()
