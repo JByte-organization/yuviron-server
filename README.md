@@ -52,7 +52,7 @@ cp env/example.env env/prod.env
 
 python3 scripts/init.py --env prod --domain yuviron.com --no-up
 ./scripts/cli.py stack preflight prod
-./scripts/cli.py stack up prod
+ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
 ./scripts/cli.py stack smoke prod
 ```
 

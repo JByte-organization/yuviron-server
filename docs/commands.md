@@ -87,7 +87,7 @@ CLI является единым интерфейсом для работы с�
 
 ```bash
 ./scripts/cli.py stack up dev
-./scripts/cli.py stack up prod
+ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
 ./scripts/cli.py stack up dev --dry-run
 ./scripts/cli.py stack up dev --skip-migrate
 ```
@@ -100,11 +100,11 @@ CLI является единым интерфейсом для работы с�
 
 ```bash
 ./scripts/cli.py stack migrate dev
-./scripts/cli.py stack migrate prod
+ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack migrate prod
 ./scripts/cli.py stack migrate dev --dry-run
 ```
 
-`stack migrate` явно запускает EF Core migration контейнер через compose profile `migrate`. Внутри `infra/docker/dotnet/migrator.sh` сначала выполняется `dotnet ef database update`, затем `dotnet ef migrations list`; команда падает, если после update остаются pending migrations.
+`stack migrate` явно запускает EF Core migration контейнер через compose profile `migrate`. При `ASPNETCORE_ENVIRONMENT=Production` migrator дополнительно требует `ALLOW_PRODUCTION_MIGRATE=true`; без этого контейнер завершится до запуска EF Core. После guard внутри `infra/docker/dotnet/migrator.sh` выполняется `dotnet ef database update`, затем `dotnet ef migrations list`; команда падает, если после update остаются pending migrations.
 
 ---
 
@@ -373,7 +373,7 @@ docker exec -it <nginx-container> nginx -t
 
 ```bash
 ./scripts/cli.py stack down prod
-./scripts/cli.py stack up prod
+ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
 ```
 
 Ручная остановка dev-стека:

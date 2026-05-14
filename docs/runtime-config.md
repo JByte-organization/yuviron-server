@@ -301,7 +301,7 @@ HTTPS_PORT=443
 Backend, migrator и media-worker собираются через единый multi-stage Dockerfile `infra/docker/dotnet/Dockerfile`.
 В `infra/compose.yml` для них выбираются разные targets: `backend`, `migrator`, `media-worker`.
 Версия .NET, UID/GID runtime-пользователя и общие security-настройки задаются через `x-dotnet-*` anchors и build args.
-`migrator` вынесен в compose profile `migrate` и не является init-зависимостью backend/media-worker. `./scripts/cli.py stack up <env>` запускает его явно перед основным `up`, а `./scripts/cli.py stack migrate <env>` позволяет выполнить тот же шаг вручную. Внутри `infra/docker/dotnet/migrator.sh` сначала выполняется `dotnet ef database update`, затем запускается `dotnet ef migrations list`; команда падает, если после update остаются pending migrations.
+`migrator` вынесен в compose profile `migrate` и не является init-зависимостью backend/media-worker. `./scripts/cli.py stack up <env>` запускает его явно перед основным `up`, а `./scripts/cli.py stack migrate <env>` позволяет выполнить тот же шаг вручную. Внутри `infra/docker/dotnet/migrator.sh` есть production guard: при `ASPNETCORE_ENVIRONMENT=Production` контейнер падает, пока явно не передан `ALLOW_PRODUCTION_MIGRATE=true`. После guard сначала выполняется `dotnet ef database update`, затем запускается `dotnet ef migrations list`; команда падает, если после update остаются pending migrations.
 
 ### Frontend
 

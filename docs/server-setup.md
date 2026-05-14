@@ -107,6 +107,7 @@ cd /opt/yuviron-server
 * `ASPNETCORE_ENVIRONMENT=Production`
 * если в окружении или CI дополнительно задан `DOTNET_ENVIRONMENT`, он тоже должен быть `Production`
 * `Swagger__Enabled=false`
+* `ALLOW_PRODUCTION_MIGRATE=false` по умолчанию; включай `true` только на конкретный запуск мигратора/`stack up`
 * `MYSQL_ROOT_PASSWORD` не равен `root`
 * production secrets/tokens/passwords не короткие и не похожи на dev/template значения
 

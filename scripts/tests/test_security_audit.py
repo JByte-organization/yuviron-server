@@ -151,6 +151,20 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertIn("pending migrations remain", migrator_script)
         self.assertIn("exit 1", migrator_script)
 
+    def test_dotnet_migrator_requires_explicit_production_override(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
+        migrator_script = (root / "infra" / "docker" / "dotnet" / "migrator.sh").read_text(encoding="utf-8")
+
+        self.assertEqual(
+            "${ALLOW_PRODUCTION_MIGRATE:-false}",
+            compose["services"]["migrator"]["environment"]["ALLOW_PRODUCTION_MIGRATE"],
+        )
+        self.assertIn('case "${ASPNETCORE_ENVIRONMENT:-}" in', migrator_script)
+        self.assertIn("ALLOW_PRODUCTION_MIGRATE:-false", migrator_script)
+        self.assertIn("ALLOW_PRODUCTION_MIGRATE=true", migrator_script)
+        self.assertIn("Refusing to run EF Core migrations in Production.", migrator_script)
+
     def test_nginx_healthcheck_covers_http_and_cert_expiry_without_tls_handshake_probe(self) -> None:
         root = SCRIPTS_ROOT.parent
         compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))

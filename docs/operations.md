@@ -50,7 +50,7 @@
 
 ```bash
 ./scripts/cli.py stack up dev
-./scripts/cli.py stack up prod
+ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
 ```
 
 ---
@@ -114,7 +114,7 @@ cp env/example.env env/prod.env
 
 python3 scripts/init.py --env prod --domain yuviron.com --no-up
 ./scripts/cli.py stack preflight prod
-./scripts/cli.py stack up prod
+ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
 ./scripts/cli.py stack smoke prod
 ```
 
@@ -137,7 +137,7 @@ git pull
 ```bash
 ./scripts/cli.py stack down prod
 ./scripts/cli.py backup verify
-./scripts/cli.py stack up prod
+ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
 ```
 
 ---
@@ -245,7 +245,7 @@ cd /opt/yuviron-server
 
 ```bash
 cd /opt/yuviron-server
-./scripts/cli.py stack up prod
+ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
 ```
 
 Остановка:
@@ -345,11 +345,11 @@ seq
 aspire-dashboard
 ```
 
-Отдельный `migrator` запускается как one-off команда через compose profile `migrate` перед `stack up` и обычно не отображается в списке активных контейнеров. Его успешный exit code включает post-check: после `dotnet ef database update` запускается `dotnet ef migrations list`, и контейнер падает, если остаются pending migrations. При необходимости миграции можно запустить явно:
+Отдельный `migrator` запускается как one-off команда через compose profile `migrate` перед `stack up` и обычно не отображается в списке активных контейнеров. Для `ASPNETCORE_ENVIRONMENT=Production` скрипт требует явный override `ALLOW_PRODUCTION_MIGRATE=true`; без него контейнер падает до EF Core-команд. Успешный exit code включает post-check: после `dotnet ef database update` запускается `dotnet ef migrations list`, и контейнер падает, если остаются pending migrations. При необходимости миграции можно запустить явно:
 
 ```bash
 ./scripts/cli.py stack migrate dev
-./scripts/cli.py stack migrate prod
+ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack migrate prod
 ```
 
 ---
