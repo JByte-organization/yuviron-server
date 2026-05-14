@@ -159,6 +159,17 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertIn("127.0.0.1:443", healthcheck)
         self.assertGreaterEqual(ssl_defaults.count("location = /health"), 2)
 
+    def test_aspire_dashboard_has_shellless_healthcheck(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
+        healthcheck = compose["services"]["aspire-dashboard"]["healthcheck"]
+
+        self.assertEqual(["CMD", "dotnet", "--list-runtimes"], healthcheck["test"])
+        self.assertEqual("15s", healthcheck["interval"])
+        self.assertEqual("5s", healthcheck["timeout"])
+        self.assertEqual(5, healthcheck["retries"])
+        self.assertEqual("10s", healthcheck["start_period"])
+
     def test_mysql_healthcheck_runs_sql_query_instead_of_ping(self) -> None:
         root = SCRIPTS_ROOT.parent
         compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
