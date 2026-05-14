@@ -19,7 +19,9 @@ from core.validators import fail, resolve_prompted_environment, resolve_prompted
 
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_FORWARDERS = ("8.8.8.8", "1.1.1.1")
+DEFAULT_ACL_NETS = ("100.64.0.0/10",)
+DEFAULT_CACHE_TTL_SECONDS = 300
+DEFAULT_FORWARDERS = ("1.1.1.1", "8.8.8.8")
 
 
 def _validate_ip(raw_ip: str) -> str:
@@ -32,6 +34,34 @@ def _validate_ip(raw_ip: str) -> str:
     except ValueError:
         fail(f"Invalid IP address: {value}")
         raise AssertionError("unreachable")
+
+
+def _validate_acl_nets(raw_acl_nets: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+    raw_values = raw_acl_nets if raw_acl_nets is not None else DEFAULT_ACL_NETS
+    acl_nets: list[str] = []
+    seen: set[str] = set()
+
+    for raw_value in raw_values:
+        for raw_item in raw_value.split(","):
+            value = raw_item.strip()
+            if not value:
+                fail("ACL network must not be empty")
+
+            try:
+                network = str(ipaddress.ip_network(value, strict=False))
+            except ValueError:
+                fail(f"Invalid ACL network: {value}")
+                raise AssertionError("unreachable")
+
+            if network in seen:
+                continue
+            seen.add(network)
+            acl_nets.append(network)
+
+    if not acl_nets:
+        fail("At least one ACL network is required")
+
+    return tuple(acl_nets)
 
 
 def _route_hosts(routes_file: Path, domain: str) -> list[str]:
@@ -62,14 +92,27 @@ def _route_hosts(routes_file: Path, domain: str) -> list[str]:
     return hosts
 
 
+def _render_acl_block(acl_nets: tuple[str, ...]) -> str:
+    allow_lines = "\n".join(f"        allow net {acl_net}" for acl_net in acl_nets)
+    return (
+        "    acl {\n"
+        f"{allow_lines}\n"
+        "        block\n"
+        "    }\n"
+    )
+
+
 def render_corefile(
     *,
     environment: str,
     domain: str,
     ip_address: str,
     hosts: list[str],
+    acl_nets: tuple[str, ...] = DEFAULT_ACL_NETS,
+    cache_ttl_seconds: int = DEFAULT_CACHE_TTL_SECONDS,
     forwarders: tuple[str, ...] = DEFAULT_FORWARDERS,
 ) -> str:
+    acl_block = _render_acl_block(acl_nets)
     forwarder_list = " ".join(forwarders)
     host_lines = "\n".join(f"        {ip_address} {host}" for host in hosts)
 
@@ -79,17 +122,19 @@ def render_corefile(
         f"# Domain: {domain}\n"
         f"# Target IP: {ip_address}\n\n"
         f"{domain} {{\n"
+        f"{acl_block}\n"
         "    hosts {\n"
         f"{host_lines}\n"
         "        ttl 60\n"
         "        fallthrough\n"
         "    }\n\n"
         f"    forward . {forwarder_list}\n"
-        "    cache 30\n"
+        f"    cache {cache_ttl_seconds}\n"
         "}\n\n"
         ". {\n"
+        f"{acl_block}\n"
         f"    forward . {forwarder_list}\n"
-        "    cache 30\n"
+        f"    cache {cache_ttl_seconds}\n"
         "}\n"
     )
 
@@ -99,6 +144,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
     environment = resolve_prompted_environment(args.environment)
     domain = validate_domain(resolve_prompted_required(args.domain, "Enter domain (example.com): ", "domain"))
     ip_address = _validate_ip(resolve_prompted_required(args.ip_address, "Enter DNS target IP: ", "ip"))
+    acl_nets = _validate_acl_nets(getattr(args, "acl_nets", None))
 
     generated_dir = root_dir / "generated" / environment
     routes_file = generated_dir / "routes.env"
@@ -112,6 +158,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
         domain=domain,
         ip_address=ip_address,
         hosts=hosts,
+        acl_nets=acl_nets,
     )
 
     corefile.parent.mkdir(parents=True, exist_ok=True)
@@ -130,5 +177,11 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     generate_parser.add_argument("--env", dest="environment")
     generate_parser.add_argument("--domain")
     generate_parser.add_argument("--ip", dest="ip_address")
+    generate_parser.add_argument(
+        "--acl-net",
+        dest="acl_nets",
+        action="append",
+        help="CIDR or IP allowed to query generated CoreDNS config; repeat or comma-separate values",
+    )
     generate_parser.add_argument("--project-root", dest="project_root")
     generate_parser.set_defaults(handler=cmd_generate)
