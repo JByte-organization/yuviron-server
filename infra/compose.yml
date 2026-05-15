@@ -306,6 +306,7 @@ services:
       - ../certs/acme-challenge:/var/www/certbot:ro
       - ../certs:/etc/nginx/certs:ro
       - ${NGINX_BASIC_AUTH_FILE}:/etc/nginx/htpasswd:ro
+      - nginx_media_cache:/var/cache/nginx/yuviron_media
     command: ["nginx", "-g", "daemon off;"]
     networks:
       - default
@@ -335,3 +336,4 @@ volumes:
   mysql_data:
   redis_data:
   rabbitmq_data:
+  nginx_media_cache:

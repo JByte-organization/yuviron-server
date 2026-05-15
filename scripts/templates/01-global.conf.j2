@@ -7,6 +7,8 @@ events {
 }
 
 http {
+    proxy_cache_path /var/cache/nginx/yuviron_media levels=1:2 keys_zone=media_cache:10m max_size=10g inactive=365d use_temp_path=off;
+
     server_tokens off;
 
     # -- TLS policy -----------------------------------------------------
