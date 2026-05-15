@@ -75,6 +75,7 @@ NginxRouteTuple = tuple[
     str | None,
     str | None,
     str | None,
+    bool,
 ]
 
 
@@ -205,6 +206,7 @@ def _validate_nginx_route(
     route_upload_client_max_body_size: str | None,
     route_upload_rate_limit_zone: str | None,
     route_upload_rate_limit_burst: str | None,
+    route_media_proxy: bool,
 ) -> NginxRouteTuple:
     route_name = _require_safe_nginx_value(route_name, "route name", route_name)
     if not NAME_PATTERN.fullmatch(route_name):
@@ -277,6 +279,7 @@ def _validate_nginx_route(
         route_upload_client_max_body_size,
         route_upload_rate_limit_zone,
         route_upload_rate_limit_burst,
+        route_media_proxy,
     )
 
 
@@ -338,9 +341,9 @@ def _unpack_route_line(route_line: tuple) -> NginxRouteTuple:
     if len(route_line) == 5:
         route_name, route_host, route_upstream, route_max_body_size, route_has_auth_endpoints = route_line
         return route_name, route_host, route_upstream, route_max_body_size, route_has_auth_endpoints, None, None, (), None, None, None
-    if len(route_line) == 11:
+    if len(route_line) == 12:
         return route_line
-    fail(f"Invalid nginx route tuple length: {len(route_line)}. Expected 4, 5, or 11 values")
+    fail(f"Invalid nginx route tuple length: {len(route_line)}. Expected 4, 5, or 12 values")
     raise AssertionError("unreachable")
 
 
@@ -545,6 +548,7 @@ def render_nginx_conf_modular(
             route_upload_client_max_body_size,
             route_upload_rate_limit_zone,
             route_upload_rate_limit_burst,
+            route_media_proxy,
         ) = _unpack_route_line(route_line)
         (
             route_name,
@@ -558,6 +562,7 @@ def render_nginx_conf_modular(
             route_upload_client_max_body_size,
             route_upload_rate_limit_zone,
             route_upload_rate_limit_burst,
+            route_media_proxy,
         ) = _validate_nginx_route(
             route_name,
             route_host,
@@ -570,6 +575,7 @@ def render_nginx_conf_modular(
             route_upload_client_max_body_size,
             route_upload_rate_limit_zone,
             route_upload_rate_limit_burst,
+            route_media_proxy,
         )
         route_is_management = route_name in MANAGEMENT_ROUTE_NAMES
         route_ssl_certificate = default_ssl_certificate
@@ -597,6 +603,7 @@ def render_nginx_conf_modular(
             "upload_client_max_body_size": route_upload_client_max_body_size or route_max_body_size,
             "upload_rate_limit_zone": route_upload_rate_limit_zone,
             "upload_rate_limit_burst": route_upload_rate_limit_burst,
+            "media_proxy": route_media_proxy,
         })
 
     context = {

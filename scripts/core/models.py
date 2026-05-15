@@ -75,6 +75,7 @@ class Route:
     upload_client_max_body_size: Optional[str] = None
     upload_rate_limit_zone: Optional[str] = None
     upload_rate_limit_burst: Optional[str] = None
+    media_proxy: bool = False
 
 
 @dataclass(frozen=True)

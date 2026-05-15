@@ -206,6 +206,7 @@ def load_routes(path: Path) -> Dict[str, Route]:
             "upload_rate_limit_burst",
         )
         environments = raw.get("environments", ["dev", "prod"])
+        media_proxy = raw.get("media_proxy", False)
 
         if app and target:
             fail(f"routes.{name} must contain either 'app' or 'target', not both")
@@ -253,6 +254,9 @@ def load_routes(path: Path) -> Dict[str, Route]:
         if not isinstance(environments, list) or not environments:
             fail(f"routes.{name}.environments must be a non-empty list")
 
+        if not isinstance(media_proxy, bool):
+            fail(f"routes.{name}.media_proxy must be a boolean")
+
         normalized_envs: List[str] = []
         for env_name in environments:
             env_name = str(env_name).strip()
@@ -274,6 +278,7 @@ def load_routes(path: Path) -> Dict[str, Route]:
             upload_client_max_body_size=upload_client_max_body_size,
             upload_rate_limit_zone=upload_rate_limit_zone,
             upload_rate_limit_burst=upload_rate_limit_burst,
+            media_proxy=media_proxy,
         )
 
     return result

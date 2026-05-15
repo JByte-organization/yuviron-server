@@ -107,6 +107,7 @@ def resolve_routes(ctx: GenerationContext, apps, routes_cfg):
         upload_client_max_body_size: str | None = None,
         upload_rate_limit_zone: str | None = None,
         upload_rate_limit_burst: str | None = None,
+        media_proxy: bool = False,
     ) -> None:
         if name in seen_names:
             fail(f"Duplicate route name generated: {name}")
@@ -124,6 +125,7 @@ def resolve_routes(ctx: GenerationContext, apps, routes_cfg):
                 upload_client_max_body_size,
                 upload_rate_limit_zone,
                 upload_rate_limit_burst,
+                media_proxy,
             )
         )
 
@@ -176,6 +178,7 @@ def resolve_routes(ctx: GenerationContext, apps, routes_cfg):
             route.upload_client_max_body_size,
             route.upload_rate_limit_zone,
             route.upload_rate_limit_burst,
+            route.media_proxy,
         )
 
     for name, target in parse_extra_routes(",".join(ctx.extra_routes_raw)):
