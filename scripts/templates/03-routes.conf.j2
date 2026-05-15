@@ -30,8 +30,8 @@
         access_log /dev/stdout main;
         error_log  /dev/stderr warn;
 
-        ssl_certificate $route_ssl_certificate;
-        ssl_certificate_key $route_ssl_certificate_key;
+        ssl_certificate {{ route.ssl_certificate }};
+        ssl_certificate_key {{ route.ssl_certificate_key }};
 
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
         {% for header in security_headers %}
@@ -40,6 +40,51 @@
 
         client_max_body_size {{ route.client_max_body_size }};
 
+        {% if route.media_proxy %}
+        location ^~ /i/ {
+            return 404;
+        }
+        location / {
+            limit_except GET HEAD OPTIONS {
+                deny all;
+            }
+            
+            add_header 'Access-Control-Allow-Origin' '*' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, HEAD, OPTIONS' always;
+            add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range' always;
+            add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range' always;
+
+            if ($request_method = 'OPTIONS') {
+                add_header 'Access-Control-Allow-Origin' '*';
+                add_header 'Access-Control-Allow-Methods' 'GET, HEAD, OPTIONS';
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain; charset=utf-8';
+                add_header 'Content-Length' 0;
+                return 204;
+            }
+            
+            # Убрали ручной proxy_set_header Host, оставляем только инклуд
+            include /etc/nginx/proxy-params.conf;
+            
+            rewrite ^/(?!health$)(.+)$ /i/$1 break;
+
+            proxy_pass http://{{ route.upstream }};
+
+            proxy_buffering on;
+
+            proxy_cache media_cache;
+            proxy_cache_methods GET HEAD;
+            proxy_cache_key "$scheme$host$uri";
+            proxy_cache_valid 200 365d;
+            proxy_cache_valid 404 1m;
+            proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+            proxy_cache_lock on;
+            proxy_cache_background_update on;
+
+            add_header Cache-Control "public, immutable, max-age=31536000" always;
+            add_header X-Cache-Status $upstream_cache_status always;
+        }
+        {% else %}
         location / {
             {% if route.basic_auth %}
             {% for cidr in route.admin_allowlist %}
@@ -63,6 +108,7 @@
             proxy_send_timeout 15s;
             proxy_read_timeout 3600s;
         }
+        {% endif %}
 
         location = /health {
             access_log off;
