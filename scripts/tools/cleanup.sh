@@ -82,7 +82,22 @@ sudo find /tmp /var/tmp -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 echo "Temp files cleaned: /tmp and /var/tmp"
 
 echo ""
-echo "10. Python __pycache__ cleanup..."
+echo "10. Stale nginx log files cleanup..."
+LOG_DIR="$PROJECT_ROOT/logs"
+if [ -d "$LOG_DIR" ]; then
+    STALE_COUNT="$(sudo find "$LOG_DIR" -type f -name "*.log" -empty -mtime +7 | wc -l)"
+    if [ "$STALE_COUNT" -gt 0 ]; then
+        sudo find "$LOG_DIR" -type f -name "*.log" -empty -mtime +7 -delete
+        echo "Removed $STALE_COUNT empty log files older than 7 days from $LOG_DIR"
+    else
+        echo "No stale empty log files found in $LOG_DIR"
+    fi
+else
+    echo "$LOG_DIR not found, skipping"
+fi
+
+echo ""
+echo "11. Python __pycache__ cleanup..."
 PYCACHE_COUNT="$(find "$PROJECT_ROOT" -type d -name "__pycache__" | wc -l)"
 
 if [ "$PYCACHE_COUNT" -gt 0 ]; then
@@ -98,7 +113,7 @@ else
 fi
 
 echo ""
-echo "11. Removing generated folder..."
+echo "12. Removing generated folder..."
 if [ -d "$PROJECT_ROOT/generated" ]; then
     echo "WARNING: removing generated will require re-running scripts/init.py before next up/preflight."
     if confirm "Remove $PROJECT_ROOT/generated?"; then
@@ -112,7 +127,7 @@ else
 fi
 
 echo ""
-echo "12. Removing certs folder..."
+echo "13. Removing certs folder..."
 if [ -d "$PROJECT_ROOT/certs" ]; then
     echo "WARNING: removing certs may break nginx startup until certificates are regenerated."
     if confirm "Remove $PROJECT_ROOT/certs?"; then
@@ -126,7 +141,7 @@ else
 fi
 
 echo ""
-echo "13. Removing .tmp folder..."
+echo "14. Removing .tmp folder..."
 if [ -d "$PROJECT_ROOT/.tmp" ]; then
     echo "WARNING: removing .tmp may clear local caches or temporary session data."
     if confirm "Remove $PROJECT_ROOT/.tmp?"; then

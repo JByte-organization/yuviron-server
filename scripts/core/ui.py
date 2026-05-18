@@ -64,7 +64,7 @@ def print_header() -> None:
     width = term_width()
     print()
     hr("═")
-    print(f"{BBLUE}  {'INIT  —  инициализация окружения':<{max(width - 4, 0)}}{RESET}")
+    print(f"{BBLUE}  {'INIT  -  инициализация окружения':<{max(width - 4, 0)}}{RESET}")
     hr("═")
     print()
 
@@ -174,7 +174,7 @@ def _collect_base_routes(env_name: str, root_dir: Path) -> tuple[list[str] | Non
     routes_config = root_dir / "config" / "routes.yml"
 
     if not routes_config.is_file():
-        return [], "config/routes.yml не найден — базовые маршруты не заданы"
+        return [], "config/routes.yml не найден - базовые маршруты не заданы"
 
     if yaml is None:
         return None, "Базовые маршруты из config/routes.yml добавляются автоматически"

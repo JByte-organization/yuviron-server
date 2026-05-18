@@ -154,7 +154,7 @@ def show_summary(env: str, domain: str) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="./scripts/init.py",
-        description="INIT — инициализация окружения",
+        description="INIT - инициализация окружения",
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument("--env", dest="environment", choices=["dev", "prod"], help="Окружение: dev|prod")
