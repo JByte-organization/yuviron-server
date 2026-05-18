@@ -38,6 +38,7 @@ https://dev-admin.yuviron.com
 https://dev-aspire.yuviron.com/
 https://dev-seq.yuviron.com/
 https://dev-api.yuviron.com
+https://dev-i.yuviron.com
 ```
 
 Сетевой доступ к dev-среде: **Tailscale** — preferred private access layer, **RadminVPN** — legacy compatibility, **CoreDNS on Windows** — optional local DNS endpoint. Подробнее: [docs/networking.md](docs/networking.md).
@@ -63,6 +64,7 @@ https://yuviron.com
 https://backoffice.yuviron.com
 https://admin.yuviron.com
 https://api.yuviron.com
+https://i.yuviron.com
 ```
 
 ## Частые команды

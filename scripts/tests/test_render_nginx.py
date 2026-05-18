@@ -227,6 +227,42 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("client_max_body_size 50m;", rendered)
         self.assertIn("limit_req zone=api_upload burst=2 nodelay;", rendered)
 
+    def test_render_media_proxy_uses_hash_cdn_cache_contract(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [
+                (
+                    "i",
+                    "dev-i.example.com",
+                    "backend:5073",
+                    "5m",
+                    False,
+                    None,
+                    None,
+                    (),
+                    None,
+                    None,
+                    None,
+                    True,
+                )
+            ],
+            SCRIPTS_ROOT / "templates",
+        )
+
+        self.assertIn("server_name dev-i.example.com;", rendered)
+        self.assertIn("proxy_cache_path /var/cache/nginx/yuviron_media", rendered)
+        self.assertIn("location = / {", rendered)
+        self.assertIn("location ^~ /i/ {", rendered)
+        self.assertIn("rewrite ^/(?!health$)(.+)$ /i/$1 break;", rendered)
+        self.assertIn("proxy_pass http://backend:5073;", rendered)
+        self.assertIn("proxy_cache media_cache;", rendered)
+        self.assertIn("proxy_cache_valid 200 365d;", rendered)
+        self.assertIn("proxy_cache_valid 404 1m;", rendered)
+        self.assertIn("proxy_ignore_headers X-Accel-Expires Expires Cache-Control Set-Cookie Vary;", rendered)
+        self.assertIn("proxy_hide_header Cache-Control;", rendered)
+        self.assertIn('add_header Cache-Control "public, immutable, max-age=31536000";', rendered)
+        self.assertNotIn('add_header Cache-Control "public, immutable, max-age=31536000" always;', rendered)
+        self.assertIn("add_header X-Cache-Status $upstream_cache_status always;", rendered)
+
     def test_nginx_route_template_does_not_branch_on_route_name_api(self) -> None:
         template = (SCRIPTS_ROOT / "templates" / "03-routes.conf.j2").read_text(encoding="utf-8")
 

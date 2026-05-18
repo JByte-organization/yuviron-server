@@ -32,6 +32,8 @@ class GenerationContextTests(unittest.TestCase):
         self.assertEqual("example.com", prod.resolve_host("client", "root"))
         self.assertEqual("dev-api.example.com", dev.resolve_host("api", "subdomain"))
         self.assertEqual("api.example.com", prod.resolve_host("api", "subdomain"))
+        self.assertEqual("dev-i.example.com", dev.resolve_host("i", "subdomain"))
+        self.assertEqual("i.example.com", prod.resolve_host("i", "subdomain"))
 
     def test_resolve_host_rejects_unsupported_strategy(self) -> None:
         with self.assertRaises(CommandError) as raised:

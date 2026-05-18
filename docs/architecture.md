@@ -128,12 +128,14 @@ dev-backoffice.yuviron.com -> backoffice:3000
 dev-api.yuviron.com        -> backend:5073
 dev-seq.yuviron.com        -> seq:80
 dev-aspire.yuviron.com     -> aspire-dashboard:18888
+dev-i.yuviron.com          -> backend:5073 через /i/<hash>, cached media edge
 ```
 
 В nginx:
 
 * `client`, `admin`, `backoffice` идут в frontend containers.
 * `api` идёт в backend на `5073`.
+* `dev-i.yuviron.com` / `i.yuviron.com` — отдельный media CDN route: публичный URL содержит только immutable hash, nginx переписывает запрос во внутренний backend endpoint `/i/<hash>` и кэширует успешные ответы на год.
 * `seq` и `aspire` считаются management routes и получают HTTP Basic Auth плюс `NGINX_ADMIN_ALLOWLIST`.
 * `/health` обслуживается самим edge nginx для healthcheck и smoke.
 * Route-level rate limiting и upload locations задаются в `config/routes.yml`; routes с `has_auth_endpoints: true` дополнительно получают более строгий limit для `/auth`, `/login`, `/token` и похожих endpoint'ов.

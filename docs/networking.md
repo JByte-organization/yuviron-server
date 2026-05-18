@@ -231,6 +231,7 @@ nslookup dev.yuviron.com
 nslookup dev-backoffice.yuviron.com
 nslookup dev-admin.yuviron.com
 nslookup dev-api.yuviron.com
+nslookup dev-i.yuviron.com
 ```
 
 Если всё настроено правильно, домены должны резолвиться в нужный IP. Для новых Tailscale-подключений этот шаг обычно не нужен, если только Windows CoreDNS не используется как optional DNS endpoint внутри Tailnet.

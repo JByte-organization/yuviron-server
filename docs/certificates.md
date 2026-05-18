@@ -95,6 +95,7 @@ dev-admin.yuviron.com
 dev-api.yuviron.com
 dev-seq.yuviron.com
 dev-aspire.yuviron.com
+dev-i.yuviron.com
 ```
 
 В `per-route` режиме `mkcert` всё равно выпускает общий SAN-сертификат, а затем раскладывает его копии в per-route пути вида:

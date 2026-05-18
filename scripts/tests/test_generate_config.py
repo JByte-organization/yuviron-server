@@ -96,6 +96,9 @@ class GenerateConfigTests(unittest.TestCase):
             self.assertIn("GENERATION_EXTRA_ROUTES=", manifest_env)
             self.assertIn("allow 10.8.0.0/24;", nginx_conf)
             self.assertIn("limit_req zone=api_auth burst=3 nodelay;", nginx_conf)
+            self.assertIn("i|dev-i.example.com|backend:5073", (output_dir / "routes.env").read_text(encoding="utf-8"))
+            self.assertIn("server_name dev-i.example.com;", nginx_conf)
+            self.assertNotIn("server_name i.dev.example.com;", nginx_conf)
             self.assertNotIn("YV_DEV_ASPIRE_2026", deploy_env)
 
     def test_prod_generate_config_maps_routes_to_per_route_certificates(self) -> None:
@@ -140,6 +143,8 @@ class GenerateConfigTests(unittest.TestCase):
             self.assertIn("default /etc/nginx/certs/prod-example.com.pem;", nginx_conf)
             self.assertIn("api.example.com /etc/nginx/certs/prod/api.example.com.pem;", nginx_conf)
             self.assertIn("api.example.com /etc/nginx/certs/prod/api.example.com-key.pem;", nginx_conf)
+            self.assertIn("i.example.com /etc/nginx/certs/prod/i.example.com.pem;", nginx_conf)
+            self.assertIn("i.example.com /etc/nginx/certs/prod/i.example.com-key.pem;", nginx_conf)
             self.assertNotIn("/etc/nginx/certs/shared", nginx_conf)
             self.assertNotIn("api.example.com /etc/nginx/certs/prod-example.com.pem;", nginx_conf)
             self.assertNotIn("api.example.com /etc/nginx/certs/prod-example.com-key.pem;", nginx_conf)

@@ -55,6 +55,24 @@ class ConfigLoaderRoutesTests(unittest.TestCase):
         self.assertEqual("api_upload", route.upload_rate_limit_zone)
         self.assertEqual("2", route.upload_rate_limit_burst)
 
+    def test_load_routes_reads_media_proxy_subdomain_strategy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            routes_file = Path(temp_dir) / "routes.yml"
+            routes_file.write_text(
+                "routes:\n"
+                "  i:\n"
+                "    target: backend:5073\n"
+                "    host_strategy: subdomain\n"
+                "    media_proxy: true\n",
+                encoding="utf-8",
+            )
+
+            routes = load_routes(routes_file)
+
+        route = routes["i"]
+        self.assertEqual("subdomain", route.host_strategy)
+        self.assertTrue(route.media_proxy)
+
     def test_load_routes_rejects_non_boolean_has_auth_endpoints(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             routes_file = Path(temp_dir) / "routes.yml"
