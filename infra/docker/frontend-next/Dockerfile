@@ -21,8 +21,10 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store,sharing=locked \
 FROM deps AS build
 ARG APP_NAME
 RUN test -n "$APP_NAME"
+COPY orval.config.ts ./
 COPY apps ./apps
 COPY packages ./packages
+RUN pnpm api:gen
 RUN pnpm turbo run build --filter="${APP_NAME}..."
 
 FROM node:20-alpine AS runtime
