@@ -8,9 +8,9 @@ Preferred-доступ через Tailscale, legacy compatibility через Rad
 
 Dev-инфраструктура разделяет приватный access layer и локальный DNS endpoint. Короткая архитектурная маркировка:
 
-* **RadminVPN** — legacy compatibility для существующих рабочих мест, старых маршрутов и `radmin_setup.bat`.
-* **Tailscale** — preferred private access layer для новых устройств, SSH и прямого доступа к Linux VM через Tailnet.
-* **CoreDNS on Windows** — optional local DNS endpoint для dev-доменов, если нужен резолвинг `*.yuviron.com` через Windows host.
+* **RadminVPN** - legacy compatibility для существующих рабочих мест, старых маршрутов и `radmin_setup.bat`.
+* **Tailscale** - preferred private access layer для новых устройств, SSH и прямого доступа к Linux VM через Tailnet.
+* **CoreDNS on Windows** - optional local DNS endpoint для dev-доменов, если нужен резолвинг `*.yuviron.com` через Windows host.
 
 Это не три обязательных слоя, которые нужно включать одновременно для каждого разработчика. Для новых подключений базовым выбором считается Tailscale. RadminVPN сохраняется, чтобы не ломать существующие рабочие места, а CoreDNS на Windows включается только там, где нужен локальный DNS endpoint для legacy RadminVPN-схемы или Tailnet Split DNS.
 
@@ -82,7 +82,7 @@ Tailscale-режим особенно полезен, если:
 
 ## Настройка CoreDNS на Windows (optional)
 
-**CoreDNS on Windows** — optional local DNS endpoint, а не обязательная часть private access layer. Используй его, если dev-среда работает через Windows host с отдельным DNS, например для RadminVPN legacy compatibility или Tailnet Split DNS.
+**CoreDNS on Windows** - optional local DNS endpoint, а не обязательная часть private access layer. Используй его, если dev-среда работает через Windows host с отдельным DNS, например для RadminVPN legacy compatibility или Tailnet Split DNS.
 
 Corefile не нужно редактировать руками: он должен генерироваться из `generated/<env>/routes.env`, чтобы DNS всегда совпадал с nginx routes.
 
@@ -148,8 +148,8 @@ coredns.exe -conf Corefile
 
 Нужно открыть оба протокола:
 
-* **UDP 53** — стандартные DNS-запросы
-* **TCP 53** — большие DNS-ответы и fallback resolution
+* **UDP 53** - стандартные DNS-запросы
+* **TCP 53** - большие DNS-ответы и fallback resolution
 
 PowerShell:
 

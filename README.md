@@ -5,7 +5,7 @@
 Коротко о текущей схеме:
 
 * единый `infra/compose.yml` для dev/prod;
-* основной интерфейс управления — `scripts/cli.py`;
+* основной интерфейс управления - `scripts/cli.py`;
 * source of truth хранится в `config/` и `env/`;
 * runtime-файлы генерируются в `generated/<env>/`;
 * `env/example.env` и `env/common.env` трекаются как шаблоны;
@@ -41,7 +41,7 @@ https://dev-api.yuviron.com
 https://dev-i.yuviron.com
 ```
 
-Сетевой доступ к dev-среде: **Tailscale** — preferred private access layer, **RadminVPN** — legacy compatibility, **CoreDNS on Windows** — optional local DNS endpoint. Подробнее: [docs/networking.md](docs/networking.md).
+Сетевой доступ к dev-среде: **Tailscale** - preferred private access layer, **RadminVPN** - legacy compatibility, **CoreDNS on Windows** - optional local DNS endpoint. Подробнее: [docs/networking.md](docs/networking.md).
 
 ### Prod
 
@@ -94,19 +94,34 @@ python3 -m unittest discover -s scripts/tests
 
 ## Документация
 
-* [Индекс документации](docs/index.md)
-* [Обзор и архитектура](docs/overview.md)
-* [Подробная архитектура](docs/architecture.md)
-* [CLI и команды](docs/commands.md)
-* [Operations и запуск стека](docs/operations.md)
-* [Runtime-конфигурация](docs/runtime-config.md)
-* [Подготовка сервера](docs/server-setup.md)
-* [Бэкапы](docs/backups.md)
-* [Сертификаты](docs/certificates.md)
-* [Dev-доступ и сети](docs/networking.md)
-* [CI/CD и self-hosted runner](docs/cicd.md)
-* [Тесты](docs/tests.md)
-* [Репозиторий, роли и безопасность](docs/repository.md)
+### С чего начать
+
+* [Первый запуск](docs/getting-started.md) - от клонирования до работающего стека
+* [Диагностика](docs/troubleshooting.md) - что делать, если что-то пошло не так
+
+### Эксплуатация
+
+* [Operations и запуск стека](docs/operations.md) - deploy, restart, smoke, hard reset
+* [CLI и команды](docs/commands.md) - полный справочник команд
+* [Ротация паролей](docs/passwords.md) - nginx Basic Auth, Seq, Aspire, MySQL, RabbitMQ
+* [Бэкапы](docs/backups.md) - резервное копирование и восстановление
+* [Сертификаты](docs/certificates.md) - mkcert, Let's Encrypt, reload
+
+### Конфигурация и архитектура
+
+* [Переменные окружения и nginx](docs/env.md) - env-настройки, nginx, TLS, маршруты, сборка
+* [Архитектура](docs/architecture.md) - рабочая схема, компоненты, security boundaries
+
+### Инфраструктура
+
+* [Подготовка сервера](docs/getting-started.md) - требования, Docker, клонирование
+* [Dev-доступ и сети](docs/networking.md) - Tailscale, RadminVPN, CoreDNS, portproxy
+* [CI/CD и self-hosted runner](docs/cicd.md) - GitHub Actions, установка runner
+
+### Разработка
+
+* [Тесты](docs/tests.md) - запуск тестов, принципы, dry-run e2e
+* [Репозиторий, роли и безопасность](docs/repository.md) - структура, роли, правила
 
 ## Структура
 

@@ -1,8 +1,22 @@
 # Архитектура
 
-Рабочая схема инфраструктуры Yuviron: доступ разработчиков, DNS, edge routing, приложения, сервисы данных, observability и runtime generation.
+Назначение репозитория, рабочая схема инфраструктуры Yuviron: доступ разработчиков, DNS, edge routing, приложения, сервисы данных, observability и runtime generation.
 
 [← К README](../README.md)
+
+## Назначение репозитория
+
+Репозиторий используется для развёртывания и поддержки инфраструктуры Yuviron.
+
+Основная цель - **единая инфраструктурная схема**:
+
+* dev и prod не являются двумя полностью разными системами
+* существует один общий базовый слой инфраструктуры
+* различия между окружениями задаются только через конфигурацию
+
+Репозиторий охватывает: подготовку сервера, установку Docker, настройку env/сертификатов/маршрутизации, запуск dev/prod окружений, preflight-проверки, настройку self-hosted GitHub Actions runner, CI/CD, подключение разработчиков.
+
+---
 
 ## Главное
 
@@ -10,12 +24,12 @@
 
 Ключевая идея:
 
-* **Tailscale** — preferred private access layer для dev.
-* **RadminVPN** — legacy compatibility для старых рабочих мест.
-* **CoreDNS on Windows** — optional local DNS endpoint, а не отдельный access layer.
-* **Nginx Edge** — единственная входная точка HTTP/HTTPS в Docker-стек.
-* **MySQL / Redis / RabbitMQ** — внутренние сервисы данных, не публикуются наружу.
-* **Seq / Aspire** — internal observability, внешние dev routes защищены Basic Auth.
+* **Tailscale** - preferred private access layer для dev.
+* **RadminVPN** - legacy compatibility для старых рабочих мест.
+* **CoreDNS on Windows** - optional local DNS endpoint, а не отдельный access layer.
+* **Nginx Edge** - единственная входная точка HTTP/HTTPS в Docker-стек.
+* **MySQL / Redis / RabbitMQ** - внутренние сервисы данных, не публикуются наружу.
+* **Seq / Aspire** - internal observability, внешние dev routes защищены Basic Auth.
 
 ---
 
@@ -117,7 +131,7 @@ CoreDNS on Windows нужен только если локальный DNS endpo
 
 ## Edge routing
 
-Source of truth для маршрутов — `config/routes.yml`. Runtime-представление лежит в `generated/<env>/routes.env`, а итоговый nginx config — в `generated/<env>/nginx.conf`.
+Source of truth для маршрутов - `config/routes.yml`. Runtime-представление лежит в `generated/<env>/routes.env`, а итоговый nginx config - в `generated/<env>/nginx.conf`.
 
 Типичные dev routes:
 
@@ -135,7 +149,7 @@ dev-i.yuviron.com          -> backend:5073 через /i/<hash>, cached media ed
 
 * `client`, `admin`, `backoffice` идут в frontend containers.
 * `api` идёт в backend на `5073`.
-* `dev-i.yuviron.com` / `i.yuviron.com` — отдельный media CDN route: публичный URL содержит только immutable hash, nginx переписывает запрос во внутренний backend endpoint `/i/<hash>` и кэширует успешные ответы на год.
+* `dev-i.yuviron.com` / `i.yuviron.com` - отдельный media CDN route: публичный URL содержит только immutable hash, nginx переписывает запрос во внутренний backend endpoint `/i/<hash>` и кэширует успешные ответы на год.
 * `seq` и `aspire` считаются management routes и получают HTTP Basic Auth плюс `NGINX_ADMIN_ALLOWLIST`.
 * `/health` обслуживается самим edge nginx для healthcheck и smoke.
 * Route-level rate limiting и upload locations задаются в `config/routes.yml`; routes с `has_auth_endpoints: true` дополнительно получают более строгий limit для `/auth`, `/login`, `/token` и похожих endpoint'ов.
@@ -186,11 +200,11 @@ migrator
 
 Persisted state:
 
-* `mysql_data` — MySQL data volume.
-* `redis_data` — Redis appendonly data volume.
-* `rabbitmq_data` — RabbitMQ data volume.
-* `${STORAGE_PATH}` — файловое хранилище приложения.
-* `${SEQ_STORAGE_PATH}` — Seq storage.
+* `mysql_data` - MySQL data volume.
+* `redis_data` - Redis appendonly data volume.
+* `rabbitmq_data` - RabbitMQ data volume.
+* `${STORAGE_PATH}` - файловое хранилище приложения.
+* `${SEQ_STORAGE_PATH}` - Seq storage.
 
 ---
 
@@ -298,8 +312,9 @@ Internal Docker network
 
 ## Связанные документы
 
+* [Первый запуск](getting-started.md)
 * [Dev-доступ и сети](networking.md)
-* [Runtime-конфигурация](runtime-config.md)
+* [Переменные окружения и nginx](env.md)
 * [Operations и запуск стека](operations.md)
 * [CLI и команды](commands.md)
 * [CI/CD и self-hosted runner](cicd.md)

@@ -1,10 +1,10 @@
 # Operations и запуск стека
 
-Сценарии запуска, preflight, запуск dev/prod, ручной Docker Compose и проверка контейнеров.
+Ежедневные операции: preflight, запуск/остановка/обновление стека, ручной Docker Compose и проверка контейнеров.
 
 [← К README](../README.md)
 
-## 🧱 STACK
+## STACK
 
 ### Doctor
 
@@ -28,21 +28,24 @@
 ./scripts/cli.py stack preflight dev --dry-run
 ```
 
-Проверяет:
+Проверяет: Docker, env-файлы, env safety policy для prod/dev, сеть, права доступа, nginx конфигурацию, compose конфигурацию, свежесть generated-файлов, валидность значений маршрутов и соответствие upstream services compose-конфигурации. В `--strict` режиме дополнительно проверяет weak/default secrets; для `prod` такие значения блокируют preflight.
 
-* Docker
-* env-файлы
-* env safety policy для prod/dev
-* weak/default secrets в strict-режиме; для `prod` такие значения блокируют preflight
-* сеть
-* права доступа
-* nginx конфигурацию
-* compose конфигурацию
-* свежесть generated-файлов через `generated/<env>/manifest.env`
-* валидность значений маршрутов для nginx: host, upstream `service:port`, диапазон портов, `client_max_body_size`, `has_auth_endpoints`, rate-limit и upload-настройки
-* соответствие upstream services из `routes.env` сервисам полной compose-конфигурации
+Если `generated/<env>/manifest.env` устарел, `preflight dev` автоматически пересобирает generated config и повторяет проверку. Для `prod` нужно явное разрешение:
 
-Если `generated/<env>/manifest.env` устарел после обновления source-файлов, `preflight dev` автоматически пересобирает generated config и повторяет проверку. Для `prod` это поведение включается только явно: `./scripts/cli.py stack preflight prod --allow-regenerate` или `ALLOW_REGENERATE=1`.
+```bash
+./scripts/cli.py stack preflight prod --allow-regenerate
+# или
+ALLOW_REGENERATE=1 ./scripts/cli.py stack preflight prod
+```
+
+Для CI/e2e-проверки без запуска контейнеров:
+
+```bash
+./scripts/cli.py stack preflight dev --dry-run
+./scripts/cli.py stack up dev --dry-run
+```
+
+`preflight --dry-run` выполняет обычные файловые/env/compose проверки, но моделирует container-start часть через `docker compose --dry-run` и пропускает runtime-проверки, которым нужен реально запущенный контейнер.
 
 ---
 
@@ -53,6 +56,8 @@
 ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
 ```
 
+Перед основным `up` CLI запускает EF Core migrator как one-off compose run через profile `migrate`. `--skip-migrate` оставлен для аварийных случаев, когда нужно поднять сервисы без DB migration step.
+
 ---
 
 ### Остановка
@@ -60,15 +65,6 @@ ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
 ```bash
 ./scripts/cli.py stack down dev
 ./scripts/cli.py stack down prod
-```
-
----
-
-### Перезапуск
-
-```bash
-./scripts/cli.py stack down dev
-./scripts/cli.py stack up dev
 ```
 
 ---
@@ -86,39 +82,25 @@ ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
 * наличие обязательных сервисов `mysql`, `redis`, `rabbitmq`, `backend`, `nginx`
 * health/status core services и readiness backend внутри контейнера
 * HTTPS `/health` для каждого host из `generated/<env>/routes.env` через локальный `curl --resolve ... 127.0.0.1`
-* smoke paths по типу маршрута: для `api` — `/health/ready`, для management routes (`seq`, `aspire` и т.п.) — `/health`, для остальных маршрутов — `/`
+* smoke paths по типу маршрута: для `api` - `/health/ready`, для management routes (`seq`, `aspire` и т.п.) - `/health`, для остальных - `/`
 
 Если `HTTP_PORT`/`HTTPS_PORT` нестандартные, smoke предупреждает, что браузерные URL без явного порта требуют `HTTPS_PORT=443` или внешний portproxy/reverse proxy.
 
 ---
 
-## 🔍 Сценарии
-
-### Первый запуск (dev)
+### Инвалидация media CDN кэша
 
 ```bash
-cp env/example.env env/dev.env
-
-python3 scripts/init.py --env dev --domain yuviron.com --no-up
-./scripts/cli.py stack preflight dev
-./scripts/cli.py stack up dev
-./scripts/cli.py stack smoke dev
+./scripts/cli.py stack cache-purge dev
+./scripts/cli.py stack cache-purge prod --path /abc123guid
+./scripts/cli.py stack cache-purge prod --yes
 ```
+
+Подробнее: [commands.md](commands.md#инвалидация-media-cdn-кэша).
 
 ---
 
-### Первый запуск (prod)
-
-```bash
-cp env/example.env env/prod.env
-
-python3 scripts/init.py --env prod --domain yuviron.com --no-up
-./scripts/cli.py stack preflight prod
-ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
-./scripts/cli.py stack smoke prod
-```
-
----
+## Сценарии
 
 ### Обновление (deploy)
 
@@ -138,127 +120,38 @@ git pull
 ./scripts/cli.py stack down prod
 ./scripts/cli.py backup verify
 ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
+./scripts/cli.py stack smoke prod
 ```
+
+Перед `stack up` убедиться, что backup актуален: `./scripts/cli.py backup verify --full`.
 
 ---
 
-### Hard reset
+### Hard reset (dev)
 
 ```bash
 ./scripts/cli.py stack down dev
 ./scripts/cli.py tools docker-clean --mode safe
-
 ./scripts/cli.py stack up dev
 ```
 
 ---
 
-## ⚠️ Best Practices
+## Best Practices
 
 * Всегда запускать `preflight` перед `up`
-* Проверять env перед запуском prod
+* Проверять env перед запуском prod (`stack preflight prod --strict`, `security audit prod --strict`)
 * Делать backup перед обновлениями
-* Учитывать, что `backup create` запускает restore-test MySQL-дампов; для полного сценария дополнительно использовать `backup verify --full`
+* `backup create` запускает restore-test MySQL-дампов; для полного сценария дополнительно использовать `backup verify --full`
 * Не запускать CLI от root без необходимости
 
-Seq запускается non-root под `${SEQ_UID:-1000}:${SEQ_GID:-1000}`. Права для bind-mounted `${SEQ_STORAGE_PATH}` готовятся на хосте командами `stack up` и `preflight`: каталог создаётся заранее и проверяется на доступность для runtime uid/gid Seq, поэтому отдельный root-контейнер для `chown` не нужен.
-Если запускаешь Docker Compose напрямую в обход CLI, подготовь каталог на хосте заранее, например `sudo chown -R ${SEQ_UID:-1000}:${SEQ_GID:-1000} <SEQ_STORAGE_PATH>` или эквивалентными правами на директорию.
-У живого Seq включён `cap_drop: ALL`; оставлен только `NET_BIND_SERVICE`, чтобы non-root процесс мог слушать порт `80` внутри контейнера.
-
----
-
-## Preflight-проверка
-
-Перед запуском окружения рекомендуется выполнять preflight-проверку.
-
-### Dev
-
-```bash
-./scripts/cli.py stack preflight dev
-```
-
-### Prod
-
-```bash
-./scripts/cli.py stack preflight prod
-```
-
-Скрипт проверяет:
-
-* наличие обязательных файлов и директорий
-* доступ к Docker
-* наличие env-файла
-* runtime env по `env/schema.json`: обязательные ключи, базовые форматы, warning для неизвестных ключей и safety policy для prod (`MYSQL_ROOT_PASSWORD=root`, `Swagger__Enabled=true`, `ASPNETCORE_ENVIRONMENT=Development`, короткие token/API key/secret значения)
-* права на storage
-* свободное место на диске
-* наличие сети `yuviron_shared`
-* валидность compose-конфигурации
-* свежесть generated-файлов по `generated/<env>/manifest.env`
-* валидность route hosts, upstreams и client body limits перед nginx validation
-* наличие route hosts в `generated/<env>/nginx.conf`
-* соответствие upstream services из `routes.env` сервисам compose
-* синтаксис nginx через `nginx -t`
-
-Для `dev` stale generated-файлы исправляются прямо внутри preflight: CLI не заходит в интерактивный `init.py`, а запускает `generate-config.py` с параметрами из `manifest.env` или уже сгенерированных `stack.env`/`apps.env`. Для `prod` preflight падает на stale config, пока не передан `--allow-regenerate` или `ALLOW_REGENERATE=1`.
-
-Это позволяет обнаружить типовые проблемы **до запуска контейнеров**.
-
-Для проверки без вмешательства в основной compose project:
-
-```bash
-./scripts/cli.py stack preflight dev --isolated
-```
-
-Для CI/e2e-проверки без запуска контейнеров:
-
-```bash
-./scripts/cli.py stack preflight dev --dry-run
-./scripts/cli.py stack up dev --dry-run
-```
-
-`preflight --dry-run` выполняет обычные файловые/env/compose проверки, но моделирует container-start часть через `docker compose --dry-run` и пропускает runtime-проверки, которым нужен реально запущенный контейнер (`nginx -t` внутри контейнера и backend storage probe).
-
-Для `prod` рекомендуется запускать `stack preflight prod --strict`: strict-режим дополнительно включает проверку weak/default secrets и блокирует preflight, если секреты похожи на дефолтные, dev/template значения или слишком короткие production password/pass значения.
-
----
-
-## Запуск инфраструктуры
-
-### Dev
-
-Запуск:
-
-```bash
-cd /opt/yuviron-server
-./scripts/cli.py stack up dev
-```
-
-Остановка:
-
-```bash
-./scripts/cli.py stack down dev
-```
-
-### Prod
-
-Запуск:
-
-```bash
-cd /opt/yuviron-server
-ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
-```
-
-Остановка:
-
-```bash
-./scripts/cli.py stack down prod
-```
+Seq запускается non-root под `${SEQ_UID:-1000}:${SEQ_GID:-1000}`. Права для bind-mounted `${SEQ_STORAGE_PATH}` готовятся командами `stack up` и `preflight`. Если запускаешь Docker Compose напрямую в обход CLI, подготовь каталог заранее: `sudo chown -R ${SEQ_UID:-1000}:${SEQ_GID:-1000} <SEQ_STORAGE_PATH>`. У живого Seq включён `cap_drop: ALL`; оставлен только `NET_BIND_SERVICE`, чтобы non-root процесс мог слушать порт `80` внутри контейнера.
 
 ---
 
 ## Ручной запуск через Docker Compose
 
-При необходимости можно запускать окружения вручную через compose.
+При необходимости можно запускать окружения вручную.
 
 ### Dev
 
@@ -291,23 +184,19 @@ docker compose \
 * `yuviron-dev`
 * `yuviron-prod`
 
-Это позволяет:
-
-* изолировать dev и prod
-* исключить конфликты имён контейнеров, сетей и volume
-* независимо управлять окружениями
+Это изолирует dev и prod, исключает конфликты имён контейнеров/сетей/volumes и позволяет независимо управлять окружениями.
 
 ---
 
 ## Проверка контейнеров
 
-Общий просмотр контейнеров:
+Общий просмотр:
 
 ```bash
 docker ps
 ```
 
-Проверка compose-стека dev:
+Проверка через compose:
 
 ```bash
 docker compose \
@@ -318,18 +207,7 @@ docker compose \
   ps
 ```
 
-Проверка compose-стека prod:
-
-```bash
-docker compose \
-  --env-file ./generated/prod/deploy.env \
-  -f ./infra/compose.yml \
-  -f ./generated/prod/compose.frontends.yml \
-  -p yuviron-prod \
-  ps
-```
-
-Ожидаемо в активном состоянии могут быть контейнеры примерно такого типа:
+Ожидаемые контейнеры запущенного стека:
 
 ```text
 nginx
@@ -345,7 +223,7 @@ seq
 aspire-dashboard
 ```
 
-Отдельный `migrator` запускается как one-off команда через compose profile `migrate` перед `stack up` и обычно не отображается в списке активных контейнеров. Для `ASPNETCORE_ENVIRONMENT=Production` скрипт требует явный override `ALLOW_PRODUCTION_MIGRATE=true`; без него контейнер падает до EF Core-команд. Успешный exit code включает post-check: после `dotnet ef database update` запускается `dotnet ef migrations list`, и контейнер падает, если остаются pending migrations. При необходимости миграции можно запустить явно:
+Отдельный `migrator` запускается как one-off команда через compose profile `migrate` перед `stack up` и обычно не отображается в списке активных контейнеров. При необходимости миграции можно запустить явно:
 
 ```bash
 ./scripts/cli.py stack migrate dev
@@ -353,3 +231,11 @@ ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack migrate prod
 ```
 
 ---
+
+## Связанные документы
+
+* [Первый запуск](getting-started.md)
+* [Справочник команд](commands.md)
+* [Диагностика](troubleshooting.md)
+* [Ротация паролей](passwords.md)
+* [Бэкапы](backups.md)

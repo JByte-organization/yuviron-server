@@ -4,9 +4,9 @@
 
 Архитектурно есть три разные роли:
 
-* **Tailscale** — preferred private access layer для новых устройств.
-* **RadminVPN** — legacy compatibility для существующих рабочих мест.
-* **CoreDNS on Windows** — optional local DNS endpoint для dev-доменов.
+* **Tailscale** - preferred private access layer для новых устройств.
+* **RadminVPN** - legacy compatibility для существующих рабочих мест.
+* **CoreDNS on Windows** - optional local DNS endpoint для dev-доменов.
 
 Новые подключения лучше заводить через Tailscale. RadminVPN-инструкция ниже оставлена для совместимости со старой схемой и `radmin_setup.bat`.
 
