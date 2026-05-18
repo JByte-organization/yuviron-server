@@ -4,18 +4,6 @@
 
 [← К README](../README.md)
 
-## 🔐 CERTS
-
-### Генерация
-
-```bash
-./scripts/cli.py certs generate --provider mkcert --env dev --domain yuviron.com
-./scripts/cli.py certs generate --provider letsencrypt --env prod --domain yuviron.com --email ops@yuviron.com
-./scripts/cli.py certs renew --env prod --domain yuviron.com
-```
-
----
-
 ## Сертификаты
 
 Сертификаты хранятся в директории:
@@ -28,10 +16,10 @@ certs/
 
 `infra/compose.yml` монтирует весь каталог `certs/` в nginx как `/etc/nginx/certs`. Конкретные файлы выбираются в сгенерированном `generated/<env>/nginx.conf`:
 
-* `NGINX_CERT_MODE=shared` — один общий SAN/wildcard certificate для всех route hosts.
-* `NGINX_CERT_MODE=per-route` — каждый route host получает отдельную пару cert/key через nginx `map $ssl_server_name ...`.
+* `NGINX_CERT_MODE=shared` - один общий SAN/wildcard certificate для всех route hosts.
+* `NGINX_CERT_MODE=per-route` - каждый route host получает отдельную пару cert/key через nginx `map $ssl_server_name ...`.
 
-По умолчанию `dev` генерируется в режиме `shared`, `prod` — в режиме `per-route`. Общий cert/key из `CERT_FILE` и `KEY_FILE` остаётся default/fallback сертификатом для default HTTPS server и healthcheck.
+По умолчанию `dev` генерируется в режиме `shared`, `prod` - в режиме `per-route`. Общий cert/key из `CERT_FILE` и `KEY_FILE` остаётся default/fallback сертификатом для default HTTPS server и healthcheck.
 
 Генерация через CLI:
 

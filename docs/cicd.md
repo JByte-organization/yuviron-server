@@ -87,7 +87,7 @@ Runner создаётся на уровне организации.
 Открыть:
 
 ```text
-GitHub → Organization → Settings → Actions → Runners
+GitHub -> Organization -> Settings -> Actions -> Runners
 ```
 
 Нажать:
@@ -183,7 +183,7 @@ sudo ./svc.sh status
 Открыть:
 
 ```text
-GitHub → Organization → Settings → Actions → Runners
+GitHub -> Organization -> Settings -> Actions -> Runners
 ```
 
 Runner должен иметь статус:

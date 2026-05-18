@@ -4,33 +4,6 @@
 
 [← К README](../README.md)
 
-## 💾 BACKUP
-
-### Создание
-
-```bash
-./scripts/cli.py backup create
-```
-
-### Проверка восстановления
-
-```bash
-./scripts/cli.py backup verify
-./scripts/cli.py backup verify --full
-./scripts/cli.py backup restore-test dev
-```
-
-### Полный цикл
-
-```bash
-./scripts/cli.py backup create
-./scripts/cli.py backup verify --full
-```
-
-`backup create` по умолчанию уже запускает logical restore-test для MySQL-дампов, попавших в свежий архив. `backup verify --full` остаётся отдельной более тяжёлой проверкой полного restore-сценария.
-
----
-
 ## Бэкапы
 
 В инфраструктуре реализована система резервного копирования.
@@ -80,7 +53,8 @@ BACKEND_SERVICE_NAME=backend
 ./scripts/cli.py backup verify
 ./scripts/cli.py backup verify --full
 ./scripts/cli.py backup restore-test dev
-./scripts/cli.py backup restore --env dev --archive backups/archives/<archive>.tar.gz
+./scripts/cli.py backup restore-test dev --archive backups/archives/<archive>.tar.gz
+./scripts/cli.py backup restore --env dev --archive backups/archives/<archive>.tar.gz --force
 ./scripts/cli.py tools setup-cron
 ```
 
@@ -116,7 +90,24 @@ BACKUP_RESTORE_TEST_AFTER_CREATE=0
 
 ```bash
 ./scripts/cli.py backup verify
+./scripts/cli.py backup verify --full
+./scripts/cli.py backup verify --archive backups/archives/<archive>.tar.gz
 ```
+
+По умолчанию берёт последний архив из `backups/archives/`. Что проверяется:
+
+* целостность архива как `tar.gz`
+* наличие и валидность `metadata.json` - предупреждения в metadata означают неполный backup
+* `deploy.env` - обязательный ключ `COMPOSE_PROJECT_NAME`
+* `routes.env` - наличие `client` маршрута
+* `mysql.sql.gz` - gzip-целостность дампа
+* `storage.tar.gz` - целостность tar-архива хранилища
+* `volume_redis_data.tar.gz` - наличие непустого AOF/RDB файла внутри
+
+Флаги:
+
+* `--full` - дополнительно поднимает временный `mysql:8.4` и импортирует каждый MySQL dump в отдельную базу, затем проверяет минимум восстановленных таблиц; аналогичен `restore-test`, но обходит все окружения из архива
+* `--archive <path>` - явно указать архив вместо последнего
 
 ### Restore-test MySQL dump
 
@@ -133,11 +124,31 @@ BACKUP_RESTORE_TEST_AFTER_CREATE=0
 ./scripts/cli.py backup restore-test dev --min-tables 5
 ```
 
+### Полное восстановление из архива
+
+```bash
+./scripts/cli.py backup restore --env dev --archive backups/archives/<archive>.tar.gz --force
+./scripts/cli.py backup restore --env prod --archive backups/archives/<archive>.tar.gz --force
+```
+
+Полное деструктивное восстановление окружения: останавливает compose-стек, восстанавливает MySQL dump, storage и named volumes (`mysql_data`, `redis_data`, `rabbitmq_data`) из указанного архива. Флаг `--force` обязателен - команда не запустится без явного подтверждения намерения. `--env` и `--archive` можно не передавать: CLI спросит интерактивно.
+
+Перед полным restore рекомендуется проверить архив через `backup verify --full`.
+
+---
+
 ### Автоматизация (cron)
 
 ```bash
 ./scripts/cli.py tools setup-cron
 ```
+
+Интерактивный скрипт. Задаёт вопросы о расписании и устанавливает в crontab два задания:
+
+* `backup create` - ежедневно в заданное время; по умолчанию `03:15`
+* `backup verify` - еженедельно в заданный день/время; по умолчанию воскресенье `05:00`
+
+Логи пишутся в `backups/logs/cron-backup.log` и `backups/logs/cron-restore-test.log`. Повторный запуск заменяет предыдущие cron-строки проекта без дублей.
 
 ### Off-site copy
 
@@ -154,6 +165,8 @@ BACKUP_REMOTE_PATH=/mnt/yuviron-backups
 ```env
 BACKUP_RETENTION_DAYS=14
 ```
+
+Архивы из `backups/archives/` старше указанного количества дней удаляются автоматически после успешного `backup create` - уже после off-site copy и restore-test. Значение `14` означает хранить две последних недели. Для отключения авторотации выставить большое значение, например `BACKUP_RETENTION_DAYS=365`.
 
 ### Структура
 
