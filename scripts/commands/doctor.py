@@ -192,6 +192,28 @@ def _check_compose_plugin() -> str:
     return (result.stdout or "Docker Compose plugin is available").strip()
 
 
+_MAGICDNS_RESOLVER = "100.100.100.100"
+_RESOLV_CONF_PATHS = (
+    Path("/run/systemd/resolve/resolv.conf"),
+    Path("/etc/resolv.conf"),
+)
+
+
+def _check_tailscale_magicdns_not_intercepting() -> None:
+    for path in _RESOLV_CONF_PATHS:
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if _MAGICDNS_RESOLVER in content:
+            fail(
+                f"Tailscale MagicDNS is intercepting system DNS "
+                f"({_MAGICDNS_RESOLVER} found in {path}). "
+                f"This overwrites external DNS resolution and breaks CI/CD. "
+                f"Fix: tailscale set --accept-dns=false"
+            )
+
+
 def _check_tailscale() -> str:
     if shutil.which("tailscale") is None:
         fail("tailscale CLI is not installed or not in PATH")
@@ -210,6 +232,8 @@ def _check_tailscale() -> str:
     ips = [line.strip() for line in (ip_result.stdout or "").splitlines() if line.strip()]
     if ip_result.returncode != 0 or not ips:
         fail("tailscale is running but no IPv4 tailnet address was reported")
+
+    _check_tailscale_magicdns_not_intercepting()
 
     return f"Tailscale is running: {', '.join(ips)}"
 

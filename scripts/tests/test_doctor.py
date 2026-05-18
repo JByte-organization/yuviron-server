@@ -139,6 +139,32 @@ class DoctorTests(unittest.TestCase):
         self.assertTrue(doctor._dns_name_matches("dev.example.com", "*.example.com"))
         self.assertFalse(doctor._dns_name_matches("too.deep.example.com", "*.example.com"))
 
+    def test_tailscale_magicdns_check_fails_when_resolver_in_resolv_conf(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            resolv = Path(tmp) / "resolv.conf"
+            resolv.write_text("nameserver 100.100.100.100\nnameserver 8.8.8.8\n", encoding="utf-8")
+
+            with patch.object(doctor, "_RESOLV_CONF_PATHS", (resolv,)):
+                with self.assertRaises(CommandError) as ctx:
+                    doctor._check_tailscale_magicdns_not_intercepting()
+
+        self.assertIn("accept-dns=false", str(ctx.exception))
+        self.assertIn("100.100.100.100", str(ctx.exception))
+
+    def test_tailscale_magicdns_check_passes_when_resolver_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            resolv = Path(tmp) / "resolv.conf"
+            resolv.write_text("nameserver 1.1.1.1\nnameserver 8.8.8.8\n", encoding="utf-8")
+
+            with patch.object(doctor, "_RESOLV_CONF_PATHS", (resolv,)):
+                doctor._check_tailscale_magicdns_not_intercepting()
+
+    def test_tailscale_magicdns_check_skips_missing_files(self) -> None:
+        missing = Path("/nonexistent/resolv.conf")
+
+        with patch.object(doctor, "_RESOLV_CONF_PATHS", (missing,)):
+            doctor._check_tailscale_magicdns_not_intercepting()
+
 
 if __name__ == "__main__":
     unittest.main()
