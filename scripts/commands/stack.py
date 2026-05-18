@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import shutil
 import subprocess
@@ -28,6 +29,8 @@ from core.validators import CommandError, ensure_command, fail, resolve_prompted
 DEFAULT_ROOT = Path(__file__).resolve().parents[2]
 PREFLIGHT_CLEANUP_MOUNT = "/preflight-cleanup"
 MIGRATOR_PROFILE = "migrate"
+NGINX_MEDIA_CACHE_DIR = "/var/cache/nginx/yuviron_media"
+NGINX_MEDIA_ROUTE_NAME = "i"
 MIGRATOR_SERVICE = "migrator"
 
 
@@ -490,6 +493,36 @@ def _show_compose_ps(context: ComposeContext) -> None:
     print()
 
 
+def _confirm_production_migrate(context: ComposeContext) -> None:
+    runtime_values = parse_env_file(context.runtime_env)
+    allow_flag = runtime_values.get("ALLOW_PRODUCTION_MIGRATE", "false")
+
+    if allow_flag == "true":
+        log_warn("ALLOW_PRODUCTION_MIGRATE=true - running EF Core migrations on PRODUCTION")
+        return
+
+    if not sys.stdin.isatty():
+        raise CommandError(
+            "Production migrations require ALLOW_PRODUCTION_MIGRATE=true in env/prod.env"
+        )
+
+    print()
+    log_warn("=" * 60)
+    log_warn("  PRODUCTION DATABASE MIGRATION")
+    log_warn("  This will apply EF Core migrations to the production DB.")
+    log_warn("  Ensure you have a current backup before proceeding.")
+    log_warn("=" * 60)
+    print()
+    try:
+        answer = input("  Type 'yes, migrate production' to confirm: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        raise CommandError("Migration cancelled")
+    if answer != "yes, migrate production":
+        raise CommandError("Migration cancelled: confirmation phrase did not match")
+    print()
+
+
 def _run_migrator(context: ComposeContext, *, dry_run: bool = False) -> None:
     if dry_run:
         log_info("Validating EF Core migrator compose plan in dry-run mode")
@@ -506,6 +539,9 @@ def _run_migrator(context: ComposeContext, *, dry_run: bool = False) -> None:
         )
         return
 
+    if context.environment == "prod":
+        _confirm_production_migrate(context)
+
     log_info("Running EF Core migrations")
     run_compose(
         context,
@@ -519,6 +555,60 @@ def _run_migrator(context: ComposeContext, *, dry_run: bool = False) -> None:
         MIGRATOR_SERVICE,
     )
     log_ok("EF Core migrations completed")
+
+
+def _media_route_host(root_dir: Path, environment: str) -> str:
+    routes_file = root_dir / "generated" / environment / "routes.env"
+    if not routes_file.is_file():
+        fail(f"routes.env not found: {routes_file}. Run generate-config first.")
+    for name, host, _ in parse_routes_file(routes_file):
+        if name == NGINX_MEDIA_ROUTE_NAME:
+            return host
+    fail(f"No media proxy route ('{NGINX_MEDIA_ROUTE_NAME}') found in routes.env")
+
+
+def cmd_cache_purge(args: argparse.Namespace) -> int:
+    environment = resolve_prompted_environment(args.environment)
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+    context = create_compose_context(root_dir, environment, ensure_generated=False)
+    nginx_container = f"{context.compose_project_name}-nginx"
+
+    path: str = (args.path or "").strip()
+    if path:
+        if not path.startswith("/"):
+            path = "/" + path
+        host = _media_route_host(root_dir, environment)
+        cache_key = f"https{host}{path}"
+        md5 = hashlib.md5(cache_key.encode()).hexdigest()
+        log_info(f"Purging cache entry: https://{host}{path}")
+        result = run(
+            ["docker", "exec", nginx_container,
+             "find", NGINX_MEDIA_CACHE_DIR, "-name", md5, "-delete", "-print"],
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            fail(f"Cache purge failed: {(result.stderr or '').strip()}")
+        deleted = (result.stdout or "").strip()
+        if deleted:
+            log_ok(f"Purged cache entry for {path!r}")
+        else:
+            log_warn(f"No cached entry found for {path!r} (already expired or never cached)")
+    else:
+        if not getattr(args, "yes", False):
+            log_warn(f"This will delete ALL files in {NGINX_MEDIA_CACHE_DIR} on container {nginx_container}.")
+            try:
+                answer = input("Type 'yes' to confirm: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                raise CommandError("Cache purge cancelled")
+            if answer != "yes":
+                raise CommandError("Cache purge cancelled")
+        log_info("Purging entire nginx media cache...")
+        run(["docker", "exec", nginx_container,
+             "find", NGINX_MEDIA_CACHE_DIR, "-type", "f", "-delete"])
+        log_ok("Nginx media cache cleared")
+    return 0
 
 
 def cmd_up(args: argparse.Namespace) -> int:
@@ -710,3 +800,15 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     smoke_parser.add_argument("project_root", nargs="?")
     smoke_parser.add_argument("--no-header", action="store_true", help=argparse.SUPPRESS)
     smoke_parser.set_defaults(handler=cmd_smoke)
+
+    cache_purge_parser = stack_sub.add_parser("cache-purge", help="Purge nginx media CDN cache entries")
+    cache_purge_parser.add_argument("environment", nargs="?")
+    cache_purge_parser.add_argument("project_root", nargs="?")
+    cache_purge_parser.add_argument(
+        "--path",
+        default="",
+        metavar="PATH",
+        help="Path of a specific media file to purge (e.g. /abc123def456). Omit to purge entire cache.",
+    )
+    cache_purge_parser.add_argument("-y", "--yes", action="store_true", help="Skip confirmation when purging all")
+    cache_purge_parser.set_defaults(handler=cmd_cache_purge)
