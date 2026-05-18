@@ -30,8 +30,13 @@
         access_log /dev/stdout main;
         error_log  /dev/stderr warn;
 
+        {% if nginx_cert_mode == "per-route" %}
+        ssl_certificate $route_ssl_certificate;
+        ssl_certificate_key $route_ssl_certificate_key;
+        {% else %}
         ssl_certificate {{ route.ssl_certificate }};
         ssl_certificate_key {{ route.ssl_certificate_key }};
+        {% endif %}
 
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
         {% for header in security_headers %}
@@ -41,9 +46,22 @@
         client_max_body_size {{ route.client_max_body_size }};
 
         {% if route.media_proxy %}
-        location ^~ /i/ {
+        location = / {
+            add_header 'Access-Control-Allow-Origin' '*' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, HEAD, OPTIONS' always;
+            add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range' always;
+            add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range' always;
             return 404;
         }
+
+        location ^~ /i/ {
+            add_header 'Access-Control-Allow-Origin' '*' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, HEAD, OPTIONS' always;
+            add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range' always;
+            add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range' always;
+            return 404;
+        }
+
         location / {
             limit_except GET HEAD OPTIONS {
                 deny all;
@@ -63,7 +81,6 @@
                 return 204;
             }
             
-            # Убрали ручной proxy_set_header Host, оставляем только инклуд
             include /etc/nginx/proxy-params.conf;
             
             rewrite ^/(?!health$)(.+)$ /i/$1 break;
@@ -80,8 +97,13 @@
             proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
             proxy_cache_lock on;
             proxy_cache_background_update on;
+            proxy_ignore_headers X-Accel-Expires Expires Cache-Control Set-Cookie Vary;
+            proxy_hide_header Cache-Control;
+            proxy_hide_header Expires;
+            proxy_hide_header Pragma;
+            proxy_hide_header Set-Cookie;
 
-            add_header Cache-Control "public, immutable, max-age=31536000" always;
+            add_header Cache-Control "public, immutable, max-age=31536000";
             add_header X-Cache-Status $upstream_cache_status always;
         }
         {% else %}
