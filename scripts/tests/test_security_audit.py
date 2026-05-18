@@ -20,8 +20,12 @@ class SecurityAuditTests(unittest.TestCase):
     def test_default_nginx_admin_allowlist_uses_private_access_cidrs(self) -> None:
         root = SCRIPTS_ROOT.parent
         common_env = security.parse_env_file(root / "env" / "common.env")
+        example_env = (root / "env" / "example.env").read_text(encoding="utf-8")
 
-        self.assertEqual("100.81.228.0/24", common_env["NGINX_PRIVATE_ACCESS_CIDRS"])
+        # NGINX_PRIVATE_ACCESS_CIDRS must not be hardcoded in common.env (tracked file)
+        self.assertNotIn("NGINX_PRIVATE_ACCESS_CIDRS", common_env)
+        # example.env must document where to set it
+        self.assertIn("NGINX_PRIVATE_ACCESS_CIDRS=", example_env)
         self.assertEqual("127.0.0.1/32,${NGINX_PRIVATE_ACCESS_CIDRS}", common_env["NGINX_ADMIN_ALLOWLIST"])
 
     def test_dotnet_rabbitmq_password_is_derived_from_default_password(self) -> None:
@@ -42,6 +46,30 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertNotIn("YV_DEV_ASPIRE_2026", example_env)
         self.assertNotIn("yv_dev_strong_password_1234", example_env)
         self.assertNotIn("JamendoApi__ClientId=65493600", example_env)
+
+    def test_common_env_contains_no_hardcoded_secrets(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        findings = security._scan_tracked_file_for_secret_assignments(root, "env/common.env")
+        self.assertEqual(
+            [],
+            findings,
+            f"env/common.env contains hardcoded secret-like values: {findings}",
+        )
+
+    def test_prod_and_dev_env_are_not_tracked_by_git(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        result = subprocess.run(
+            ["git", "ls-files", "env/prod.env", "env/dev.env"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(
+            "",
+            result.stdout.strip(),
+            f"env/prod.env or env/dev.env is tracked by git: {result.stdout.strip()}",
+        )
 
     def test_stateful_services_drop_capabilities_where_supported(self) -> None:
         root = SCRIPTS_ROOT.parent
@@ -165,6 +193,16 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertIn("ALLOW_PRODUCTION_MIGRATE=true", migrator_script)
         self.assertIn("Refusing to run EF Core migrations in Production.", migrator_script)
 
+    def test_cli_production_migrate_gate_exists_in_stack(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        stack_source = (root / "scripts" / "commands" / "stack.py").read_text(encoding="utf-8")
+
+        self.assertIn("_confirm_production_migrate", stack_source)
+        self.assertIn("ALLOW_PRODUCTION_MIGRATE", stack_source)
+        self.assertIn("yes, migrate production", stack_source)
+        self.assertIn("sys.stdin.isatty()", stack_source)
+        self.assertIn("context.environment == \"prod\"", stack_source)
+
     def test_nginx_healthcheck_covers_http_and_cert_expiry_without_tls_handshake_probe(self) -> None:
         root = SCRIPTS_ROOT.parent
         compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
@@ -184,15 +222,18 @@ class SecurityAuditTests(unittest.TestCase):
         service = compose["services"]["aspire-dashboard"]
         healthcheck = service["healthcheck"]
 
-        self.assertEqual(
-            {"context": "..", "dockerfile": "infra/docker/aspire-dashboard/Dockerfile"},
-            service["build"],
-        )
-        self.assertEqual(
-            ["CMD", "/usr/local/bin/busybox", "nc", "-z", "-w", "3", "127.0.0.1", "18888"],
-            healthcheck["test"],
-        )
-        self.assertNotEqual(["CMD", "dotnet", "--list-runtimes"], healthcheck["test"])
+        # Must use official image directly - no custom Dockerfile
+        self.assertNotIn("build", service)
+        self.assertIn("mcr.microsoft.com/dotnet/aspire-dashboard", service["image"])
+
+        # Must probe via /proc/net/tcp - no BusyBox or injected binary
+        test_cmd = healthcheck["test"]
+        self.assertEqual("CMD-SHELL", test_cmd[0])
+        self.assertIn("/proc/net/tcp", test_cmd[1])
+        # 49F8 = 18888 in hex
+        self.assertIn("49F8", test_cmd[1])
+        self.assertNotIn("busybox", test_cmd[1])
+
         self.assertEqual("15s", healthcheck["interval"])
         self.assertEqual("5s", healthcheck["timeout"])
         self.assertEqual(5, healthcheck["retries"])

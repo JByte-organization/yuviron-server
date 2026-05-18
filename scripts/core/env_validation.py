@@ -16,6 +16,9 @@ ERROR = "ERROR"
 WARN = "WARN"
 PROD_MIN_TOKEN_LENGTH = 32
 NON_PROD_MIN_TOKEN_LENGTH = 16
+PROD_MIN_UNIQUE_CHARS = 8
+NON_PROD_MIN_UNIQUE_CHARS = 5
+SENSITIVE_MIN_UNIQUE_CHARS = 5
 DEFAULT_ENV_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "env" / "schema.json"
 
 SENSITIVE_SECRET_KEYS = (
@@ -83,6 +86,9 @@ def weak_secret_reason(key: str, value: str, environment: str) -> str:
         return "dev-looking value in prod"
     if environment == "prod" and not is_token_key(key) and len(stripped) < 16:
         return "short production secret"
+    unique = len(set(stripped))
+    if unique < SENSITIVE_MIN_UNIQUE_CHARS:
+        return f"low-entropy value (only {unique} unique characters)"
     return ""
 
 
@@ -383,6 +389,7 @@ def validate_runtime_env(
         )
 
     min_token_length = PROD_MIN_TOKEN_LENGTH if is_prod else NON_PROD_MIN_TOKEN_LENGTH
+    min_unique = PROD_MIN_UNIQUE_CHARS if is_prod else NON_PROD_MIN_UNIQUE_CHARS
     token_severity = ERROR if is_prod else WARN
 
     for key, value in sorted(env_values.items()):
@@ -399,6 +406,16 @@ def validate_runtime_env(
                     token_severity,
                     key,
                     f"secret-like value is too short ({len(token)} chars, minimum {min_token_length})",
+                )
+            )
+
+        unique = len(set(token))
+        if unique < min_unique:
+            issues.append(
+                EnvValidationIssue(
+                    token_severity,
+                    key,
+                    f"low-entropy secret-like value (only {unique} unique characters, minimum {min_unique})",
                 )
             )
 
