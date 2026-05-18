@@ -12,6 +12,7 @@ SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
+from commands import tools
 from core.env import ensure_generated_basic_auth_file
 from core.htpasswd import ensure_htpasswd_file
 from core.validators import CommandError
@@ -71,6 +72,97 @@ class HtpasswdTests(unittest.TestCase):
 
             self.assertTrue((generated_dir / "htpasswd").is_file())
             self.assertTrue((generated_dir / "htpasswd.credentials").is_file())
+
+
+class RotateHtpasswdTests(unittest.TestCase):
+    def _make_env(self, root: Path, environment: str = "dev") -> Path:
+        generated = root / "generated" / environment
+        generated.mkdir(parents=True)
+        htpasswd = generated / "htpasswd"
+        credentials = generated / "htpasswd.credentials"
+        ensure_htpasswd_file(htpasswd, username="admin", credentials_file=credentials)
+
+        runtime_dir = root / ".tmp" / "runtime"
+        runtime_dir.mkdir(parents=True)
+        runtime_env = runtime_dir / f"{environment}.env"
+        runtime_env.write_text(
+            f"NGINX_BASIC_AUTH_USER=admin\n"
+            f"NGINX_BASIC_AUTH_FILE=./generated/{environment}/htpasswd\n",
+            encoding="utf-8",
+        )
+
+        config_dir = root / "config"
+        config_dir.mkdir(parents=True)
+        (config_dir / "project.yml").write_text("project_name: yuviron\n", encoding="utf-8")
+        (root / "env").mkdir(parents=True)
+        (root / "env" / "common.env").write_text("", encoding="utf-8")
+        (root / "env" / f"{environment}.env").write_text("", encoding="utf-8")
+
+        return htpasswd
+
+    def test_rotate_htpasswd_generates_new_password(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            htpasswd = self._make_env(root)
+            old_content = htpasswd.read_text(encoding="utf-8")
+
+            from types import SimpleNamespace
+            from unittest.mock import patch
+
+            with patch.object(tools, "resolve_prompted_environment", return_value="dev"):
+                tools.cmd_rotate_htpasswd(
+                    SimpleNamespace(environment="dev", project_root=str(root))
+                )
+
+            new_content = htpasswd.read_text(encoding="utf-8")
+            self.assertNotEqual(old_content, new_content)
+
+    def test_rotate_htpasswd_credentials_file_is_updated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            htpasswd = self._make_env(root)
+            credentials = htpasswd.with_name("htpasswd.credentials")
+            old_password = credentials.read_text(encoding="utf-8")
+
+            from types import SimpleNamespace
+            from unittest.mock import patch
+
+            with patch.object(tools, "resolve_prompted_environment", return_value="dev"):
+                tools.cmd_rotate_htpasswd(
+                    SimpleNamespace(environment="dev", project_root=str(root))
+                )
+
+            new_password = credentials.read_text(encoding="utf-8")
+            self.assertNotEqual(old_password, new_password)
+            self.assertIn("NGINX_BASIC_AUTH_PASSWORD=", new_password)
+
+    def test_rotate_htpasswd_fails_if_htpasswd_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            generated = root / "generated" / "dev"
+            generated.mkdir(parents=True)
+            runtime_dir = root / ".tmp" / "runtime"
+            runtime_dir.mkdir(parents=True)
+            (runtime_dir / "dev.env").write_text(
+                "NGINX_BASIC_AUTH_USER=admin\nNGINX_BASIC_AUTH_FILE=./generated/dev/htpasswd\n",
+                encoding="utf-8",
+            )
+            (root / "config").mkdir(parents=True)
+            (root / "config" / "project.yml").write_text("project_name: yuviron\n", encoding="utf-8")
+            (root / "env").mkdir(parents=True)
+            (root / "env" / "common.env").write_text("", encoding="utf-8")
+            (root / "env" / "dev.env").write_text("", encoding="utf-8")
+
+            from types import SimpleNamespace
+            from unittest.mock import patch
+
+            with (
+                patch.object(tools, "resolve_prompted_environment", return_value="dev"),
+                self.assertRaises(CommandError),
+            ):
+                tools.cmd_rotate_htpasswd(
+                    SimpleNamespace(environment="dev", project_root=str(root))
+                )
 
 
 if __name__ == "__main__":

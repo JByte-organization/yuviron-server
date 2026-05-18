@@ -12,9 +12,11 @@ if __package__ in {None, ""}:
     raise SystemExit(subprocess.call([str(cli_path), "tools", *sys.argv[1:]]))
 
 from core.docker import run
+from core.env import parse_env_file, resolve_runtime_env
+from core.htpasswd import DEFAULT_BASIC_AUTH_USER, ensure_htpasswd_file, resolve_htpasswd_path
 from core.paths import resolve_root_dir
 from core.ui import log_info, log_ok, log_warn
-from core.validators import fail
+from core.validators import fail, resolve_prompted_environment
 
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[2]
@@ -179,6 +181,51 @@ def cmd_docker_install(args: argparse.Namespace) -> int:
     return _run_tool_script(root_dir, "scripts/tools/docker_install.sh")
 
 
+def cmd_rotate_htpasswd(args: argparse.Namespace) -> int:
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+    environment = resolve_prompted_environment(getattr(args, "environment", None))
+
+    runtime_tmp_dir = root_dir / ".tmp" / "runtime"
+    runtime_tmp_dir.mkdir(parents=True, exist_ok=True)
+    runtime_env_path = resolve_runtime_env(root_dir, environment, runtime_tmp_dir)
+    runtime_values = parse_env_file(runtime_env_path)
+
+    username = runtime_values.get("NGINX_BASIC_AUTH_USER", DEFAULT_BASIC_AUTH_USER)
+    raw_path = runtime_values.get("NGINX_BASIC_AUTH_FILE", "")
+    htpasswd_path = resolve_htpasswd_path(
+        root_dir,
+        raw_path,
+        root_dir / "generated" / environment / "htpasswd",
+    )
+    credentials_path = htpasswd_path.with_name("htpasswd.credentials")
+
+    if not htpasswd_path.is_file():
+        fail(f"htpasswd not found: {htpasswd_path}. Run generate-config first.")
+
+    htpasswd_path.unlink()
+    credentials_path.unlink(missing_ok=True)
+
+    result = ensure_htpasswd_file(htpasswd_path, username=username, credentials_file=credentials_path)
+    if result is None:
+        fail("htpasswd rotation failed: file was not deleted before regeneration")
+
+    log_ok(f"New credentials saved to: {credentials_path}")
+    log_info(f"  Username : {result.username}")
+    log_info(f"  Password : {result.password}")
+    log_warn("nginx re-reads htpasswd on every authenticated request - no reload required.")
+    log_warn(
+        "Seq admin password is managed via the Seq web UI (not htpasswd). "
+        "Use 'tools seq-hash' to generate a hash only for SEQ_FIRSTRUN_ADMINPASSWORDHASH "
+        "(applies to fresh installs only)."
+    )
+    log_warn(
+        "Aspire Dashboard tokens (ASPIRE_FRONTEND_BROWSER_TOKEN, ASPIRE_OTLP_API_KEY) "
+        "live in env/<env>.env. Update them there, re-run generate-config, "
+        "then restart: docker compose restart aspire-dashboard."
+    )
+    return 0
+
+
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     tools_parser = subparsers.add_parser("tools", help="Utilities that remain in shell")
     tools_sub = tools_parser.add_subparsers(dest="tools_action", required=True)
@@ -214,3 +261,11 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     docker_parser = tools_sub.add_parser("docker-install", help="Run docker_install.sh")
     docker_parser.add_argument("--project-root", dest="project_root")
     docker_parser.set_defaults(handler=cmd_docker_install)
+
+    rotate_htpasswd_parser = tools_sub.add_parser(
+        "rotate-htpasswd",
+        help="Rotate nginx basic-auth password (Seq, Aspire, Backoffice management UIs)",
+    )
+    rotate_htpasswd_parser.add_argument("environment", nargs="?")
+    rotate_htpasswd_parser.add_argument("--project-root", dest="project_root")
+    rotate_htpasswd_parser.set_defaults(handler=cmd_rotate_htpasswd)
