@@ -152,9 +152,7 @@ services:
     cpus: ${SEQ_CPUS:-0.5}
 
   aspire-dashboard:
-    build:
-      context: ..
-      dockerfile: infra/docker/aspire-dashboard/Dockerfile
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0
     container_name: ${COMPOSE_PROJECT_NAME}-aspire
     restart: ${RESTART_POLICY}
     read_only: true
@@ -176,9 +174,9 @@ services:
       - "18889"
     networks:
       - default
-    # The official image has no shell or network probe utility; the derived image adds BusyBox for TCP healthcheck.
     healthcheck:
-      test: ["CMD", "/usr/local/bin/busybox", "nc", "-z", "-w", "3", "127.0.0.1", "18888"]
+      # 49F8 = port 18888 (0x49F8) - checks LISTEN entry in kernel TCP table, no extra binaries needed
+      test: ["CMD-SHELL", "grep -q ':49F8 ' /proc/net/tcp6 2>/dev/null || grep -q ':49F8 ' /proc/net/tcp"]
       interval: 15s
       timeout: 5s
       retries: 5
