@@ -79,6 +79,29 @@ def run_compose(
     )
 
 
+def ensure_docker_network(name: str) -> None:
+    inspect = subprocess.run(
+        ["docker", "network", "inspect", name],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if inspect.returncode == 0:
+        log_ok(f"Docker network exists: {BOLD}{name}{RESET}")
+        return
+
+    log_info(f"Creating Docker network: {name}")
+    created = subprocess.run(
+        ["docker", "network", "create", name],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if created.returncode != 0:
+        fail(f"Failed to create Docker network: {name}")
+    log_ok(f"Docker network created: {BOLD}{name}{RESET}")
+
+
 def ensure_shared_network(env_name: str, *, root_dir: Path, generated_dir: Path) -> None:
     deploy_env_file = generated_dir / env_name / "deploy.env"
     require_file(deploy_env_file)
@@ -88,28 +111,7 @@ def ensure_shared_network(env_name: str, *, root_dir: Path, generated_dir: Path)
     if not shared_network:
         fail(f"SHARED_NETWORK не задан в {deploy_env_file}")
 
-    inspect = subprocess.run(
-        ["docker", "network", "inspect", shared_network],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        cwd=str(root_dir),
-        check=False,
-    )
-    if inspect.returncode == 0:
-        log_ok(f"Docker network существует: {BOLD}{shared_network}{RESET}")
-        return
-
-    log_info(f"Создаю docker network: {shared_network}")
-    created = subprocess.run(
-        ["docker", "network", "create", shared_network],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        cwd=str(root_dir),
-        check=False,
-    )
-    if created.returncode != 0:
-        fail(f"Не удалось создать docker network: {shared_network}")
-    log_ok(f"Docker network создан: {BOLD}{shared_network}{RESET}")
+    ensure_docker_network(shared_network)
 
 
 def read_var_from_env_file(path: Path, name: str) -> str:

@@ -5,7 +5,7 @@ import shutil
 import stat
 from pathlib import Path
 
-from core.docker import ensure_shared_network, run
+from core.docker import ensure_docker_network, ensure_shared_network, run
 from core.env import (
     ensure_generated_basic_auth_file,
     generated_exists,
@@ -470,13 +470,7 @@ def check_shared_network(ctx: object) -> None:
     if not network:
         fail("SHARED_NETWORK is missing from runtime env")
 
-    log_info(f"Checking Docker network: {network}")
-
-    inspected = run(["docker", "network", "inspect", network], check=False, capture_output=True)
-    if inspected.returncode != 0:
-        fail(f"Docker network does not exist: {network}")
-
-    log_ok(f"Docker network exists: {network}")
+    ensure_docker_network(network)
 
 
 def check_routes_file(ctx: object) -> None:
