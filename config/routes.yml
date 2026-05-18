@@ -34,8 +34,7 @@ routes:
     environments: [dev]
 
   i:
-      target: backend:5073
-      host_strategy: subdomain
-      environments: [dev, prod]
-      media_proxy: true
-    
+    target: backend:5073
+    host_strategy: subdomain
+    environments: [dev, prod]
+    media_proxy: true

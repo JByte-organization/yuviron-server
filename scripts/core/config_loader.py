@@ -29,6 +29,7 @@ NGINX_WORKER_PROCESSES_PATTERN = re.compile(r"^(?:auto|[1-9][0-9]*)$")
 NGINX_RATE_LIMIT_ZONES = frozenset({"api_general", "api_auth", "api_upload"})
 NGINX_RATE_LIMIT_BURST_PATTERN = re.compile(r"^[1-9][0-9]*$")
 NGINX_UPLOAD_LOCATION_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+HOST_STRATEGIES = frozenset({"root", "subdomain"})
 
 
 def read_text(path: Path) -> str:
@@ -148,7 +149,7 @@ def load_frontend_apps(path: Path) -> Dict[str, FrontendApp]:
             fail(f"Invalid app_name for app '{key}': {app_name}")
         if not isinstance(port, int) or port <= 0 or port > 65535:
             fail(f"Invalid port for app '{key}': {port}")
-        if host_strategy not in {"root", "subdomain"}:
+        if host_strategy not in HOST_STRATEGIES:
             fail(f"Unsupported host_strategy for app '{key}': {host_strategy}")
         if service_name in service_names:
             fail(f"Duplicate service_name in apps config: {service_name}")
@@ -225,7 +226,7 @@ def load_routes(path: Path) -> Dict[str, Route]:
 
         if host_strategy is not None:
             host_strategy = str(host_strategy).strip()
-            if host_strategy not in {"root", "subdomain"}:
+            if host_strategy not in HOST_STRATEGIES:
                 fail(f"Unsupported host_strategy in route '{name}': {host_strategy}")
 
         if client_max_body_size is not None:

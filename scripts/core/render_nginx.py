@@ -337,13 +337,41 @@ def _validate_optional_client_max_body_size(route_name: str, field_name: str, va
 def _unpack_route_line(route_line: tuple) -> NginxRouteTuple:
     if len(route_line) == 4:
         route_name, route_host, route_upstream, route_max_body_size = route_line
-        return route_name, route_host, route_upstream, route_max_body_size, False, None, None, (), None, None, None
+        return route_name, route_host, route_upstream, route_max_body_size, False, None, None, (), None, None, None, False
     if len(route_line) == 5:
         route_name, route_host, route_upstream, route_max_body_size, route_has_auth_endpoints = route_line
-        return route_name, route_host, route_upstream, route_max_body_size, route_has_auth_endpoints, None, None, (), None, None, None
+        return route_name, route_host, route_upstream, route_max_body_size, route_has_auth_endpoints, None, None, (), None, None, None, False
+    if len(route_line) == 11:
+        (
+            route_name,
+            route_host,
+            route_upstream,
+            route_max_body_size,
+            route_has_auth_endpoints,
+            route_rate_limit_zone,
+            route_rate_limit_burst,
+            route_upload_locations,
+            route_upload_client_max_body_size,
+            route_upload_rate_limit_zone,
+            route_upload_rate_limit_burst,
+        ) = route_line
+        return (
+            route_name,
+            route_host,
+            route_upstream,
+            route_max_body_size,
+            route_has_auth_endpoints,
+            route_rate_limit_zone,
+            route_rate_limit_burst,
+            route_upload_locations,
+            route_upload_client_max_body_size,
+            route_upload_rate_limit_zone,
+            route_upload_rate_limit_burst,
+            False,
+        )
     if len(route_line) == 12:
         return route_line
-    fail(f"Invalid nginx route tuple length: {len(route_line)}. Expected 4, 5, or 12 values")
+    fail(f"Invalid nginx route tuple length: {len(route_line)}. Expected 4, 5, 11, or 12 values")
     raise AssertionError("unreachable")
 
 
