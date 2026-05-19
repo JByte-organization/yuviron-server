@@ -4,6 +4,25 @@
 
 [← К README](../README.md)
 
+## Рекомендуемый цикл ротации
+
+| Секрет | Команда | Рекомендуемый интервал |
+|---|---|---|
+| nginx Basic Auth | `tools rotate-htpasswd <env>` | 90 дней |
+| Aspire Browser Token + OTLP Key | `tools rotate-aspire-tokens <env>` | 90 дней |
+| MySQL password | Ручная ротация (см. ниже) | 90 дней или при смене персонала |
+| RabbitMQ password | Ручная ротация (см. ниже) | 90 дней или при смене персонала |
+
+Проверить, когда последний раз ротировались автоматизируемые секреты:
+
+```bash
+./scripts/cli.py tools rotation-status dev
+./scripts/cli.py tools rotation-status prod
+```
+
+Команда завершается с кодом 1, если какой-либо секрет не ротировался более 90 дней или ни разу.
+Удобно добавить в monitoring или запускать по cron.
+
 ## nginx Basic Auth (Seq, Aspire, Backoffice)
 
 htpasswd создаётся один раз при `init.py` / `generate-config.py` и не перезаписывается автоматически.
@@ -53,24 +72,16 @@ nginx перечитывает htpasswd при каждом аутентифиц
 
 `ASPIRE_FRONTEND_BROWSER_TOKEN` (токен для входа в UI) и `ASPIRE_OTLP_API_KEY` (ключ для OTLP ingest) хранятся в `env/<env>.env` и применяются при каждом старте контейнера.
 
-Смена:
+Автоматическая ротация:
 
 ```bash
-# 1. Обнови токены в env/<env>.env
-
-# 2. Перегенерируй runtime config
-python3 scripts/generate-config.py --env prod --domain yuviron.com
-
-# 3. Перезапусти только aspire-dashboard
-docker compose \
-  --env-file ./generated/prod/deploy.env \
-  -f ./infra/compose.yml \
-  -f ./generated/prod/compose.frontends.yml \
-  -p yuviron-prod \
-  restart aspire-dashboard
+./scripts/cli.py tools rotate-aspire-tokens dev
+./scripts/cli.py tools rotate-aspire-tokens prod
 ```
 
-Полный перезапуск всего стека не нужен.
+Команда генерирует два новых случайных токена (64 hex-символа), обновляет `env/<env>.env`, перегенерирует runtime config и перезапускает только `aspire-dashboard`. Полный перезапуск всего стека не нужен.
+
+Ротация записывается в `generated/<env>/rotation.json` и отображается командой `rotation-status`.
 
 ---
 
@@ -115,12 +126,17 @@ docker exec -it yuviron-<env>-rabbitmq rabbitmqctl change_password <user> <NEW_P
 
 ## Итого: что требует перезапуска
 
-| Компонент | Команда | Перезапуск |
-|---|---|---|
-| nginx Basic Auth | `tools rotate-htpasswd <env>` | Не нужен - nginx читает htpasswd на каждый запрос |
-| Seq admin password | Seq Settings -> Users в web UI | Не нужен |
-| Seq hash для fresh install | `tools seq-hash` -> обновить `SEQ_FIRSTRUN_ADMINPASSWORDHASH` | При следующем fresh install |
-| Aspire Browser Token | Обновить env -> `generate-config` -> `restart aspire-dashboard` | Только aspire-dashboard |
-| Aspire OTLP Key | То же | Только aspire-dashboard |
-| MySQL password | Обновить env + ALTER USER -> полный restart | Весь стек |
-| RabbitMQ password | Обновить env + `change_password` -> полный restart | Весь стек |
+| Компонент | Команда | Перезапуск | Rotation log |
+|---|---|---|---|
+| nginx Basic Auth | `tools rotate-htpasswd <env>` | Не нужен - nginx читает htpasswd на каждый запрос | Да |
+| Aspire Browser Token + OTLP Key | `tools rotate-aspire-tokens <env>` | Только aspire-dashboard (автоматически) | Да |
+| Seq admin password | Seq Settings -> Users в web UI | Не нужен | Нет |
+| Seq hash для fresh install | `tools seq-hash` -> обновить `SEQ_FIRSTRUN_ADMINPASSWORDHASH` | При следующем fresh install | Нет |
+| MySQL password | Обновить env + ALTER USER -> полный restart | Весь стек | Нет |
+| RabbitMQ password | Обновить env + `change_password` -> полный restart | Весь стек | Нет |
+
+Для проверки актуальности ротации:
+
+```bash
+./scripts/cli.py tools rotation-status <env>
+```
