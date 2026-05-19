@@ -48,6 +48,11 @@ http {
         '' close;
     }
 
+    map $http_upgrade $proxy_ws_read_timeout {
+        websocket 3600s;
+        default   30s;
+    }
+
     map $ssl_server_name $route_ssl_certificate {
         default {{ default_ssl_certificate }};
         {% for route in routes %}

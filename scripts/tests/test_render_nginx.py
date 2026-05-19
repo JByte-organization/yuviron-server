@@ -321,6 +321,17 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("try_files /nonexistent $cors_media_route;", rendered)
         self.assertIn("return 204;", rendered)
 
+    def test_render_proxy_read_timeout_uses_websocket_map_not_hardcoded_3600(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [("api", "api.example.com", "backend:5073", "50m")],
+            SCRIPTS_ROOT / "templates",
+        )
+
+        self.assertIn("map $http_upgrade $proxy_ws_read_timeout {", rendered)
+        self.assertIn("websocket 3600s;", rendered)
+        self.assertIn("proxy_read_timeout $proxy_ws_read_timeout;", rendered)
+        self.assertNotIn("proxy_read_timeout 3600s;", rendered)
+
     def test_nginx_route_template_does_not_branch_on_route_name_api(self) -> None:
         template = (SCRIPTS_ROOT / "templates" / "03-routes.conf.j2").read_text(encoding="utf-8")
 
