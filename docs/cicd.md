@@ -46,9 +46,24 @@ shared/frontend/.github/workflows/deploy-prod.yml
 1. синхронизировать source repo в `src/yuviron-backend` или `src/yuviron-frontend`
 2. выполнить preflight
 3. собрать/поднять стек через `./scripts/cli.py stack up <env>`; команда перед основным `up` явно запускает EF Core migrator через compose profile `migrate`
-4. выполнить `./scripts/cli.py stack smoke <env>`
-5. показать compose status и хвосты логов
-6. после успешного deploy подрезать Docker build cache через `tools docker-clean`
+4. просканировать собранные образы на CVE через Trivy (после build, до smoke)
+5. выполнить `./scripts/cli.py stack smoke <env>`
+6. показать compose status и хвосты логов
+7. после успешного deploy подрезать Docker build cache через `tools docker-clean`
+
+---
+
+## Сканирование образов (Trivy)
+
+Vulnerability scanning работает на трёх уровнях.
+
+**CI (`ubuntu-latest`, каждый push/PR):** `aquasecurity/trivy-action` сканирует base images `mcr.microsoft.com/dotnet/aspnet:9.0` и `nginx:alpine` без сборки приложения. Находит CVE в base image до того, как изменения попадут на сервер. Настройка: `--severity CRITICAL,HIGH --ignore-unfixed`; `--ignore-unfixed` убирает шум от CVE, для которых нет доступного патча.
+
+**Deploy dev (информационно):** после `stack up` Trivy (`aquasec/trivy` Docker-образ, докер-сокет уже есть на runner) сканирует реально собранные образы `yuviron-dev-backend`, `yuviron-dev-media-worker`, `yuviron-dev-nginx`. Образ берётся через `docker inspect --format '{{.Image}}'` запущенного контейнера — сканируется именно то, что сейчас работает. `--exit-code 0`: находки видны в логах, но не блокируют деплой.
+
+**Deploy prod (блокирующее):** те же три образа с `--exit-code 1`. При нахождении fixable CRITICAL/HIGH CVE хотя бы в одном образе шаг завершается с ошибкой до smoke test; это автоматически тригерит существующий rollback.
+
+Кеш Trivy DB: `/tmp/trivy-cache` на runner, монтируется в контейнер при каждом запуске — повторные сканы быстрее.
 
 ---
 

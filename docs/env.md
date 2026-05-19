@@ -282,7 +282,7 @@ Route `i` задаётся в `config/routes.yml` с `host_strategy: subdomain` 
 Для этого route nginx включает `proxy_cache media_cache`:
 
 * успешные `200` ответы кэшируются на `365d`, `404` - только на `1m`
-* CORS открыт через `Access-Control-Allow-Origin: *`, `OPTIONS` завершается на edge с `204`
+* CORS заголовок `Access-Control-Allow-Origin` выставляется динамически через nginx map `$cors_media_origin`: разрешены только домены из активных non-media маршрутов текущего окружения, не wildcard `*`; `OPTIONS` preflight обрабатывается на edge через named location `@cors_preflight` с ответом `204`
 * browser cache header `Cache-Control: public, immutable, max-age=31536000` выставляется только для успешных ответов
 * upstream cache headers и cookies скрываются/игнорируются на edge
 
@@ -294,6 +294,10 @@ Route `i` задаётся в `config/routes.yml` с `host_strategy: subdomain` 
 ```
 
 ### Healthcheck
+
+**Backend:** `wget -qO- http://127.0.0.1:5073/health/ready` — ASP.NET Core health endpoint возвращает JSON со статусами `mysql`, `redis`, `rabbitmq`, `masstransit-bus`. Интервал 15s, retries: 10, start_period: 60s. Логи healthcheck failures подавлены на уровне `Logging:LogLevel` и `Serilog:MinimumLevel:Override`, чтобы транзиентные ошибки при старте стека не засоряли Seq и Aspire.
+
+**Media Worker:** `wget -qO- http://127.0.0.1:5074/health/ready` — аналогичный ASP.NET Core endpoint, но не публикуется наружу; видим только изнутри контейнера. Docker healthcheck: интервал 15s, retries: 10, start_period: 60s. До добавления этого healthcheck зависший worker был незаметен, пока задачи из RabbitMQ-очереди не начинали накапливаться.
 
 **Nginx:** контейнер локально проверяет `http://127.0.0.1/health` и срок действия default-сертификата. TLS handshake через `openssl s_client` намеренно не используется внутри Docker healthcheck, чтобы startup health не зависел от хрупкого HTTPS probe. `/health` объявлен до `return 444`, поэтому HTTP healthcheck не зависит от внешнего `Host`.
 
@@ -308,6 +312,25 @@ grep -q ':49F8 ' /proc/net/tcp6 2>/dev/null || grep -q ':49F8 ' /proc/net/tcp
 **Frontend (Next.js):** TCP healthcheck порта `3000` внутри контейнера. Отдельный `/api/health` endpoint во frontend-репозитории не требуется.
 
 Полная HTTPS-проверка по всем route hosts остаётся в `stack smoke` через `curl --resolve ... 127.0.0.1`.
+
+### Таймауты прокси
+
+Для API-маршрутов задаётся три таймаута:
+
+* `proxy_connect_timeout 5s` — установка TCP-соединения с upstream
+* `proxy_send_timeout 15s` — ожидание между двумя записями в upstream
+* `proxy_read_timeout` — ожидание ответа от upstream; зависит от типа соединения
+
+`proxy_read_timeout` выставляется динамически через map `$proxy_ws_read_timeout`:
+
+```nginx
+map $http_upgrade $proxy_ws_read_timeout {
+    websocket 3600s;
+    default   30s;
+}
+```
+
+Обычные HTTP-запросы получают 30s — зависшее соединение освобождает воркер через полминуты. WebSocket/SignalR-соединения (определяются по наличию `Upgrade: websocket` в запросе) сохраняют 3600s, так как туннель живёт часами без HTTP-активности.
 
 ### Worker processes
 
