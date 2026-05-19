@@ -9,15 +9,15 @@ SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
-from core.render_nginx import (
+from core.nginx_csp import STRICT_CONTENT_SECURITY_POLICY
+from core.nginx_tls_policy import (
     DEFAULT_TLS_POLICY,
-    STRICT_CONTENT_SECURITY_POLICY,
+    NginxTlsPolicy,
     TLS_POLICY_INTERMEDIATE,
     TLS_POLICY_MODERN,
-    NginxTlsPolicy,
     _validate_nginx_tls_policy,
-    render_nginx_conf_modular,
 )
+from core.render_nginx import render_nginx_conf_modular
 from core.validators import CommandError
 
 
@@ -302,7 +302,7 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn('add_header X-XSS-Protection "0" always;', rendered)
 
     def test_prod_render_warns_when_csp_contains_unsafe_sources(self) -> None:
-        with patch("core.render_nginx.log_warn") as log_warn:
+        with patch("core.nginx_csp.log_warn") as log_warn:
             rendered = render_nginx_conf_modular(
                 [("api", "api.example.com", "backend:5073", "50m")],
                 SCRIPTS_ROOT / "templates",
@@ -315,7 +315,7 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("production nginx Content-Security-Policy", log_warn.call_args.args[0])
 
     def test_prod_render_allows_strict_csp_override_without_warning(self) -> None:
-        with patch("core.render_nginx.log_warn") as log_warn:
+        with patch("core.nginx_csp.log_warn") as log_warn:
             rendered = render_nginx_conf_modular(
                 [("api", "api.example.com", "backend:5073", "50m")],
                 SCRIPTS_ROOT / "templates",
