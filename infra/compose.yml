@@ -113,11 +113,14 @@ services:
         soft: 65536
         hard: 65536
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
-      interval: 15s
-      timeout: 30s
+      # ping only verifies the Erlang node is alive; check_port_connectivity verifies
+      # that the AMQP listener (5672) is actually accepting connections, which is
+      # what the backend needs before it can establish a MassTransit connection.
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 10s
       retries: 20
-      start_period: 60s
+      start_period: 30s
     mem_limit: ${RABBITMQ_MEM_LIMIT:-512m}
     memswap_limit: ${RABBITMQ_MEMSWAP_LIMIT:-512m}
     cpus: ${RABBITMQ_CPUS:-0.5}
@@ -222,9 +225,15 @@ services:
       <<: *dotnet-env
       ASPNETCORE_HTTP_PORTS: 5073
       Swagger__Enabled: ${Swagger__Enabled}
-      # Downgrade health check failure logs from Error to Warning so transient
-      # startup probes (rabbitmq, masstransit-bus) don't pollute the error stream.
-      Logging__LogLevel__Microsoft.Extensions.Diagnostics.HealthChecks: Warning
+      # Suppress health check failure logs in both pipelines:
+      # - Logging:LogLevel None disables the category in the standard ILogger pipeline.
+      # - Serilog:MinimumLevel:Override Fatal suppresses it in the Serilog pipeline
+      #   (which drives the OTLP/Aspire and Seq sinks).
+      # Transient startup failures (rabbitmq, masstransit-bus "not started") are
+      # expected until MassTransit establishes the AMQP connection; they must not
+      # appear as errors in Aspire or Seq.
+      Logging__LogLevel__Microsoft.Extensions.Diagnostics.HealthChecks: "None"
+      Serilog__MinimumLevel__Override__Microsoft.Extensions.Diagnostics.HealthChecks: Fatal
     volumes:
       - ${STORAGE_PATH}:/var/yuviron-server/storage
     depends_on:
