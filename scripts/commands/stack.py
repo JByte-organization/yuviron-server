@@ -34,6 +34,7 @@ NGINX_MEDIA_CACHE_DIR = "/var/cache/nginx/yuviron_media"
 NGINX_MEDIA_ROUTE_NAME = "i"
 MIGRATOR_SERVICE = "migrator"
 BACKEND_SERVICE = "backend"
+REQUIRED_STACK_SERVICES = ("mysql", "redis", "rabbitmq", "nginx", BACKEND_SERVICE)
 # Matches ASPNETCORE_HTTP_PORTS in infra/compose.yml
 SWAGGER_BACKEND_BASE_URL = "http://127.0.0.1:5073"
 SWAGGER_PREBUILD_SERVICES = ("mysql", "redis", "rabbitmq", BACKEND_SERVICE)
@@ -331,7 +332,7 @@ def _load_compose_services(context: ComposeContext) -> set[str]:
 
 def _check_stack_running(services: set[str]) -> None:
     log_info("Checking that required services exist in compose")
-    for service in ["mysql", "redis", "rabbitmq", "nginx", "backend"]:
+    for service in REQUIRED_STACK_SERVICES:
         if service not in services:
             fail(f"Required service is missing from compose config: {service}")
         log_ok(f"Required service exists: {service}")
@@ -339,7 +340,7 @@ def _check_stack_running(services: set[str]) -> None:
 
 def _check_service_healths(context: ComposeContext, services: set[str]) -> None:
     log_info("Waiting for core service health")
-    for service in ["mysql", "redis", "rabbitmq", "backend", "nginx"]:
+    for service in REQUIRED_STACK_SERVICES:
         if service in services:
             _wait_for_service_health(context, service, timeout=120)
 
