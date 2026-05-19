@@ -1,0 +1,32 @@
+name: Shellcheck
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  shellcheck:
+    name: Lint shell scripts
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run shellcheck
+        run: |
+          mapfile -t scripts < <(
+            find . \
+              \( -path ./src -o -path ./.git \) -prune \
+              -o -name "*.sh" -print
+          )
+
+          if [[ ${#scripts[@]} -eq 0 ]]; then
+            echo "No shell scripts found."
+            exit 0
+          fi
+
+          printf 'Checking %d script(s):\n' "${#scripts[@]}"
+          printf '  %s\n' "${scripts[@]}"
+          echo
+
+          shellcheck --severity=warning "${scripts[@]}"

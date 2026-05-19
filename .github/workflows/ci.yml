@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: |
+          cd scripts
+          python3 -m unittest \
+            tests.test_models \
+            tests.test_paths \
+            tests.test_findings \
+            tests.test_env_validation \
+            tests.test_config_loader_routes \
+            tests.test_config_loader_stack_ports \
+            tests.test_render_nginx \
+            tests.test_render_compose \
+            tests.test_dns_generate \
+            tests.test_htpasswd \
+            tests.test_core_preflight \
+            tests.test_preflight_nginx \
+            tests.test_preflight_generated \
+            tests.test_security_audit \
+            tests.test_generate_config \
+            tests.test_smoke_logic \
+            tests.test_python_requirements \
+            -v
+
+  e2e-dry-run:
+    name: E2E dry-run (Docker)
+    runs-on: [self-hosted, yuviron]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run E2E dry-run
+        env:
+          YUVIRON_RUN_DOCKER_E2E: "1"
+        run: |
+          cd scripts
+          python3 -m unittest tests.test_stack_e2e_dry_run -v

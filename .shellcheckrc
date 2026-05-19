@@ -1,0 +1,3 @@
+# Default shell dialect for scripts without a shebang.
+# Scripts with #!/bin/sh or #!/usr/bin/env bash override this automatically.
+shell=bash
