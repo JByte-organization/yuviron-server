@@ -263,6 +263,34 @@ class RenderNginxTests(unittest.TestCase):
         self.assertNotIn('add_header Cache-Control "public, immutable, max-age=31536000" always;', rendered)
         self.assertIn("add_header X-Cache-Status $upstream_cache_status always;", rendered)
 
+    def test_render_media_proxy_cors_uses_dynamic_origin_not_wildcard(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [
+                ("api", "api.example.com", "backend:5073", "50m"),
+                (
+                    "i",
+                    "dev-i.example.com",
+                    "backend:5073",
+                    "5m",
+                    False,
+                    None,
+                    None,
+                    (),
+                    None,
+                    None,
+                    None,
+                    True,
+                ),
+            ],
+            SCRIPTS_ROOT / "templates",
+        )
+
+        self.assertIn("map $http_origin $cors_media_origin {", rendered)
+        self.assertIn('"https://api.example.com" $http_origin;', rendered)
+        self.assertNotIn('"https://dev-i.example.com" $http_origin;', rendered)
+        self.assertIn("add_header 'Access-Control-Allow-Origin' $cors_media_origin", rendered)
+        self.assertNotIn("add_header 'Access-Control-Allow-Origin' '*'", rendered)
+
     def test_nginx_route_template_does_not_branch_on_route_name_api(self) -> None:
         template = (SCRIPTS_ROOT / "templates" / "03-routes.conf.j2").read_text(encoding="utf-8")
 
