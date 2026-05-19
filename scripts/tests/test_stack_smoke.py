@@ -186,14 +186,50 @@ class StackSmokeTests(unittest.TestCase):
         prebuild_env = self.root / ".tmp" / "runtime" / "dev.swagger-prebuild.env"
         self.assertIn("Swagger__Enabled=true", prebuild_env.read_text(encoding="utf-8"))
         wait_mock.assert_called_once()
+
+        calls = run_compose_mock.call_args_list
         self.assertEqual(
             ("up", "-d", "--build", "mysql", "redis", "rabbitmq", "backend"),
-            run_compose_mock.call_args_list[0].args[1:],
+            calls[0].args[1:],
+        )
+        self.assertEqual(
+            ("stop", "mysql", "redis", "rabbitmq", "backend"),
+            calls[-1].args[1:],
         )
 
         swagger_dir = self.root / "src" / "yuviron-frontend" / "packages" / "api" / "openapi"
         self.assertTrue((swagger_dir / "admin.swagger.json").is_file())
         self.assertTrue((swagger_dir / "client.swagger.json").is_file())
+
+    def test_prepare_frontend_swagger_stops_services_on_fetch_failure(self) -> None:
+        runtime_env = self.root / "generated" / "dev" / "deploy.env"
+        runtime_env.write_text(
+            "COMPOSE_PROJECT_NAME=yuviron-dev\nSwagger__Enabled=false\nSTORAGE_PATH=storage/dev\n",
+            encoding="utf-8",
+        )
+        context = stack.ComposeContext(
+            root_dir=self.root,
+            environment="dev",
+            runtime_env=runtime_env,
+            compose_file=self.root / "infra" / "compose.yml",
+            frontends_compose=self.root / "generated" / "dev" / "compose.frontends.yml",
+            compose_project_name="yuviron-dev",
+        )
+
+        def run_compose_side_effect(_context, *args, **_kwargs):
+            if args[:3] == ("exec", "-T", "backend"):
+                return SimpleNamespace(returncode=1, stdout="", stderr="connection refused")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with (
+            patch.object(stack, "run_compose", side_effect=run_compose_side_effect) as run_compose_mock,
+            patch.object(stack, "_wait_for_service_health"),
+        ):
+            with self.assertRaises(stack.CommandError):
+                stack._prepare_frontend_swagger(context, self.root)
+
+        stop_call = run_compose_mock.call_args_list[-1].args[1:]
+        self.assertEqual(("stop", "mysql", "redis", "rabbitmq", "backend"), stop_call)
 
     def test_stack_migrate_runs_migrator_profile(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

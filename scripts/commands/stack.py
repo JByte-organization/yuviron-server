@@ -34,6 +34,7 @@ NGINX_MEDIA_CACHE_DIR = "/var/cache/nginx/yuviron_media"
 NGINX_MEDIA_ROUTE_NAME = "i"
 MIGRATOR_SERVICE = "migrator"
 BACKEND_SERVICE = "backend"
+# Matches ASPNETCORE_HTTP_PORTS in infra/compose.yml
 SWAGGER_BACKEND_BASE_URL = "http://127.0.0.1:5073"
 SWAGGER_PREBUILD_SERVICES = ("mysql", "redis", "rabbitmq", BACKEND_SERVICE)
 FRONTEND_SWAGGER_DIR = Path("src") / "yuviron-frontend" / "packages" / "api" / "openapi"
@@ -623,27 +624,30 @@ def _prepare_frontend_swagger(context: ComposeContext, root_dir: Path, *, dry_ru
 
     log_info("Preparing Swagger documents for frontend API generation")
     run_compose(swagger_context, "up", "-d", "--build", *SWAGGER_PREBUILD_SERVICES)
-    _wait_for_service_health(swagger_context, BACKEND_SERVICE, timeout=120)
+    try:
+        _wait_for_service_health(swagger_context, BACKEND_SERVICE, timeout=120)
 
-    for name, path in SWAGGER_DOCUMENTS.items():
-        url = f"{SWAGGER_BACKEND_BASE_URL}{path}"
-        log_info(f"Fetching Swagger document '{name}' from backend")
-        result = run_compose(
-            swagger_context,
-            "exec",
-            "-T",
-            BACKEND_SERVICE,
-            "wget",
-            "-qO-",
-            url,
-            capture_output=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            details = (result.stderr or result.stdout or "").strip()
-            fail(f"Failed to fetch Swagger document '{name}' from backend: {url}\n{details}")
+        for name, path in SWAGGER_DOCUMENTS.items():
+            url = f"{SWAGGER_BACKEND_BASE_URL}{path}"
+            log_info(f"Fetching Swagger document '{name}' from backend")
+            result = run_compose(
+                swagger_context,
+                "exec",
+                "-T",
+                BACKEND_SERVICE,
+                "wget",
+                "-qO-",
+                url,
+                capture_output=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                details = (result.stderr or result.stdout or "").strip()
+                fail(f"Failed to fetch Swagger document '{name}' from backend: {url}\n{details}")
 
-        _write_swagger_document(root_dir, name, result.stdout)
+            _write_swagger_document(root_dir, name, result.stdout)
+    finally:
+        run_compose(swagger_context, "stop", *SWAGGER_PREBUILD_SERVICES)
 
     log_ok("Swagger prebuild completed")
 
