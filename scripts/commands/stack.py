@@ -691,7 +691,7 @@ def cmd_cache_purge(args: argparse.Namespace) -> int:
         else:
             log_warn(f"No cached entry found for {path!r} (already expired or never cached)")
     else:
-        if not getattr(args, "yes", False):
+        if not args.yes:
             log_warn(f"This will delete ALL files in {NGINX_MEDIA_CACHE_DIR} on container {nginx_container}.")
             try:
                 answer = input("Type 'yes' to confirm: ").strip().lower()
@@ -714,10 +714,10 @@ def cmd_up(args: argparse.Namespace) -> int:
     context = create_compose_context(root_dir, environment, ensure_generated=True)
     runtime_values = parse_env_file(context.runtime_env)
     preflight_core.prepare_host_storage_layout(root_dir, runtime_values)
-    if not bool(getattr(args, "skip_migrate", False)):
-        _run_migrator(context, dry_run=bool(getattr(args, "dry_run", False)))
-    _prepare_frontend_swagger(context, root_dir, dry_run=bool(getattr(args, "dry_run", False)))
-    if bool(getattr(args, "dry_run", False)):
+    if not args.skip_migrate:
+        _run_migrator(context, dry_run=args.dry_run)
+    _prepare_frontend_swagger(context, root_dir, dry_run=args.dry_run)
+    if args.dry_run:
         log_info("Running docker compose up in dry-run mode")
         run_compose(context, "--dry-run", "up", "--no-start", "--build", "--remove-orphans")
     else:
@@ -730,7 +730,7 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
 
     context = create_compose_context(root_dir, environment, ensure_generated=True)
-    _run_migrator(context, dry_run=bool(getattr(args, "dry_run", False)))
+    _run_migrator(context, dry_run=args.dry_run)
     return 0
 
 
