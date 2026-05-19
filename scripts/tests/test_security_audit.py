@@ -242,6 +242,19 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertIn(">/dev/null 2>&1", healthcheck[1])
         self.assertNotIn("mysqladmin ping", healthcheck[1])
 
+    def test_media_worker_healthcheck_probes_http_health_endpoint(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
+        service = compose["services"]["media-worker"]
+
+        self.assertIn("healthcheck", service)
+        healthcheck = service["healthcheck"]["test"]
+        self.assertEqual("CMD-SHELL", healthcheck[0])
+        self.assertIn("wget", healthcheck[1])
+        self.assertIn("/health/ready", healthcheck[1])
+        self.assertIn("wget", service["build"]["args"]["RUNTIME_PACKAGES"])
+        self.assertEqual(5074, service["environment"]["ASPNETCORE_HTTP_PORTS"])
+
     def test_nginx_mounts_generated_basic_auth_file(self) -> None:
         root = SCRIPTS_ROOT.parent
         compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
