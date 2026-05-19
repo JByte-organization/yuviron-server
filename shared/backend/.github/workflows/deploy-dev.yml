@@ -191,6 +191,27 @@ jobs:
           cd /opt/yuviron-server
           timeout 1200 python3 ./scripts/cli.py stack up dev
 
+      - name: Scan deployed images for vulnerabilities
+        run: |
+          set -Eeuo pipefail
+          for container in yuviron-dev-backend yuviron-dev-media-worker yuviron-dev-nginx; do
+            IMAGE=$(docker inspect --format '{{.Image}}' "$container" 2>/dev/null || true)
+            if [ -z "$IMAGE" ]; then
+              echo "Container not found, skipping scan: $container"
+              continue
+            fi
+            echo "=== Trivy: $container ==="
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v /tmp/trivy-cache:/root/.cache/trivy \
+              aquasec/trivy:latest image \
+              --severity CRITICAL,HIGH \
+              --ignore-unfixed \
+              --no-progress \
+              --exit-code 0 \
+              "$IMAGE"
+          done
+
       - name: Smoke test dev stack
         run: |
           set -Eeuo pipefail
