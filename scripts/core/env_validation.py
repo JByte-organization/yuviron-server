@@ -388,6 +388,16 @@ def validate_runtime_env(
             )
         )
 
+    csp = _normalized_value(env_values.get("NGINX_CONTENT_SECURITY_POLICY", ""))
+    if is_prod and not csp:
+        issues.append(
+            EnvValidationIssue(
+                ERROR,
+                "NGINX_CONTENT_SECURITY_POLICY",
+                "must be set in prod; the default CSP contains 'unsafe-inline'/'unsafe-eval'",
+            )
+        )
+
     min_token_length = PROD_MIN_TOKEN_LENGTH if is_prod else NON_PROD_MIN_TOKEN_LENGTH
     min_unique = PROD_MIN_UNIQUE_CHARS if is_prod else NON_PROD_MIN_UNIQUE_CHARS
     token_severity = ERROR if is_prod else WARN

@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
@@ -45,6 +44,7 @@ class RenderNginxTests(unittest.TestCase):
                 "ENVIRONMENT": "prod",
                 "BASE_DOMAIN": "example.com",
                 "NGINX_CERT_MODE": "per-route",
+                "NGINX_CONTENT_SECURITY_POLICY": STRICT_CONTENT_SECURITY_POLICY,
             },
         )
 
@@ -301,35 +301,31 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("frame-ancestors 'none';", rendered)
         self.assertIn('add_header X-XSS-Protection "0" always;', rendered)
 
-    def test_prod_render_warns_when_csp_contains_unsafe_sources(self) -> None:
-        with patch("core.nginx_csp.log_warn") as log_warn:
-            rendered = render_nginx_conf_modular(
+    def test_prod_render_fails_when_csp_contains_unsafe_sources(self) -> None:
+        with self.assertRaises(CommandError) as raised:
+            render_nginx_conf_modular(
                 [("api", "api.example.com", "backend:5073", "50m")],
                 SCRIPTS_ROOT / "templates",
                 {"ENVIRONMENT": "prod", "BASE_DOMAIN": "example.com"},
             )
 
-        self.assertIn("'unsafe-inline'", rendered)
-        self.assertIn("'unsafe-eval'", rendered)
-        log_warn.assert_called_once()
-        self.assertIn("production nginx Content-Security-Policy", log_warn.call_args.args[0])
+        self.assertIn("'unsafe-inline'/'unsafe-eval'", str(raised.exception))
+        self.assertIn("NGINX_CONTENT_SECURITY_POLICY", str(raised.exception))
 
-    def test_prod_render_allows_strict_csp_override_without_warning(self) -> None:
-        with patch("core.nginx_csp.log_warn") as log_warn:
-            rendered = render_nginx_conf_modular(
-                [("api", "api.example.com", "backend:5073", "50m")],
-                SCRIPTS_ROOT / "templates",
-                {
-                    "ENVIRONMENT": "prod",
-                    "BASE_DOMAIN": "example.com",
-                    "NGINX_CONTENT_SECURITY_POLICY": STRICT_CONTENT_SECURITY_POLICY,
-                },
-            )
+    def test_prod_render_allows_strict_csp_override(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [("api", "api.example.com", "backend:5073", "50m")],
+            SCRIPTS_ROOT / "templates",
+            {
+                "ENVIRONMENT": "prod",
+                "BASE_DOMAIN": "example.com",
+                "NGINX_CONTENT_SECURITY_POLICY": STRICT_CONTENT_SECURITY_POLICY,
+            },
+        )
 
         self.assertIn(f'add_header Content-Security-Policy "{STRICT_CONTENT_SECURITY_POLICY}" always;', rendered)
         self.assertNotIn("'unsafe-inline'", rendered)
         self.assertNotIn("'unsafe-eval'", rendered)
-        log_warn.assert_not_called()
 
     def test_render_rejects_injected_csp_override(self) -> None:
         with self.assertRaises(CommandError) as raised:

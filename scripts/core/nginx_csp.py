@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from typing import Mapping
 
-from .ui import log_warn
 from .validators import fail
 
 NGINX_HEADER_VALUE_FORBIDDEN_PATTERN = re.compile(r'[\r\n"\\]')
@@ -91,9 +90,10 @@ def _resolve_content_security_policy(env_values: Mapping[str, str] | None, envir
         content_security_policy = DEFAULT_CONTENT_SECURITY_POLICY
 
     if environment_name == "prod" and _content_security_policy_has_unsafe_tokens(content_security_policy):
-        log_warn(
-            "CRITICAL: production nginx Content-Security-Policy contains 'unsafe-inline'/'unsafe-eval'. "
-            "This is acceptable only for dev; set NGINX_CONTENT_SECURITY_POLICY to a strict policy before public prod."
+        fail(
+            "Production nginx Content-Security-Policy contains 'unsafe-inline'/'unsafe-eval'. "
+            "Set NGINX_CONTENT_SECURITY_POLICY to a strict policy in env/prod.env. "
+            f"Example: NGINX_CONTENT_SECURITY_POLICY={STRICT_CONTENT_SECURITY_POLICY}"
         )
 
     return content_security_policy

@@ -228,7 +228,14 @@ Security headers задаются только на уровне HTTPS `server` 
 
 `X-XSS-Protection` оставлен для совместимости со scanner checks и выставлен в `0`, чтобы не включать deprecated browser XSS Auditor; основная защита от XSS - CSP.
 
-Default CSP совместима с dev/Next.js и содержит вынесенные dev-послабления `'unsafe-inline'` / `'unsafe-eval'`. При генерации prod nginx config с такой политикой CLI печатает критический warning. Для публичного prod нужно задать строгую политику через `NGINX_CONTENT_SECURITY_POLICY` в `env/prod.env`.
+Default CSP совместима с dev/Next.js и содержит dev-послабления `'unsafe-inline'` / `'unsafe-eval'`. Для `prod` использование дефолтной CSP является **блокирующей ошибкой**: генерация nginx config и `stack preflight prod` упадут. Задать строгую политику обязательно:
+
+```env
+# env/prod.env
+NGINX_CONTENT_SECURITY_POLICY=default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob: https:; font-src 'self' data:; style-src 'self'; script-src 'self' blob:; connect-src 'self' https:; media-src 'self' data: blob: https:; worker-src 'self' blob:; manifest-src 'self'
+```
+
+Строгую политику без `'unsafe-inline'`/`'unsafe-eval'` можно взять из константы `STRICT_CONTENT_SECURITY_POLICY` в `scripts/core/nginx_csp.py`. Для dev `NGINX_CONTENT_SECURITY_POLICY` не обязателен.
 
 ### TLS политика
 

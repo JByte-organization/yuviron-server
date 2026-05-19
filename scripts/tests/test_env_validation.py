@@ -116,6 +116,28 @@ class EnvValidationTests(unittest.TestCase):
         self.assertIn(("JWT_SECRET", ERROR), errors)
         self.assertIn(("CLIENT_SECRET", ERROR), errors)
 
+    def test_prod_requires_nginx_content_security_policy(self) -> None:
+        issues = validate_runtime_env({}, "prod", validate_schema=False)
+
+        errors = {(issue.key, issue.severity) for issue in issues}
+        self.assertIn(("NGINX_CONTENT_SECURITY_POLICY", ERROR), errors)
+
+    def test_prod_accepts_explicit_nginx_content_security_policy(self) -> None:
+        issues = validate_runtime_env(
+            {"NGINX_CONTENT_SECURITY_POLICY": "default-src 'self'"},
+            "prod",
+            validate_schema=False,
+        )
+
+        keys = {issue.key for issue in issues}
+        self.assertNotIn("NGINX_CONTENT_SECURITY_POLICY", keys)
+
+    def test_dev_does_not_require_nginx_content_security_policy(self) -> None:
+        issues = validate_runtime_env({}, "dev", validate_schema=False)
+
+        keys = {issue.key for issue in issues}
+        self.assertNotIn("NGINX_CONTENT_SECURITY_POLICY", keys)
+
     def test_dev_allows_dev_defaults_but_warns_about_short_tokens(self) -> None:
         issues = validate_runtime_env(
             {
