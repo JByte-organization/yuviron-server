@@ -469,6 +469,11 @@ def _is_secret_reference_or_placeholder(value: str) -> bool:
         return True
     if lowered in {"example", "placeholder", "redacted", "todo", "your-secret-here"}:
         return True
+    # Absolute paths and Docker volume mount modes are never secret values
+    if stripped.startswith("/"):
+        return True
+    if stripped in {"ro", "rw", "z", "Z", "shared", "slave", "private"}:
+        return True
     return False
 
 

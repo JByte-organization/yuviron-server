@@ -175,12 +175,9 @@ services:
     networks:
       - default
     healthcheck:
-      # 49F8 = port 18888 (0x49F8) - checks LISTEN entry in kernel TCP table, no extra binaries needed
-      test: ["CMD-SHELL", "grep -q ':49F8 ' /proc/net/tcp6 2>/dev/null || grep -q ':49F8 ' /proc/net/tcp"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+      # aspire-dashboard:9.0 is a distroless (chiseled) image with no shell or Unix tools;
+      # no service depends on aspire health, so the check is disabled rather than kept broken.
+      disable: true
     mem_limit: ${ASPIRE_MEM_LIMIT:-256m}
     memswap_limit: ${ASPIRE_MEMSWAP_LIMIT:-256m}
     cpus: ${ASPIRE_CPUS:-0.25}

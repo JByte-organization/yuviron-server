@@ -216,7 +216,7 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertNotIn("127.0.0.1:443", healthcheck)
         self.assertGreaterEqual(ssl_defaults.count("location = /health"), 2)
 
-    def test_aspire_dashboard_healthcheck_checks_dashboard_tcp_port(self) -> None:
+    def test_aspire_dashboard_uses_official_image_with_disabled_healthcheck(self) -> None:
         root = SCRIPTS_ROOT.parent
         compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
         service = compose["services"]["aspire-dashboard"]
@@ -226,18 +226,10 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertNotIn("build", service)
         self.assertIn("mcr.microsoft.com/dotnet/aspire-dashboard", service["image"])
 
-        # Must probe via /proc/net/tcp - no BusyBox or injected binary
-        test_cmd = healthcheck["test"]
-        self.assertEqual("CMD-SHELL", test_cmd[0])
-        self.assertIn("/proc/net/tcp", test_cmd[1])
-        # 49F8 = 18888 in hex
-        self.assertIn("49F8", test_cmd[1])
-        self.assertNotIn("busybox", test_cmd[1])
-
-        self.assertEqual("15s", healthcheck["interval"])
-        self.assertEqual("5s", healthcheck["timeout"])
-        self.assertEqual(5, healthcheck["retries"])
-        self.assertEqual("10s", healthcheck["start_period"])
+        # aspire-dashboard:9.0 is a distroless (chiseled) image with no shell or Unix tools;
+        # CMD-SHELL healthchecks fail with "exec: /bin/sh: no such file".
+        # No service depends on aspire health, so the healthcheck is disabled.
+        self.assertTrue(healthcheck.get("disable"), "aspire healthcheck must be disabled")
 
     def test_mysql_healthcheck_runs_sql_query_instead_of_ping(self) -> None:
         root = SCRIPTS_ROOT.parent
