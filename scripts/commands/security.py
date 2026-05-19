@@ -472,13 +472,7 @@ def _is_secret_reference_or_placeholder(value: str) -> bool:
     return False
 
 
-def _scan_tracked_file_for_secret_assignments(root_dir: Path, relative_path: str) -> list[tuple[int, str]]:
-    path = root_dir / relative_path
-    try:
-        content = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return []
-
+def _scan_content_for_secrets(content: str) -> list[tuple[int, str]]:
     matches: list[tuple[int, str]] = []
     for line_no, raw_line in enumerate(content.splitlines(), start=1):
         line = raw_line.strip().lstrip("-").strip()
@@ -491,6 +485,15 @@ def _scan_tracked_file_for_secret_assignments(root_dir: Path, relative_path: str
             continue
         matches.append((line_no, key))
     return matches
+
+
+def _scan_tracked_file_for_secret_assignments(root_dir: Path, relative_path: str) -> list[tuple[int, str]]:
+    path = root_dir / relative_path
+    try:
+        content = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    return _scan_content_for_secrets(content)
 
 
 def _audit_tracked_secrets(root_dir: Path, report: AuditReport) -> None:
@@ -521,6 +524,74 @@ def _audit_tracked_secrets(root_dir: Path, report: AuditReport) -> None:
 
         for line_no, key in _scan_tracked_file_for_secret_assignments(root_dir, relative_path):
             report.error("git-secrets", f"possible hardcoded secret in git: {relative_path}:{line_no} ({key})")
+
+
+def _get_staged_files(root_dir: Path) -> list[str]:
+    result = subprocess.run(
+        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"],
+        cwd=str(root_dir),
+        capture_output=True,
+        text=False,
+        check=False,
+    )
+    if result.returncode != 0:
+        return []
+    return [item.decode("utf-8", errors="replace") for item in result.stdout.split(b"\0") if item]
+
+
+def _read_staged_content(root_dir: Path, relative_path: str) -> str:
+    result = subprocess.run(
+        ["git", "show", f":0:{relative_path}"],
+        cwd=str(root_dir),
+        capture_output=True,
+        text=False,
+        check=False,
+    )
+    if result.returncode != 0:
+        return ""
+    try:
+        return result.stdout.decode("utf-8")
+    except UnicodeDecodeError:
+        return ""
+
+
+def _audit_staged_secrets(root_dir: Path, report: AuditReport) -> None:
+    staged_files = _get_staged_files(root_dir)
+    if not staged_files:
+        return
+
+    for relative_path in staged_files:
+        if _is_skipped_secret_scan_path(relative_path):
+            continue
+
+        if _looks_like_sensitive_file(relative_path):
+            report.error("staged-secrets", f"sensitive file staged for commit: {relative_path}")
+            continue
+
+        if not SECRET_KEY_RE.search(relative_path):
+            suffix = Path(relative_path).suffix.lower()
+            if suffix not in {".env", ".yml", ".yaml", ".json", ".toml", ".ini", ".conf", ".sh", ".ps1", ".bat"}:
+                continue
+
+        content = _read_staged_content(root_dir, relative_path)
+        for line_no, key in _scan_content_for_secrets(content):
+            report.error("staged-secrets", f"possible hardcoded secret: {relative_path}:{line_no} ({key})")
+
+
+def cmd_audit_staged(args: argparse.Namespace) -> int:
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+    report = AuditReport()
+
+    _audit_staged_secrets(root_dir, report)
+
+    if report.errors:
+        for finding in report.errors:
+            log_err(f"{finding.check}: {finding.message}")
+        log_err(f"Pre-commit blocked: {len(report.errors)} secret(s) found in staged files.")
+        log_err("Remove secrets before committing. To bypass: git commit --no-verify")
+        return 1
+
+    return 0
 
 
 def _emit_new_findings(findings: list[AuditFinding]) -> None:
@@ -596,3 +667,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     audit_parser.add_argument("--strict", action="store_true", help="Treat warnings as failures")
     audit_parser.add_argument("--no-header", action="store_true", help=argparse.SUPPRESS)
     audit_parser.set_defaults(handler=cmd_audit)
+
+    staged_parser = security_sub.add_parser("audit-staged", help="Scan staged files for secrets (used by pre-commit hook)")
+    staged_parser.add_argument("project_root", nargs="?")
+    staged_parser.set_defaults(handler=cmd_audit_staged)
