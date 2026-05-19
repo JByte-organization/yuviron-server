@@ -222,6 +222,9 @@ services:
       <<: *dotnet-env
       ASPNETCORE_HTTP_PORTS: 5073
       Swagger__Enabled: ${Swagger__Enabled}
+      # Downgrade health check failure logs from Error to Warning so transient
+      # startup probes (rabbitmq, masstransit-bus) don't pollute the error stream.
+      Logging__LogLevel__Microsoft.Extensions.Diagnostics.HealthChecks: Warning
     volumes:
       - ${STORAGE_PATH}:/var/yuviron-server/storage
     depends_on:
