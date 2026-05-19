@@ -3,11 +3,11 @@
 set -e
 
 echo "Enter password:"
-read -s PASSWORD
+read -rs PASSWORD
 
 echo
 echo "Repeat password:"
-read -s PASSWORD_CONFIRM
+read -rs PASSWORD_CONFIRM
 
 echo
 

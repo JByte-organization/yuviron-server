@@ -49,7 +49,7 @@ EOF
 collect_users() {
     USERS=("Никого")
 
-    while IFS=: read -r name _ uid _ _ home shell; do
+    while IFS=: read -r name _ _ _ _ home shell; do
         if [[ "$home" == /home/* ]] && [[ "$shell" != */nologin ]] && [[ "$shell" != */false ]]; then
             USERS+=("$name")
         fi
