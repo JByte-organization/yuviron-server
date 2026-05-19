@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -32,6 +33,14 @@ MIGRATOR_PROFILE = "migrate"
 NGINX_MEDIA_CACHE_DIR = "/var/cache/nginx/yuviron_media"
 NGINX_MEDIA_ROUTE_NAME = "i"
 MIGRATOR_SERVICE = "migrator"
+BACKEND_SERVICE = "backend"
+SWAGGER_BACKEND_BASE_URL = "http://127.0.0.1:5073"
+SWAGGER_PREBUILD_SERVICES = ("mysql", "redis", "rabbitmq", BACKEND_SERVICE)
+FRONTEND_SWAGGER_DIR = Path("src") / "yuviron-frontend" / "packages" / "api" / "openapi"
+SWAGGER_DOCUMENTS = {
+    "admin": "/swagger/admin/swagger.json",
+    "client": "/swagger/client/swagger.json",
+}
 
 
 @dataclass
@@ -557,6 +566,88 @@ def _run_migrator(context: ComposeContext, *, dry_run: bool = False) -> None:
     log_ok("EF Core migrations completed")
 
 
+def _swagger_prebuild_context(context: ComposeContext) -> ComposeContext:
+    values = parse_env_file(context.runtime_env)
+    if not values:
+        fail(f"Could not load runtime env for Swagger prebuild: {context.runtime_env}")
+
+    values["Swagger__Enabled"] = "true"
+    out_file = context.root_dir / ".tmp" / "runtime" / f"{context.environment}.swagger-prebuild.env"
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    out_file.write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n", encoding="utf-8")
+
+    return ComposeContext(
+        root_dir=context.root_dir,
+        environment=context.environment,
+        runtime_env=out_file,
+        compose_file=context.compose_file,
+        frontends_compose=context.frontends_compose,
+        compose_project_name=context.compose_project_name,
+    )
+
+
+def _write_swagger_document(root_dir: Path, name: str, raw_json: str) -> None:
+    try:
+        payload = json.loads(raw_json)
+    except json.JSONDecodeError as exc:
+        preview = raw_json[:500].replace("\n", " ")
+        fail(f"Swagger document '{name}' is not valid JSON: {exc}\nPreview: {preview}")
+
+    if not isinstance(payload, dict) or not (payload.get("openapi") or payload.get("swagger")):
+        fail(f"Swagger document '{name}' does not look like an OpenAPI document")
+
+    output_dir = root_dir / FRONTEND_SWAGGER_DIR
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    target = output_dir / f"{name}.swagger.json"
+    tmp_target = target.with_name(f"{target.name}.tmp")
+    tmp_target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp_target.replace(target)
+    log_ok(f"Swagger document saved: {target.relative_to(root_dir)}")
+
+
+def _prepare_frontend_swagger(context: ComposeContext, root_dir: Path, *, dry_run: bool = False) -> None:
+    swagger_context = _swagger_prebuild_context(context)
+
+    if dry_run:
+        log_info("Validating Swagger prebuild compose plan in dry-run mode")
+        run_compose(
+            swagger_context,
+            "--dry-run",
+            "up",
+            "--no-start",
+            "--build",
+            *SWAGGER_PREBUILD_SERVICES,
+        )
+        return
+
+    log_info("Preparing Swagger documents for frontend API generation")
+    run_compose(swagger_context, "up", "-d", "--build", *SWAGGER_PREBUILD_SERVICES)
+    _wait_for_service_health(swagger_context, BACKEND_SERVICE, timeout=120)
+
+    for name, path in SWAGGER_DOCUMENTS.items():
+        url = f"{SWAGGER_BACKEND_BASE_URL}{path}"
+        log_info(f"Fetching Swagger document '{name}' from backend")
+        result = run_compose(
+            swagger_context,
+            "exec",
+            "-T",
+            BACKEND_SERVICE,
+            "wget",
+            "-qO-",
+            url,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            details = (result.stderr or result.stdout or "").strip()
+            fail(f"Failed to fetch Swagger document '{name}' from backend: {url}\n{details}")
+
+        _write_swagger_document(root_dir, name, result.stdout)
+
+    log_ok("Swagger prebuild completed")
+
+
 def _media_route_host(root_dir: Path, environment: str) -> str:
     routes_file = root_dir / "generated" / environment / "routes.env"
     if not routes_file.is_file():
@@ -620,6 +711,7 @@ def cmd_up(args: argparse.Namespace) -> int:
     preflight_core.prepare_host_storage_layout(root_dir, runtime_values)
     if not bool(getattr(args, "skip_migrate", False)):
         _run_migrator(context, dry_run=bool(getattr(args, "dry_run", False)))
+    _prepare_frontend_swagger(context, root_dir, dry_run=bool(getattr(args, "dry_run", False)))
     if bool(getattr(args, "dry_run", False)):
         log_info("Running docker compose up in dry-run mode")
         run_compose(context, "--dry-run", "up", "--no-start", "--build", "--remove-orphans")
