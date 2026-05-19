@@ -21,21 +21,22 @@ mkdir -p "${EF_OBJ_DIR}"
 rm -rf "${EF_OBJ_DIR:?}"/* "${EF_OBJ_DIR}"/.[!.]* "${EF_OBJ_DIR}"/..?* 2>/dev/null || true
 cp -R /src/src/Yuviron.Infrastructure/obj/. "${EF_OBJ_DIR}/"
 
-EF_ARGS="
-  --project ${EF_PROJECT}
-  --startup-project ${EF_STARTUP_PROJECT}
-  --configuration ${EF_CONFIGURATION}
-  --no-build
-  --msbuildprojectextensionspath ${EF_OBJ_DIR}
-"
-
 export MSBuildProjectExtensionsPath="${EF_OBJ_DIR}/"
 
+run_ef() {
+    dotnet ef "$@" \
+        --project "${EF_PROJECT}" \
+        --startup-project "${EF_STARTUP_PROJECT}" \
+        --configuration "${EF_CONFIGURATION}" \
+        --no-build \
+        --msbuildprojectextensionspath "${EF_OBJ_DIR}"
+}
+
 echo "Applying EF Core migrations"
-dotnet ef database update ${EF_ARGS}
+run_ef database update
 
 echo "Verifying EF Core migration state"
-migrations_output="$(dotnet ef migrations list ${EF_ARGS})"
+migrations_output="$(run_ef migrations list)"
 printf '%s\n' "${migrations_output}"
 
 if printf '%s\n' "${migrations_output}" | grep -E "(\[Pending\]|\(Pending\)|Pending)" >/dev/null; then
