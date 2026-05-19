@@ -352,6 +352,85 @@ def cmd_rotate_aspire_tokens(args: argparse.Namespace) -> int:
     return 0
 
 
+def _certs_renew_log_path(root_dir: Path, environment: str) -> Path:
+    return root_dir / "logs" / environment / "letsencrypt" / "certs-renew.log"
+
+
+def _certs_cron_marker(environment: str) -> str:
+    return f"scripts/cli.py certs renew --env {environment}"
+
+
+def _certs_renew_cron_line(root_dir: Path, environment: str, domain: str, hour: int, minute: int) -> str:
+    log_file = _certs_renew_log_path(root_dir, environment)
+    cmd = (
+        f"cd {root_dir} && ./scripts/cli.py certs renew"
+        f" --env {environment} --domain {domain}"
+        f" --skip-public-check"
+        f" >> {log_file} 2>&1"
+    )
+    return f"{minute} {hour} * * * {cmd}"
+
+
+def _ask_cron_int(prompt: str, default: int, min_val: int, max_val: int, label: str) -> int:
+    raw = input(f"{prompt} (default: {default}): ").strip() or str(default)
+    try:
+        n = int(raw)
+    except ValueError:
+        fail(f"{label} must be an integer between {min_val} and {max_val} (got: {raw!r})")
+    if not (min_val <= n <= max_val):
+        fail(f"{label} must be between {min_val} and {max_val} (got: {n})")
+    return n
+
+
+def cmd_setup_certs_cron(args: argparse.Namespace) -> int:
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+    environment = resolve_prompted_environment(getattr(args, "environment", None))
+
+    detected_domain = _read_generation_domain(root_dir, environment)
+    domain_hint = f" [{detected_domain}]" if detected_domain else ""
+    raw_domain = input(f"Domain{domain_hint}: ").strip()
+    domain = raw_domain or detected_domain
+    if not domain:
+        fail("Domain is required. Run init first or enter it manually.")
+
+    hour = _ask_cron_int("Renewal hour (0-23)", 3, 0, 23, "Hour")
+    minute = _ask_cron_int("Renewal minute (0-59)", 30, 0, 59, "Minute")
+
+    log_path = _certs_renew_log_path(root_dir, environment)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    cron_line = _certs_renew_cron_line(root_dir, environment, domain, hour, minute)
+    marker = _certs_cron_marker(environment)
+
+    print()
+    log_info("Generated cron job:")
+    print(f"  {cron_line}")
+    print()
+
+    try:
+        confirm_str = input("Apply? (y/n): ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        raise CommandError("Aborted.")
+
+    if confirm_str != "y":
+        raise CommandError("Aborted.")
+
+    existing_result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+    existing = existing_result.stdout if existing_result.returncode == 0 else ""
+    lines = [line for line in existing.splitlines() if marker not in line]
+    lines.append(cron_line)
+    new_crontab = "\n".join(lines) + "\n"
+
+    subprocess.run(["crontab", "-"], input=new_crontab, text=True, check=True)
+
+    log_ok("Cron updated successfully")
+    log_info(f"Renewal logs: {log_path}")
+    print()
+    subprocess.run(["crontab", "-l"])
+    return 0
+
+
 def cmd_rotation_status(args: argparse.Namespace) -> int:
     root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
     environment = resolve_prompted_environment(getattr(args, "environment", None))
@@ -420,6 +499,14 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     cron_parser = tools_sub.add_parser("setup-cron", help="Run setup-cron.sh")
     cron_parser.add_argument("--project-root", dest="project_root")
     cron_parser.set_defaults(handler=cmd_setup_cron)
+
+    setup_certs_cron_parser = tools_sub.add_parser(
+        "setup-certs-cron",
+        help="Install a cron job for automatic Let's Encrypt certificate renewal",
+    )
+    setup_certs_cron_parser.add_argument("environment", nargs="?")
+    setup_certs_cron_parser.add_argument("--project-root", dest="project_root")
+    setup_certs_cron_parser.set_defaults(handler=cmd_setup_certs_cron)
 
     docker_parser = tools_sub.add_parser("docker-install", help="Run docker_install.sh")
     docker_parser.add_argument("--project-root", dest="project_root")

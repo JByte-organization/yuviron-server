@@ -177,6 +177,32 @@ http://<host>/.well-known/acme-challenge/<token>
 
 ---
 
+## Автоматическое продление (cron)
+
+```bash
+./scripts/cli.py tools setup-certs-cron prod
+```
+
+Команда интерактивно спрашивает домен, час и минуту запуска (по умолчанию `03:30`), затем устанавливает задание в crontab. Повторный запуск заменяет предыдущую строку для этого окружения без дублей.
+
+Пример итогового cron-задания:
+
+```text
+30 3 * * * cd /opt/yuviron-server && ./scripts/cli.py certs renew --env prod --domain yuviron.com --skip-public-check >> /opt/yuviron-server/logs/prod/letsencrypt/certs-renew.log 2>&1
+```
+
+`--skip-public-check` отключает self-check ACME-probe с самого сервера — в cron он не нужен, потому что certbot сам проверяет challenge через серверы Let's Encrypt. Если сертификат не требует продления, certbot завершается без лишних запросов.
+
+Логи пишутся в `logs/<env>/letsencrypt/certs-renew.log`.
+
+Проверить текущее задание:
+
+```bash
+crontab -l
+```
+
+---
+
 ## Назначение rootCA.crt
 
 Файл:
