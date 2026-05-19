@@ -69,6 +69,11 @@ http {
         default "";
     }
 
+    map $request_method $cors_media_route {
+        OPTIONS "@cors_preflight";
+        default "@media_proxy";
+    }
+
     log_format main '$remote_addr - $remote_user [$time_local] "$request" '
                 '$status $body_bytes_sent "$http_referer" '
                 '"$http_user_agent" "$http_x_forwarded_for" '

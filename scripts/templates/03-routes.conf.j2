@@ -62,27 +62,19 @@
             return 404;
         }
 
-        location / {
-            limit_except GET HEAD OPTIONS {
-                deny all;
-            }
-            
+        location @cors_preflight {
             add_header 'Access-Control-Allow-Origin' $cors_media_origin always;
             add_header 'Access-Control-Allow-Methods' 'GET, HEAD, OPTIONS' always;
             add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range' always;
-            add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range' always;
+            add_header 'Access-Control-Max-Age' 1728000;
+            add_header 'Content-Type' 'text/plain; charset=utf-8';
+            add_header 'Content-Length' 0;
+            return 204;
+        }
 
-            if ($request_method = 'OPTIONS') {
-                add_header 'Access-Control-Allow-Origin' $cors_media_origin;
-                add_header 'Access-Control-Allow-Methods' 'GET, HEAD, OPTIONS';
-                add_header 'Access-Control-Max-Age' 1728000;
-                add_header 'Content-Type' 'text/plain; charset=utf-8';
-                add_header 'Content-Length' 0;
-                return 204;
-            }
-            
+        location @media_proxy {
             include /etc/nginx/proxy-params.conf;
-            
+
             rewrite ^/(?!health$)(.+)$ /i/$1 break;
 
             proxy_pass http://{{ route.upstream }};
@@ -103,8 +95,20 @@
             proxy_hide_header Pragma;
             proxy_hide_header Set-Cookie;
 
+            add_header 'Access-Control-Allow-Origin' $cors_media_origin always;
+            add_header 'Access-Control-Allow-Methods' 'GET, HEAD, OPTIONS' always;
+            add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range' always;
+            add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range' always;
             add_header Cache-Control "public, immutable, max-age=31536000";
             add_header X-Cache-Status $upstream_cache_status always;
+        }
+
+        location / {
+            limit_except GET HEAD OPTIONS {
+                deny all;
+            }
+
+            try_files /nonexistent $cors_media_route;
         }
         {% else %}
         location / {

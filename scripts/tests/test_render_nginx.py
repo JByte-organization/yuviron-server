@@ -291,6 +291,36 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("add_header 'Access-Control-Allow-Origin' $cors_media_origin", rendered)
         self.assertNotIn("add_header 'Access-Control-Allow-Origin' '*'", rendered)
 
+    def test_render_media_proxy_options_preflight_uses_named_location_not_if(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [
+                ("api", "api.example.com", "backend:5073", "50m"),
+                (
+                    "i",
+                    "dev-i.example.com",
+                    "backend:5073",
+                    "5m",
+                    False,
+                    None,
+                    None,
+                    (),
+                    None,
+                    None,
+                    None,
+                    True,
+                ),
+            ],
+            SCRIPTS_ROOT / "templates",
+        )
+
+        self.assertNotIn("if ($request_method", rendered)
+        self.assertIn("map $request_method $cors_media_route {", rendered)
+        self.assertIn('OPTIONS "@cors_preflight";', rendered)
+        self.assertIn("location @cors_preflight {", rendered)
+        self.assertIn("location @media_proxy {", rendered)
+        self.assertIn("try_files /nonexistent $cors_media_route;", rendered)
+        self.assertIn("return 204;", rendered)
+
     def test_nginx_route_template_does_not_branch_on_route_name_api(self) -> None:
         template = (SCRIPTS_ROOT / "templates" / "03-routes.conf.j2").read_text(encoding="utf-8")
 
