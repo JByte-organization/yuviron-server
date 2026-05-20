@@ -16,6 +16,8 @@ from .nginx_csp import (
 from .nginx_route import (
     DEFAULT_NGINX_PUBLIC_RATE_BURST,
     DEFAULT_NGINX_PUBLIC_RATE_LIMIT,
+    DEFAULT_NGINX_RATE_API_AUTH,
+    DEFAULT_NGINX_RATE_API_UPLOAD,
     DEFAULT_NGINX_WORKER_PROCESSES,
     NGINX_RATE_BURST_PATTERN,
     NGINX_RATE_LIMIT_PATTERN,
@@ -156,6 +158,14 @@ def render_nginx_conf_modular(
         "NGINX_PUBLIC_RATE_BURST",
         _env_value(env_values, "NGINX_PUBLIC_RATE_BURST", DEFAULT_NGINX_PUBLIC_RATE_BURST),
     )
+    nginx_rate_api_auth = _validate_nginx_rate_limit(
+        "NGINX_RATE_API_AUTH",
+        _env_value(env_values, "NGINX_RATE_API_AUTH", DEFAULT_NGINX_RATE_API_AUTH),
+    )
+    nginx_rate_api_upload = _validate_nginx_rate_limit(
+        "NGINX_RATE_API_UPLOAD",
+        _env_value(env_values, "NGINX_RATE_API_UPLOAD", DEFAULT_NGINX_RATE_API_UPLOAD),
+    )
 
     routes: list[dict[str, object]] = []
     for route_line in route_lines:
@@ -237,6 +247,8 @@ def render_nginx_conf_modular(
         "nginx_cert_mode": nginx_cert_mode,
         "nginx_public_rate_limit": nginx_public_rate_limit,
         "nginx_public_rate_burst": nginx_public_rate_burst,
+        "nginx_rate_api_auth": nginx_rate_api_auth,
+        "nginx_rate_api_upload": nginx_rate_api_upload,
         "nginx_worker_processes": _validate_nginx_worker_processes(
             "NGINX_WORKER_PROCESSES",
             _env_value(env_values, "NGINX_WORKER_PROCESSES", DEFAULT_NGINX_WORKER_PROCESSES),

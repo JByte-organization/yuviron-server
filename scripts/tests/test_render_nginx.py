@@ -424,6 +424,61 @@ class RenderNginxTests(unittest.TestCase):
             rendered.count("add_header Content-Security-Policy"),
         )
 
+    def test_api_auth_and_upload_rate_limits_live_in_render_context_not_template(self) -> None:
+        template = (SCRIPTS_ROOT / "templates" / "01-global.conf.j2").read_text(encoding="utf-8")
+
+        self.assertIn("rate={{ nginx_rate_api_auth }}", template)
+        self.assertIn("rate={{ nginx_rate_api_upload }}", template)
+        self.assertNotIn("rate=10r/m", template)
+        self.assertNotIn("rate=5r/m", template)
+
+    def test_render_uses_api_auth_rate_limit_env_value(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [("api", "api.example.com", "backend:5073", "50m")],
+            SCRIPTS_ROOT / "templates",
+            {"NGINX_RATE_API_AUTH": "30r/m"},
+        )
+
+        self.assertIn("zone=api_auth:10m     rate=30r/m;", rendered)
+
+    def test_render_uses_api_upload_rate_limit_env_value(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [("api", "api.example.com", "backend:5073", "50m")],
+            SCRIPTS_ROOT / "templates",
+            {"NGINX_RATE_API_UPLOAD": "20r/m"},
+        )
+
+        self.assertIn("zone=api_upload:10m   rate=20r/m;", rendered)
+
+    def test_render_api_auth_and_upload_use_conservative_defaults(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [("api", "api.example.com", "backend:5073", "50m")],
+            SCRIPTS_ROOT / "templates",
+        )
+
+        self.assertIn("zone=api_auth:10m     rate=10r/m;", rendered)
+        self.assertIn("zone=api_upload:10m   rate=5r/m;", rendered)
+
+    def test_render_rejects_invalid_api_auth_rate_limit(self) -> None:
+        with self.assertRaises(CommandError) as raised:
+            render_nginx_conf_modular(
+                [("api", "api.example.com", "backend:5073", "50m")],
+                SCRIPTS_ROOT / "templates",
+                {"NGINX_RATE_API_AUTH": "10r/m; include /tmp/x"},
+            )
+
+        self.assertIn("Invalid nginx NGINX_RATE_API_AUTH", str(raised.exception))
+
+    def test_render_rejects_invalid_api_upload_rate_limit(self) -> None:
+        with self.assertRaises(CommandError) as raised:
+            render_nginx_conf_modular(
+                [("api", "api.example.com", "backend:5073", "50m")],
+                SCRIPTS_ROOT / "templates",
+                {"NGINX_RATE_API_UPLOAD": "10r/m; include /tmp/x"},
+            )
+
+        self.assertIn("Invalid nginx NGINX_RATE_API_UPLOAD", str(raised.exception))
+
     def test_render_rejects_invalid_public_rate_limit(self) -> None:
         with self.assertRaises(CommandError) as raised:
             render_nginx_conf_modular(
