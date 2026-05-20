@@ -36,10 +36,11 @@ cd yuviron-server
 ## 2. Python-зависимости
 
 ```bash
-python3 -m pip install -r requirements.txt
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-Фиксированные зависимости: `PyYAML` (YAML-конфигурация), `Jinja2` (nginx шаблоны), `jsonschema` (env validation).
+Фиксированные зависимости: `PyYAML` (YAML-конфигурация), `Jinja2` (nginx шаблоны), `jsonschema` (env validation). Venv изолирует пакеты от системного Python и других проектов.
 
 ---
 
