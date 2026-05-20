@@ -19,12 +19,12 @@ x-dotnet-build: &dotnet-build
   dockerfile: infra/docker/dotnet/Dockerfile
 
 x-dotnet-build-args: &dotnet-build-args
-  DOTNET_VERSION: ${DOTNET_VERSION:-9.0}
-  DOTNET_APP_UID: ${DOTNET_APP_UID:-10001}
-  DOTNET_APP_GID: ${DOTNET_APP_GID:-10001}
+  DOTNET_VERSION: ${DOTNET_VERSION}
+  DOTNET_APP_UID: ${DOTNET_APP_UID}
+  DOTNET_APP_GID: ${DOTNET_APP_GID}
 
 x-dotnet-hardening: &dotnet-hardening
-  user: "${DOTNET_APP_UID:-10001}:${DOTNET_APP_GID:-10001}"
+  user: "${DOTNET_APP_UID}:${DOTNET_APP_GID}"
   read_only: true
   tmpfs:
     - /tmp
@@ -35,7 +35,7 @@ x-dotnet-hardening: &dotnet-hardening
 
 services:
   mysql:
-    image: mysql:8.4
+    image: mysql:8.4@sha256:43bd9764df60666fb2ba2cf8217dd17b3d2414c150005d2fdd07a0cd73d3b7f5
     container_name: ${COMPOSE_PROJECT_NAME}-mysql
     user: "999:999"
     restart: ${RESTART_POLICY}
@@ -66,7 +66,7 @@ services:
     cpus: ${MYSQL_CPUS:-1.0}
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:7aec734b2bb298a1d769fd8729f13b8514a41bf90fcdd1f38ec52267fbaa8ee6
     container_name: ${COMPOSE_PROJECT_NAME}-redis
     user: "999:999"
     restart: ${RESTART_POLICY}
@@ -89,7 +89,7 @@ services:
     cpus: ${REDIS_CPUS:-0.25}
 
   rabbitmq:
-    image: rabbitmq:3-management
+    image: rabbitmq:3-management@sha256:e582c0bc7766f3342496d8485efb5a1df782b5ce3886ad017e2eaae442311f69
     container_name: ${COMPOSE_PROJECT_NAME}-rabbitmq
     user: "999:999"
     restart: ${RESTART_POLICY}
@@ -126,7 +126,7 @@ services:
     cpus: ${RABBITMQ_CPUS:-0.5}
 
   seq:
-    image: datalust/seq:2025.2
+    image: datalust/seq:2025.2@sha256:868a12e93ec0b8c993767a7dd4cd6c8ebc441511c79e4cfac66c911f62d4db65
     container_name: ${COMPOSE_PROJECT_NAME}-seq
     user: "${SEQ_UID:-1000}:${SEQ_GID:-1000}"
     restart: ${RESTART_POLICY}
@@ -145,7 +145,7 @@ services:
     networks:
       - default
     healthcheck:
-      test: ["CMD-SHELL", "timeout 3 bash -c '</dev/tcp/127.0.0.1/80' || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 20
@@ -155,7 +155,7 @@ services:
     cpus: ${SEQ_CPUS:-0.5}
 
   aspire-dashboard:
-    image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0@sha256:d595645ca7f5c075174db998302d8fb09e040516b14dfcb06dd02996659e1c77
     container_name: ${COMPOSE_PROJECT_NAME}-aspire
     restart: ${RESTART_POLICY}
     read_only: true
