@@ -57,7 +57,7 @@ shared/frontend/.github/workflows/deploy-prod.yml
 
 Vulnerability scanning работает на четырёх уровнях.
 
-**CI `image-scan` (`ubuntu-latest`, каждый push/PR):** `aquasecurity/trivy-action` сканирует base images `mcr.microsoft.com/dotnet/aspnet:9.0` и `nginx:alpine`, а также собирает и сканирует итоговый `yuviron-edge` (edge nginx с кастомным конфигом). Находит CVE до того, как изменения попадут на сервер. Настройка: `--severity CRITICAL,HIGH --ignore-unfixed`; `--ignore-unfixed` убирает шум от CVE, для которых нет доступного патча.
+**CI `image-scan` (`ubuntu-latest`, каждый push/PR):** `aquasecurity/trivy-action` сканирует base images `mcr.microsoft.com/dotnet/aspnet:9.0` и `nginx:alpine` в **информационном режиме** (`--exit-code 0`) — они upstream и мы их не контролируем, статус CVE может меняться без каких-либо действий с нашей стороны. Затем собирает и сканирует `yuviron-edge` (edge nginx с кастомным конфигом) уже в **блокирующем режиме** (`--exit-code 1`): fixable CRITICAL/HIGH CVE в нашем built-образе ломают CI. Настройка: `--severity CRITICAL,HIGH --ignore-unfixed`; `--ignore-unfixed` убирает шум от CVE, для которых нет доступного патча.
 
 **CI `image-scan-built` (`[self-hosted, yuviron]`, каждый push/PR):** собирает и сканирует финальные образы `yuviron-backend` и `yuviron-media-worker`. Требует наличия backend source в `src/yuviron-backend/`; если исходники не найдены — шаг пропускается с notice, не блокируя CI.
 
