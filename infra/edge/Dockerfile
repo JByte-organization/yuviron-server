@@ -6,4 +6,3 @@ RUN apk add --no-cache gettext openssl \
     && chown -R 10001:10001 /var/cache/nginx/yuviron_media
 
 USER 10001:10001
-ENTRYPOINT []
