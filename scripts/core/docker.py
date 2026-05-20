@@ -84,6 +84,25 @@ def run_compose(
     )
 
 
+def container_id_for_service(project_name: str, service: str) -> str:
+    """Return the running container ID for a compose project/service pair, or '' if not found."""
+    result = subprocess.run(
+        [
+            "docker", "ps", "-q",
+            "--filter", f"label=com.docker.compose.project={project_name}",
+            "--filter", f"label=com.docker.compose.service={service}",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    for line in result.stdout.splitlines():
+        value = line.strip()
+        if value:
+            return value
+    return ""
+
+
 def ensure_docker_network(name: str) -> None:
     inspect = subprocess.run(
         ["docker", "network", "inspect", name],

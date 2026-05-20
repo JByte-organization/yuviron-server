@@ -431,6 +431,64 @@ def cmd_setup_certs_cron(args: argparse.Namespace) -> int:
     return 0
 
 
+LOGROTATE_DEST = Path("/etc/logrotate.d")
+LOGROTATE_FILENAME = "yuviron"
+
+
+def _logrotate_config(root_dir: Path) -> str:
+    log_glob = root_dir / "logs" / "*" / "nginx" / "*.log"
+    letsencrypt_glob = root_dir / "logs" / "*" / "letsencrypt" / "*.log"
+    return (
+        f"{log_glob} {letsencrypt_glob} {{\n"
+        "    daily\n"
+        "    rotate 14\n"
+        "    compress\n"
+        "    delaycompress\n"
+        "    missingok\n"
+        "    notifempty\n"
+        "    copytruncate\n"
+        "}\n"
+    )
+
+
+def cmd_setup_logrotate(args: argparse.Namespace) -> int:
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+    dest = LOGROTATE_DEST / LOGROTATE_FILENAME
+    config = _logrotate_config(root_dir)
+
+    print()
+    log_info(f"Logrotate config to install at: {dest}")
+    print()
+    print(config)
+
+    try:
+        confirm_str = input("Apply? (y/n): ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        raise CommandError("Aborted.")
+
+    if confirm_str != "y":
+        raise CommandError("Aborted.")
+
+    tmp_path = root_dir / ".tmp" / LOGROTATE_FILENAME
+    tmp_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path.write_text(config, encoding="utf-8")
+
+    result = subprocess.run(
+        ["sudo", "cp", str(tmp_path), str(dest)],
+        check=False,
+    )
+    tmp_path.unlink(missing_ok=True)
+
+    if result.returncode != 0:
+        fail(f"Failed to install logrotate config (exit {result.returncode}). Run with sudo or install manually.")
+
+    subprocess.run(["sudo", "logrotate", "--debug", str(dest)], check=False)
+    log_ok(f"Logrotate config installed: {dest}")
+    log_info("Logs will rotate daily, keeping 14 compressed copies.")
+    return 0
+
+
 def cmd_rotation_status(args: argparse.Namespace) -> int:
     root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
     environment = resolve_prompted_environment(getattr(args, "environment", None))
@@ -507,6 +565,13 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     setup_certs_cron_parser.add_argument("environment", nargs="?")
     setup_certs_cron_parser.add_argument("--project-root", dest="project_root")
     setup_certs_cron_parser.set_defaults(handler=cmd_setup_certs_cron)
+
+    logrotate_parser = tools_sub.add_parser(
+        "setup-logrotate",
+        help="Install /etc/logrotate.d/yuviron to rotate nginx and letsencrypt log files",
+    )
+    logrotate_parser.add_argument("--project-root", dest="project_root")
+    logrotate_parser.set_defaults(handler=cmd_setup_logrotate)
 
     docker_parser = tools_sub.add_parser("docker-install", help="Run docker_install.sh")
     docker_parser.add_argument("--project-root", dest="project_root")

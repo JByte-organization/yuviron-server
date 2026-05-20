@@ -301,6 +301,11 @@ services:
       context: ./edge
       dockerfile: Dockerfile
     container_name: ${COMPOSE_PROJECT_NAME}-nginx
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
     user: "10001:10001"
     group_add:
       - "${NGINX_CERT_GROUP_ID:-10001}"
