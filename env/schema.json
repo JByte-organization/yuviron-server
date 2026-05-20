@@ -57,7 +57,7 @@
     },
     "ASPNETCORE_ENVIRONMENT": {
       "type": "string",
-      "enum": ["Development", "Staging", "Production"]
+      "enum": ["Development", "Production"]
     },
     "ASPIRE_ASPNETCORE_URLS": {
       "type": "string",
@@ -311,6 +311,10 @@
       "format": "port"
     },
     "RabbitMQ__Username": {
+      "type": "string",
+      "minLength": 1
+    },
+    "RabbitMQ__Password": {
       "type": "string",
       "minLength": 1
     },
