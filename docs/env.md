@@ -191,7 +191,7 @@ ASPIRE_OTLP_API_KEY=<api-key>
 RABBITMQ_DEFAULT_PASS=<password>
 JamendoApi__ClientId=<client-id>
 
-NGINX_RATE_API_GENERAL=60r/m
+NGINX_PUBLIC_RATE_LIMIT=60r/m
 NGINX_RATE_API_AUTH=30r/m
 NGINX_RATE_API_UPLOAD=20r/m
 ```
@@ -224,7 +224,7 @@ JamendoApi__ClientId=<client-id>
 
 NGINX_CONTENT_SECURITY_POLICY=default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob: https:; font-src 'self' data:; style-src 'self'; script-src 'self' blob:; connect-src 'self' https: wss:; media-src 'self' data: blob: https:; worker-src 'self' blob:; manifest-src 'self'
 
-NGINX_RATE_API_GENERAL=30r/m
+NGINX_PUBLIC_RATE_LIMIT=30r/m
 NGINX_RATE_API_AUTH=10r/m
 NGINX_RATE_API_UPLOAD=5r/m
 
@@ -337,13 +337,7 @@ Route `i` задаётся в `config/routes.yml` с `host_strategy: subdomain` 
 
 **Nginx:** контейнер локально проверяет `http://127.0.0.1/health` и срок действия default-сертификата. TLS handshake через `openssl s_client` намеренно не используется внутри Docker healthcheck, чтобы startup health не зависел от хрупкого HTTPS probe. `/health` объявлен до `return 444`, поэтому HTTP healthcheck не зависит от внешнего `Host`.
 
-**Aspire Dashboard:** официальный образ `mcr.microsoft.com/dotnet/aspire-dashboard:9.0` не имеет пригодного `/health` endpoint (GET уводит на login, HEAD возвращает `404`). Docker healthcheck проверяет TCP listener через `/proc/net/tcp` ядра Linux - ищет port `18888` (hex `0x49F8`) в таблице активных TCP сокетов:
-
-```bash
-grep -q ':49F8 ' /proc/net/tcp6 2>/dev/null || grep -q ':49F8 ' /proc/net/tcp
-```
-
-Это проверяет listener без каких-либо дополнительных бинарей внутри контейнера.
+**Aspire Dashboard:** образ `mcr.microsoft.com/dotnet/aspire-dashboard:9.0` — distroless (chiseled), без shell и unix-утилит. Docker healthcheck отключён (`disable: true`): никакой сервис не зависит от Aspire health, а запустить probe без бинарей внутри контейнера невозможно.
 
 **Frontend (Next.js):** TCP healthcheck порта `3000` внутри контейнера. Отдельный `/api/health` endpoint во frontend-репозитории не требуется.
 
@@ -398,7 +392,7 @@ grep -q ':49F8 ' /proc/net/tcp6 2>/dev/null || grep -q ':49F8 ' /proc/net/tcp
 
 ### .NET services
 
-Backend, migrator и media-worker собираются через единый multi-stage Dockerfile `infra/docker/dotnet/Dockerfile`. Targets: `backend`, `migrator`, `media-worker`. Версия .NET (`DOTNET_VERSION`), UID/GID runtime-пользователя (`DOTNET_APP_UID`, `DOTNET_APP_GID`) задаются явно в `env/common.env`; общие security-настройки применяются через `x-dotnet-*` anchors в `infra/compose.yml`.
+Backend, migrator и media-worker собираются через единый multi-stage Dockerfile `infra/docker/dotnet/Dockerfile`. Targets: `backend`, `migrator`, `media-worker`. Версия .NET (`DOTNET_VERSION`), UID/GID runtime-пользователя (`DOTNET_APP_UID`, `DOTNET_APP_GID`) задаются явно в `env/common.env`; общие security-настройки применяются через `x-dotnet-*` anchors в `infra/compose.yml`. Runtime-пакеты для `backend` и `media-worker` перечислены в `infra/docker/dotnet/runtime-packages.txt`; они не передаются через build args.
 
 `migrator` вынесен в compose profile `migrate`. `./scripts/cli.py stack up <env>` запускает его явно перед основным `up`, а `./scripts/cli.py stack migrate <env>` позволяет выполнить тот же шаг вручную.
 

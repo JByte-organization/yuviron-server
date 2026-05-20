@@ -177,7 +177,34 @@ http://<host>/.well-known/acme-challenge/<token>
 
 ---
 
-## Автоматическое продление (cron)
+## Срок жизни сертификатов и обновление
+
+### mkcert
+
+mkcert выдаёт сертификаты с фиксированным сроком действия ~825 дней (около 2 лет 3 месяцев). Автоматического продления нет — mkcert не поддерживает ACME-протокол. Когда сертификат истечёт, нужно перевыпустить его вручную:
+
+```bash
+./scripts/cli.py certs generate --provider mkcert --env dev --domain yuviron.com
+./scripts/cli.py certs reload --env dev
+```
+
+Команда `certs generate` перезаписывает файлы в `certs/` и передаёт nginx команду reload автоматически.
+
+Проверить текущую дату истечения вручную:
+
+```bash
+openssl x509 -enddate -noout -in certs/dev-yuviron.com.pem
+```
+
+`doctor` предупреждает за **30 дней** до истечения. Настроить напоминание заранее: запланируй проверку `./scripts/cli.py doctor dev` в cron раз в месяц, либо следи за предупреждением в CI.
+
+### Let's Encrypt
+
+Let's Encrypt выдаёт сертификаты сроком 90 дней. certbot с флагом `--keep-until-expiring` продлевает их автоматически, когда до истечения остаётся менее 30 дней. Для автоматического продления настрой cron-задание через команду ниже.
+
+---
+
+## Автоматическое продление Let's Encrypt (cron)
 
 ```bash
 ./scripts/cli.py tools setup-certs-cron prod
