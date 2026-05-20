@@ -88,6 +88,8 @@ CLI является единым интерфейсом для работы с�
 ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
 ./scripts/cli.py stack up dev --dry-run
 ./scripts/cli.py stack up dev --skip-migrate
+./scripts/cli.py stack up prod --observability
+./scripts/cli.py stack up prod --no-rollback
 ```
 
 Перед основным `up` CLI запускает EF Core migrator как one-off compose run через profile `migrate`, поэтому миграции выполняются при каждом обычном `stack up`.
@@ -96,6 +98,8 @@ ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
 
 * `--dry-run` - не запускает контейнеры: для migrator проверяется compose-план profile `migrate`, для основного `up` дополнительно используется `--no-start`, чтобы Compose проверил план создания/build без ожидания health dependencies; подходит для CI/e2e
 * `--skip-migrate` - пропускает EF Core migrator перед запуском сервисов; только для аварийных случаев, когда нужно поднять стек без DB migration step
+* `--observability` - дополнительно запускает Seq и Aspire Dashboard (compose profile `observability`); по умолчанию эти сервисы не стартуют, чтобы не потреблять ресурсы в prod без необходимости
+* `--no-rollback` - отключает автоматический rollback при сбое сборки или запуска; по умолчанию CLI сохраняет снэпшот текущих образов перед `docker compose up --build` и восстанавливает их при неудаче
 
 ### Миграции БД
 
@@ -315,8 +319,14 @@ python3 scripts/init.py --env dev --domain yuviron.com
 ./scripts/cli.py tools check-frontend-fast
 ./scripts/cli.py tools seq-hash
 ./scripts/cli.py tools setup-cron
+./scripts/cli.py tools setup-certs-cron prod
+./scripts/cli.py tools setup-logrotate
 ./scripts/cli.py tools cleanup
 ```
+
+`tools setup-certs-cron` — интерактивно устанавливает cron-задание для автоматического продления Let's Encrypt сертификата; считывает домен из `generated/<env>/manifest.env`, спрашивает время запуска и добавляет строку в crontab (с дедупликацией по маркеру). Подробнее: [certificates.md](certificates.md).
+
+`tools setup-logrotate` — устанавливает `/etc/logrotate.d/yuviron` для ротации логов в `logs/*/nginx/` и `logs/*/letsencrypt/`. Ротация ежедневная, хранится 14 сжатых копий, используется `copytruncate`.
 
 `tools cleanup` - широкий legacy cleanup script с Docker/logs/apt/tmp/generated/certs/.tmp. Автоматически удаляет пустые `*.log`-файлы старше 7 дней из `logs/` и `__pycache__` директории. Для обычной Docker-очистки используй `tools docker-clean`.
 

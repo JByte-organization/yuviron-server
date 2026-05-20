@@ -55,9 +55,11 @@ shared/frontend/.github/workflows/deploy-prod.yml
 
 ## Сканирование образов (Trivy)
 
-Vulnerability scanning работает на трёх уровнях.
+Vulnerability scanning работает на четырёх уровнях.
 
-**CI (`ubuntu-latest`, каждый push/PR):** `aquasecurity/trivy-action` сканирует base images `mcr.microsoft.com/dotnet/aspnet:9.0` и `nginx:alpine` без сборки приложения. Находит CVE в base image до того, как изменения попадут на сервер. Настройка: `--severity CRITICAL,HIGH --ignore-unfixed`; `--ignore-unfixed` убирает шум от CVE, для которых нет доступного патча.
+**CI `image-scan` (`ubuntu-latest`, каждый push/PR):** `aquasecurity/trivy-action` сканирует base images `mcr.microsoft.com/dotnet/aspnet:9.0` и `nginx:alpine`, а также собирает и сканирует итоговый `yuviron-edge` (edge nginx с кастомным конфигом). Находит CVE до того, как изменения попадут на сервер. Настройка: `--severity CRITICAL,HIGH --ignore-unfixed`; `--ignore-unfixed` убирает шум от CVE, для которых нет доступного патча.
+
+**CI `image-scan-built` (`[self-hosted, yuviron]`, каждый push/PR):** собирает и сканирует финальные образы `yuviron-backend` и `yuviron-media-worker`. Требует наличия backend source в `src/yuviron-backend/`; если исходники не найдены — шаг пропускается с notice, не блокируя CI.
 
 **Deploy dev (информационно):** после `stack up` Trivy (`aquasec/trivy` Docker-образ, докер-сокет уже есть на runner) сканирует реально собранные образы `yuviron-dev-backend`, `yuviron-dev-media-worker`, `yuviron-dev-nginx`. Образ берётся через `docker inspect --format '{{.Image}}'` запущенного контейнера — сканируется именно то, что сейчас работает. `--exit-code 0`: находки видны в логах, но не блокируют деплой.
 

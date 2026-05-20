@@ -54,9 +54,14 @@ ALLOW_REGENERATE=1 ./scripts/cli.py stack preflight prod
 ```bash
 ./scripts/cli.py stack up dev
 ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
+
+# С Seq и Aspire Dashboard (observability profile):
+./scripts/cli.py stack up prod --observability
 ```
 
 Перед основным `up` CLI запускает EF Core migrator как one-off compose run через profile `migrate`. `--skip-migrate` оставлен для аварийных случаев, когда нужно поднять сервисы без DB migration step.
+
+По умолчанию `stack up` сохраняет снэпшот текущих образов и при сбое сборки или запуска автоматически восстанавливает предыдущее состояние. Чтобы отключить: `--no-rollback`.
 
 ---
 
@@ -219,8 +224,12 @@ media-worker
 client-app
 backoffice
 admin
-seq
-aspire-dashboard
+```
+
+`seq` и `aspire-dashboard` входят в compose profile `observability` и по умолчанию **не запускаются**. Чтобы поднять их вместе со стеком:
+
+```bash
+./scripts/cli.py stack up prod --observability
 ```
 
 Отдельный `migrator` запускается как one-off команда через compose profile `migrate` перед `stack up` и обычно не отображается в списке активных контейнеров. При необходимости миграции можно запустить явно:
