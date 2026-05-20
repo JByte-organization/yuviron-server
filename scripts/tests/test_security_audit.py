@@ -148,6 +148,7 @@ class SecurityAuditTests(unittest.TestCase):
             self.assertEqual("${DOTNET_VERSION}", service["build"]["args"]["DOTNET_VERSION"])
             self.assertEqual("${DOTNET_APP_UID}", service["build"]["args"]["DOTNET_APP_UID"])
             self.assertEqual("${DOTNET_APP_GID}", service["build"]["args"]["DOTNET_APP_GID"])
+            self.assertNotIn("RUNTIME_PACKAGES", service["build"]["args"])
             self.assertEqual("${DOTNET_APP_UID}:${DOTNET_APP_GID}", service["user"])
             self.assertIs(service["read_only"], True)
             self.assertEqual(["/tmp"], service["tmpfs"])
@@ -245,6 +246,9 @@ class SecurityAuditTests(unittest.TestCase):
     def test_media_worker_healthcheck_probes_http_health_endpoint(self) -> None:
         root = SCRIPTS_ROOT.parent
         compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
+        runtime_packages = (
+            root / "infra" / "docker" / "dotnet" / "runtime-packages.txt"
+        ).read_text(encoding="utf-8").splitlines()
         service = compose["services"]["media-worker"]
 
         self.assertIn("healthcheck", service)
@@ -252,7 +256,8 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertEqual("CMD-SHELL", healthcheck[0])
         self.assertIn("wget", healthcheck[1])
         self.assertIn("/health/ready", healthcheck[1])
-        self.assertIn("wget", service["build"]["args"]["RUNTIME_PACKAGES"])
+        self.assertIn("wget", runtime_packages)
+        self.assertIn("ffmpeg", runtime_packages)
         self.assertEqual(5074, service["environment"]["ASPNETCORE_HTTP_PORTS"])
 
     def test_nginx_mounts_generated_basic_auth_file(self) -> None:

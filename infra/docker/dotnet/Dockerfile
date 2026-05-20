@@ -67,14 +67,13 @@ FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION} AS runtime-base
 
 ARG DOTNET_APP_UID=10001
 ARG DOTNET_APP_GID=10001
-ARG RUNTIME_PACKAGES=""
+
+COPY infra/docker/dotnet/runtime-packages.txt /tmp/runtime-packages.txt
 
 RUN set -eux; \
-    if [ -n "${RUNTIME_PACKAGES}" ]; then \
-        apt-get update; \
-        apt-get install -y --no-install-recommends ${RUNTIME_PACKAGES}; \
-        rm -rf /var/lib/apt/lists/*; \
-    fi
+    apt-get update; \
+    xargs -r apt-get install -y --no-install-recommends < /tmp/runtime-packages.txt; \
+    rm -rf /var/lib/apt/lists/* /tmp/runtime-packages.txt
 
 WORKDIR /app
 

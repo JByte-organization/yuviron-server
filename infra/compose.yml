@@ -33,6 +33,26 @@ x-dotnet-hardening: &dotnet-hardening
   security_opt:
     - no-new-privileges:true
 
+x-dotnet-service-defaults: &dotnet-service-defaults
+  restart: ${RESTART_POLICY}
+  volumes:
+    - ${STORAGE_PATH}:/var/yuviron-server/storage
+  depends_on:
+    mysql:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+  networks:
+    - default
+
+x-dotnet-worker-healthcheck: &dotnet-worker-healthcheck
+  interval: 15s
+  timeout: 5s
+  retries: 10
+  start_period: 60s
+
 services:
   mysql:
     image: mysql:8.4@sha256:43bd9764df60666fb2ba2cf8217dd17b3d2414c150005d2fdd07a0cd73d3b7f5
@@ -218,16 +238,14 @@ services:
     restart: "no"
 
   backend:
-    <<: *dotnet-hardening
+    <<: [*dotnet-hardening, *dotnet-service-defaults]
     build:
       <<: *dotnet-build
       target: backend
       args:
         <<: *dotnet-build-args
         APP_PROJECT: src/Yuviron.Api/Yuviron.Api.csproj
-        RUNTIME_PACKAGES: "wget ffmpeg"
     container_name: ${COMPOSE_PROJECT_NAME}-backend
-    restart: ${RESTART_POLICY}
     environment:
       <<: *dotnet-env
       ASPNETCORE_HTTP_PORTS: 5073
@@ -241,60 +259,30 @@ services:
       # appear as errors in Aspire or Seq.
       Logging__LogLevel__Microsoft.Extensions.Diagnostics.HealthChecks: "None"
       Serilog__MinimumLevel__Override__Microsoft.Extensions.Diagnostics.HealthChecks: Fatal
-    volumes:
-      - ${STORAGE_PATH}:/var/yuviron-server/storage
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    networks:
-      - default
     healthcheck:
+      <<: *dotnet-worker-healthcheck
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5073/health/ready >/dev/null || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 60s
     mem_limit: ${BACKEND_MEM_LIMIT:-1g}
     memswap_limit: ${BACKEND_MEMSWAP_LIMIT:-1g}
     cpus: ${BACKEND_CPUS:-1.0}
 
   media-worker:
-    <<: *dotnet-hardening
+    <<: [*dotnet-hardening, *dotnet-service-defaults]
     build:
       <<: *dotnet-build
       target: media-worker
       args:
         <<: *dotnet-build-args
         APP_PROJECT: src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj
-        RUNTIME_PACKAGES: "wget ffmpeg"
     container_name: ${COMPOSE_PROJECT_NAME}-media-worker
-    restart: ${RESTART_POLICY}
     environment:
       <<: *dotnet-env
       ASPNETCORE_HTTP_PORTS: 5074
       Logging__LogLevel__Microsoft.Extensions.Diagnostics.HealthChecks: "None"
       Serilog__MinimumLevel__Override__Microsoft.Extensions.Diagnostics.HealthChecks: Fatal
-    volumes:
-      - ${STORAGE_PATH}:/var/yuviron-server/storage
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    networks:
-      - default
     healthcheck:
+      <<: *dotnet-worker-healthcheck
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5074/health/ready >/dev/null || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 60s
     mem_limit: ${MEDIA_WORKER_MEM_LIMIT:-768m}
     memswap_limit: ${MEDIA_WORKER_MEMSWAP_LIMIT:-768m}
     cpus: ${MEDIA_WORKER_CPUS:-0.75}
@@ -322,6 +310,8 @@ services:
       - no-new-privileges:true
     depends_on:
       backend:
+        condition: service_healthy
+      media-worker:
         condition: service_healthy
       client-app:
         condition: service_healthy
