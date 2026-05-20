@@ -37,6 +37,7 @@
     "RABBITMQ_DEFAULT_PASS",
     "RABBITMQ_DEFAULT_USER",
     "RABBITMQ_DEFAULT_VHOST",
+    "REDIS_PASSWORD",
     "RESTART_POLICY",
     "RabbitMQ__Host",
     "RabbitMQ__Port",
@@ -283,6 +284,10 @@
       "minLength": 1
     },
     "RABBITMQ_DEFAULT_VHOST": {
+      "type": "string",
+      "minLength": 1
+    },
+    "REDIS_PASSWORD": {
       "type": "string",
       "minLength": 1
     },

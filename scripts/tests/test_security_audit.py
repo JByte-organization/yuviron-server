@@ -284,6 +284,7 @@ class SecurityAuditTests(unittest.TestCase):
             "MYSQL_ROOT_PASSWORD": "root",
             "MYSQL_PASSWORD": "yuviron",
             "RABBITMQ_DEFAULT_PASS": "yv_dev_strong_password_1234_rabbit_!",
+            "REDIS_PASSWORD": "yv_test_strong_redis_2026_!",
             "ASPIRE_FRONTEND_BROWSER_TOKEN": "short",
             "ASPIRE_OTLP_API_KEY": "short",
             # Known dev hash: error in prod, silent in dev (expected value there)
