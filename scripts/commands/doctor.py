@@ -37,7 +37,8 @@ from core.validators import CommandError, fail, resolve_prompted_environment
 DNS_PORT = 53
 HTTP_PORT = 80
 HTTPS_PORT = 443
-CERT_EXPIRY_WARN_SECONDS = 7 * 24 * 60 * 60
+CERT_EXPIRY_WARN_DAYS = 30
+CERT_EXPIRY_WARN_SECONDS = CERT_EXPIRY_WARN_DAYS * 24 * 60 * 60
 
 ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 UFW_DEFAULT_RE = re.compile(r"Default:\s*(?P<incoming>[^,\n]+)\s*\(incoming\)", re.IGNORECASE)
@@ -346,7 +347,7 @@ def _check_certificate_names(
         timeout=10,
     )
     if expiring.returncode != 0:
-        report.warn("certificates", f"Certificate expires within 7 days: {cert_file}")
+        report.warn("certificates", f"Certificate expires within {CERT_EXPIRY_WARN_DAYS} days: {cert_file}")
 
     san_result = _run_command(["openssl", "x509", "-noout", "-ext", "subjectAltName", "-in", str(cert_file)], timeout=10)
     if san_result.returncode != 0:
