@@ -24,7 +24,7 @@ from core.env import parse_env_file, parse_routes_file, resolve_runtime_env
 from core.env_validation import ERROR as ENV_ERROR
 from core.env_validation import (
     SENSITIVE_SECRET_KEYS,
-    WEAK_SECRET_VALUES as CORE_WEAK_SECRET_VALUES,
+    WEAK_SECRET_VALUES,
     validate_runtime_env,
     weak_secret_reason,
 )
@@ -48,10 +48,6 @@ ALLOWED_PUBLISHED_PORT_SERVICES = {"nginx"}
 ALLOWED_NGINX_CONTAINER_PORTS = {"80", "443"}
 
 SENSITIVE_ENV_KEYS = SENSITIVE_SECRET_KEYS
-
-WEAK_SECRET_VALUES = {
-    *CORE_WEAK_SECRET_VALUES,
-}
 
 SECRET_KEY_RE = re.compile(
     r"(?:PASSWORD|PASS|SECRET|TOKEN|API[_-]?KEY|PRIVATE[_-]?KEY|CLIENT[_-]?SECRET)",

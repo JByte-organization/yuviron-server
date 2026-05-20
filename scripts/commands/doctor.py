@@ -20,6 +20,7 @@ if __package__ in {None, ""}:
 
 from checks import preflight_core, preflight_nginx
 from commands.stack import DEFAULT_ROOT, PreflightContext
+from core.docker import container_id_for_service
 from core.env import parse_env_file, parse_routes_file
 from core.findings import ERROR, WARN, Finding as DoctorFinding, Report as DoctorReport
 from core.paths import resolve_root_dir, resolve_runtime_path
@@ -484,8 +485,11 @@ def _expected_nginx_published_ports(env_values: dict[str, str]) -> set[int]:
     if not compose_project_name or shutil.which("docker") is None:
         return set()
 
-    container_name = f"{compose_project_name}-nginx"
-    result = _run_command(["docker", "container", "inspect", container_name], timeout=10)
+    cid = container_id_for_service(compose_project_name, "nginx")
+    if not cid:
+        return set()
+
+    result = _run_command(["docker", "inspect", cid], timeout=10)
     if result.returncode != 0:
         return set()
 
