@@ -128,6 +128,8 @@ services:
   seq:
     image: datalust/seq:2025.2@sha256:868a12e93ec0b8c993767a7dd4cd6c8ebc441511c79e4cfac66c911f62d4db65
     container_name: ${COMPOSE_PROJECT_NAME}-seq
+    profiles:
+      - observability
     user: "${SEQ_UID:-1000}:${SEQ_GID:-1000}"
     restart: ${RESTART_POLICY}
     cap_drop:
@@ -157,6 +159,8 @@ services:
   aspire-dashboard:
     image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0@sha256:d595645ca7f5c075174db998302d8fb09e040516b14dfcb06dd02996659e1c77
     container_name: ${COMPOSE_PROJECT_NAME}-aspire
+    profiles:
+      - observability
     restart: ${RESTART_POLICY}
     read_only: true
     tmpfs:

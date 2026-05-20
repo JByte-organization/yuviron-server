@@ -17,8 +17,12 @@ class ComposeContext:
     compose_file: Path
     frontends_compose: Path
     compose_project_name: str
+    profiles: tuple[str, ...] = ()
 
     def build_compose_cmd(self, *args: str) -> list[str]:
+        profile_flags: list[str] = []
+        for profile in self.profiles:
+            profile_flags.extend(["--profile", profile])
         return [
             "docker",
             "compose",
@@ -30,6 +34,7 @@ class ComposeContext:
             str(self.frontends_compose),
             "-p",
             self.compose_project_name,
+            *profile_flags,
             *args,
         ]
 
