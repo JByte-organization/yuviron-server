@@ -57,8 +57,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@v4
+
       - name: Scan dotnet/aspnet:9.0 base image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: 'mcr.microsoft.com/dotnet/aspnet:9.0'
           format: 'table'
@@ -67,10 +69,85 @@ jobs:
           ignore-unfixed: 'true'
 
       - name: Scan nginx:alpine base image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: 'nginx:alpine'
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
           ignore-unfixed: 'true'
+
+      - name: Build edge nginx image
+        run: docker build -t yuviron-edge:ci -f infra/edge/Dockerfile infra/edge/
+
+      - name: Scan built edge nginx image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: 'yuviron-edge:ci'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          ignore-unfixed: 'true'
+
+  image-scan-built:
+    name: Scan built application images
+    runs-on: [self-hosted, yuviron]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check backend source availability
+        id: check-src
+        run: |
+          if [ -d "src/yuviron-backend/src/Yuviron.Api" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Backend source not found in checkout; .NET image scan skipped. Add source as a submodule or ensure src/ is present on the runner."
+          fi
+
+      - name: Build backend image
+        if: steps.check-src.outputs.available == 'true'
+        run: |
+          docker build \
+            --target backend \
+            --build-arg APP_PROJECT=src/Yuviron.Api/Yuviron.Api.csproj \
+            --build-arg RUNTIME_PACKAGES="wget ffmpeg" \
+            -t yuviron-backend:ci \
+            -f infra/docker/dotnet/Dockerfile \
+            .
+
+      - name: Scan built backend image
+        if: steps.check-src.outputs.available == 'true'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: 'yuviron-backend:ci'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          ignore-unfixed: 'true'
+
+      - name: Build media-worker image
+        if: steps.check-src.outputs.available == 'true'
+        run: |
+          docker build \
+            --target media-worker \
+            --build-arg APP_PROJECT=src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj \
+            --build-arg RUNTIME_PACKAGES="wget ffmpeg" \
+            -t yuviron-media-worker:ci \
+            -f infra/docker/dotnet/Dockerfile \
+            .
+
+      - name: Scan built media-worker image
+        if: steps.check-src.outputs.available == 'true'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: 'yuviron-media-worker:ci'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          ignore-unfixed: 'true'
+
+      - name: Clean up CI images
+        if: always()
+        run: docker rmi yuviron-backend:ci yuviron-media-worker:ci 2>/dev/null || true
