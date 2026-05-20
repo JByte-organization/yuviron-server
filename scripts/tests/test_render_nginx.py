@@ -321,16 +321,19 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("try_files /nonexistent $cors_media_route;", rendered)
         self.assertIn("return 204;", rendered)
 
-    def test_render_proxy_read_timeout_uses_websocket_map_not_hardcoded_3600(self) -> None:
+    def test_render_proxy_read_timeout_is_3600s(self) -> None:
+        # proxy_read_timeout does not support nginx variables (msec_slot directive,
+        # evaluated at config load — not runtime). 3600s covers both regular requests
+        # (upstream responds quickly, timeout never fires) and WebSocket/SignalR tunnels
+        # that stay idle for hours.
         rendered = render_nginx_conf_modular(
             [("api", "api.example.com", "backend:5073", "50m")],
             SCRIPTS_ROOT / "templates",
         )
 
-        self.assertIn("map $http_upgrade $proxy_ws_read_timeout {", rendered)
-        self.assertIn("websocket 3600s;", rendered)
-        self.assertIn("proxy_read_timeout $proxy_ws_read_timeout;", rendered)
-        self.assertNotIn("proxy_read_timeout 3600s;", rendered)
+        self.assertIn("proxy_read_timeout 3600s;", rendered)
+        self.assertNotIn("proxy_read_timeout $proxy_ws_read_timeout;", rendered)
+        self.assertNotIn("map $http_upgrade $proxy_ws_read_timeout {", rendered)
 
     def test_nginx_route_template_does_not_branch_on_route_name_api(self) -> None:
         template = (SCRIPTS_ROOT / "templates" / "03-routes.conf.j2").read_text(encoding="utf-8")

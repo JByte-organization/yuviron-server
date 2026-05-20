@@ -355,18 +355,9 @@ grep -q ':49F8 ' /proc/net/tcp6 2>/dev/null || grep -q ':49F8 ' /proc/net/tcp
 
 * `proxy_connect_timeout 5s` — установка TCP-соединения с upstream
 * `proxy_send_timeout 15s` — ожидание между двумя записями в upstream
-* `proxy_read_timeout` — ожидание ответа от upstream; зависит от типа соединения
+* `proxy_read_timeout 3600s` — ожидание между двумя последовательными чтениями от upstream
 
-`proxy_read_timeout` выставляется динамически через map `$proxy_ws_read_timeout`:
-
-```nginx
-map $http_upgrade $proxy_ws_read_timeout {
-    websocket 3600s;
-    default   30s;
-}
-```
-
-Обычные HTTP-запросы получают 30s — зависшее соединение освобождает воркер через полминуты. WebSocket/SignalR-соединения (определяются по наличию `Upgrade: websocket` в запросе) сохраняют 3600s, так как туннель живёт часами без HTTP-активности.
+`proxy_read_timeout` фиксировано в `3600s` для всех маршрутов. Nginx-директива использует `msec_slot`, который вычисляется при загрузке конфига, а не в рантайме — переменные (`$var`) в ней не работают. Для обычных HTTP-запросов таймаут фактически никогда не срабатывает: upstream отвечает за секунды, а таймаут относится к idle-периоду между чтениями, а не ко времени ответа. WebSocket/SignalR-соединения, которые могут молчать часами, получают нужные 3600s без дополнительной логики.
 
 ### Worker processes
 
