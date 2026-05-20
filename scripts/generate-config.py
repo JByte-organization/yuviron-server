@@ -241,6 +241,15 @@ def main() -> None:
         env_file_path=env_file_path,
     )
     merged_env_map = merge_env_maps(common_env_path, env_file_path, stack_values)
+
+    # NGINX_ADMIN_ALLOWLIST is built in common.env as "127.0.0.1/32,${NGINX_PRIVATE_ACCESS_CIDRS}".
+    # When NGINX_PRIVATE_ACCESS_CIDRS is empty the expansion leaves a trailing comma.
+    # Normalise here so deploy.env is clean and downstream consumers need no special handling.
+    if raw_allowlist := merged_env_map.get("NGINX_ADMIN_ALLOWLIST", ""):
+        merged_env_map["NGINX_ADMIN_ALLOWLIST"] = ",".join(
+            part for part in raw_allowlist.split(",") if part.strip()
+        )
+
     raw_basic_auth_file = (
         str(output_dir / "htpasswd")
         if args.output_dir
