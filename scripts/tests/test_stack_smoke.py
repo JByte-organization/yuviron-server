@@ -83,6 +83,7 @@ class StackSmokeTests(unittest.TestCase):
             patch.object(stack, "create_compose_context", return_value=self.context),
             patch.object(stack.preflight_core, "prepare_host_storage_layout") as prepare_mock,
             patch.object(stack, "_prepare_frontend_swagger") as swagger_mock,
+            patch.object(stack, "_snapshot_rollback_images", return_value={}),
             patch.object(stack, "run_compose") as run_compose_mock,
         ):
             stack.cmd_up(self._up_args())
@@ -143,6 +144,7 @@ class StackSmokeTests(unittest.TestCase):
             patch.object(stack, "create_compose_context", return_value=self.context),
             patch.object(stack.preflight_core, "prepare_host_storage_layout"),
             patch.object(stack, "_prepare_frontend_swagger") as swagger_mock,
+            patch.object(stack, "_snapshot_rollback_images", return_value={}),
             patch.object(stack, "run_compose") as run_compose_mock,
         ):
             stack.cmd_up(self._up_args(skip_migrate=True))

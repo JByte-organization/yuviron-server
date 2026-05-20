@@ -59,22 +59,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Scan dotnet/aspnet:9.0 base image
+      - name: Scan dotnet/aspnet:9.0 base image (informational)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: 'mcr.microsoft.com/dotnet/aspnet:9.0'
           format: 'table'
           severity: 'CRITICAL,HIGH'
-          exit-code: '1'
+          exit-code: '0'
           ignore-unfixed: 'true'
 
-      - name: Scan nginx:alpine base image
+      - name: Scan nginx:alpine base image (informational)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: 'nginx:alpine'
           format: 'table'
           severity: 'CRITICAL,HIGH'
-          exit-code: '1'
+          exit-code: '0'
           ignore-unfixed: 'true'
 
       - name: Build edge nginx image

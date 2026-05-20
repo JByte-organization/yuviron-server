@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from core.docker import run, run_compose
 from core.env import parse_routes_file
 from core.models import is_valid_target
@@ -37,7 +39,14 @@ def _unique_services(route_services: list[tuple[str, str, str]]) -> list[str]:
 
 def _load_compose_services(ctx: object) -> set[str]:
     compose = ctx.ensure_compose_context()
-    result = run_compose(compose, "config", "--services", capture_output=True)
+    # COMPOSE_PROFILES=* activates all profiles so profile-gated services
+    # (e.g. observability) are included in the reachability check.
+    result = run(
+        compose.build_compose_cmd("config", "--services"),
+        cwd=compose.root_dir,
+        env={**os.environ, "COMPOSE_PROFILES": "*"},
+        capture_output=True,
+    )
     return {
         line.strip()
         for line in (result.stdout or "").splitlines()
