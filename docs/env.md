@@ -165,6 +165,8 @@ BACKOFFICE_CPUS=0.25
 
 ### Пример dev-конфигурации
 
+Только env-специфичные значения — общие (`ConnectionStrings__Redis`, `FILE_STORAGE_ROOT` и т.д.) живут в `env/common.env`.
+
 ```env
 MYSQL_ROOT_PASSWORD=root
 MYSQL_DATABASE=yuviron_dev
@@ -173,32 +175,64 @@ MYSQL_PASSWORD=yuviron
 
 ASPNETCORE_ENVIRONMENT=Development
 ConnectionStrings__Default=server=mysql;port=3306;database=yuviron_dev;user=yuviron;password=yuviron;
-ConnectionStrings__Redis=redis:6379
 Swagger__Enabled=true
 
-FILE_STORAGE_ROOT=/var/yuviron-server/storage
+HTTP_PORT=80
+HTTPS_PORT=443
 
-HTTP_PORT=8080
-HTTPS_PORT=8443
+NGINX_PRIVATE_ACCESS_CIDRS=100.81.228.68/32,100.84.86.48/32
+
+SEQ_FIRSTRUN_ADMINUSERNAME=admin
+SEQ_FIRSTRUN_ADMINPASSWORDHASH=<hash>
+
+ASPIRE_FRONTEND_BROWSER_TOKEN=<token>
+ASPIRE_OTLP_API_KEY=<api-key>
+
+RABBITMQ_DEFAULT_PASS=<password>
+JamendoApi__ClientId=<client-id>
+
+NGINX_RATE_API_GENERAL=60r/m
+NGINX_RATE_API_AUTH=30r/m
+NGINX_RATE_API_UPLOAD=20r/m
 ```
 
 ### Пример prod-конфигурации
 
 ```env
-MYSQL_ROOT_PASSWORD=...
+MYSQL_ROOT_PASSWORD=<strong-password>
 MYSQL_DATABASE=yuviron_prod
 MYSQL_USER=yuviron
-MYSQL_PASSWORD=...
+MYSQL_PASSWORD=<strong-password>
 
 ASPNETCORE_ENVIRONMENT=Production
-ConnectionStrings__Default=server=mysql;port=3306;database=yuviron_prod;user=yuviron;password=...;
-ConnectionStrings__Redis=redis:6379
+ConnectionStrings__Default=server=mysql;port=3306;database=yuviron_prod;user=yuviron;password=<password>;
 Swagger__Enabled=false
-
-FILE_STORAGE_ROOT=/var/yuviron-server/storage
 
 HTTP_PORT=80
 HTTPS_PORT=443
+
+NGINX_PRIVATE_ACCESS_CIDRS=100.81.228.68/32
+
+SEQ_FIRSTRUN_ADMINUSERNAME=admin
+SEQ_FIRSTRUN_ADMINPASSWORDHASH=<hash>
+
+ASPIRE_FRONTEND_BROWSER_TOKEN=<token>
+ASPIRE_OTLP_API_KEY=<api-key>
+
+RABBITMQ_DEFAULT_PASS=<strong-password>
+JamendoApi__ClientId=<client-id>
+
+NGINX_CONTENT_SECURITY_POLICY=default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob: https:; font-src 'self' data:; style-src 'self'; script-src 'self' blob:; connect-src 'self' https: wss:; media-src 'self' data: blob: https:; worker-src 'self' blob:; manifest-src 'self'
+
+NGINX_RATE_API_GENERAL=30r/m
+NGINX_RATE_API_AUTH=10r/m
+NGINX_RATE_API_UPLOAD=5r/m
+
+# Resource limit overrides (только отличия от common.env):
+SEQ_MEM_LIMIT=768m
+SEQ_MEMSWAP_LIMIT=768m
+BACKEND_MEM_LIMIT=1536m
+BACKEND_MEMSWAP_LIMIT=1536m
 ```
 
 ---
@@ -299,6 +333,8 @@ Route `i` задаётся в `config/routes.yml` с `host_strategy: subdomain` 
 
 **Media Worker:** `wget -qO- http://127.0.0.1:5074/health/ready` — аналогичный ASP.NET Core endpoint, но не публикуется наружу; видим только изнутри контейнера. Docker healthcheck: интервал 15s, retries: 10, start_period: 60s. До добавления этого healthcheck зависший worker был незаметен, пока задачи из RabbitMQ-очереди не начинали накапливаться.
 
+**Seq:** `wget -q --spider http://127.0.0.1/health` — HTTP-endpoint самого Seq, доступен без аутентификации. Интервал 15s, retries: 20, start_period: 60s. Образ `datalust/seq` содержит `wget`, TCP-check через `bash /dev/tcp` намеренно не используется — `bash` может отсутствовать в будущих версиях образа.
+
 **Nginx:** контейнер локально проверяет `http://127.0.0.1/health` и срок действия default-сертификата. TLS handshake через `openssl s_client` намеренно не используется внутри Docker healthcheck, чтобы startup health не зависел от хрупкого HTTPS probe. `/health` объявлен до `return 444`, поэтому HTTP healthcheck не зависит от внешнего `Host`.
 
 **Aspire Dashboard:** официальный образ `mcr.microsoft.com/dotnet/aspire-dashboard:9.0` не имеет пригодного `/health` endpoint (GET уводит на login, HEAD возвращает `404`). Docker healthcheck проверяет TCP listener через `/proc/net/tcp` ядра Linux - ищет port `18888` (hex `0x49F8`) в таблице активных TCP сокетов:
@@ -371,7 +407,7 @@ map $http_upgrade $proxy_ws_read_timeout {
 
 ### .NET services
 
-Backend, migrator и media-worker собираются через единый multi-stage Dockerfile `infra/docker/dotnet/Dockerfile`. Targets: `backend`, `migrator`, `media-worker`. Версия .NET, UID/GID runtime-пользователя и общие security-настройки задаются через `x-dotnet-*` anchors и build args в `infra/compose.yml`.
+Backend, migrator и media-worker собираются через единый multi-stage Dockerfile `infra/docker/dotnet/Dockerfile`. Targets: `backend`, `migrator`, `media-worker`. Версия .NET (`DOTNET_VERSION`), UID/GID runtime-пользователя (`DOTNET_APP_UID`, `DOTNET_APP_GID`) задаются явно в `env/common.env`; общие security-настройки применяются через `x-dotnet-*` anchors в `infra/compose.yml`.
 
 `migrator` вынесен в compose profile `migrate`. `./scripts/cli.py stack up <env>` запускает его явно перед основным `up`, а `./scripts/cli.py stack migrate <env>` позволяет выполнить тот же шаг вручную.
 
