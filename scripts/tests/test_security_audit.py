@@ -279,12 +279,15 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertIn("mysql", report.errors[0].message)
 
     def test_default_secrets_are_errors_in_prod_and_warnings_in_dev(self) -> None:
+        from core.env_validation import _KNOWN_DEV_SEQ_HASHES
         values = {
             "MYSQL_ROOT_PASSWORD": "root",
             "MYSQL_PASSWORD": "yuviron",
             "RABBITMQ_DEFAULT_PASS": "yv_dev_strong_password_1234_rabbit_!",
             "ASPIRE_FRONTEND_BROWSER_TOKEN": "short",
             "ASPIRE_OTLP_API_KEY": "short",
+            # Known dev hash: error in prod, silent in dev (expected value there)
+            "SEQ_FIRSTRUN_ADMINPASSWORDHASH": next(iter(_KNOWN_DEV_SEQ_HASHES)),
         }
 
         prod_report = security.AuditReport()

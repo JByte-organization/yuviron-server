@@ -18,9 +18,11 @@ from core.env import parse_env_file
 from core.env_validation import (
     ERROR,
     WARN,
+    _KNOWN_DEV_SEQ_HASHES,
     env_schema_declares_key,
     load_env_schema,
     validate_runtime_env,
+    weak_secret_reason,
 )
 from core.render_compose import render_frontends_compose
 from core.validators import CommandError
@@ -185,6 +187,21 @@ class EnvValidationTests(unittest.TestCase):
         self.assertIn("Unsafe env values for prod", message)
         self.assertIn("MYSQL_PASSWORD", message)
         self.assertIn("well-known default value", message)
+
+    def test_known_dev_seq_hash_flagged_as_error_in_prod(self) -> None:
+        dev_hash = next(iter(_KNOWN_DEV_SEQ_HASHES))
+        reason = weak_secret_reason("SEQ_FIRSTRUN_ADMINPASSWORDHASH", dev_hash, "prod")
+        self.assertIn("dev", reason)
+
+    def test_known_dev_seq_hash_not_flagged_in_dev(self) -> None:
+        dev_hash = next(iter(_KNOWN_DEV_SEQ_HASHES))
+        reason = weak_secret_reason("SEQ_FIRSTRUN_ADMINPASSWORDHASH", dev_hash, "dev")
+        self.assertEqual("", reason)
+
+    def test_unique_seq_hash_not_flagged_in_prod(self) -> None:
+        unique_hash = "QPZgB7NBuWPxmM7CctF8Q96XLNoTu0tchttdZsq7e6KatxI9zOZV8j9/Upojb9s8tT0hpz9zMsVq+fWrrffW8GzALzD0RqenyL966jrkXzcb"
+        reason = weak_secret_reason("SEQ_FIRSTRUN_ADMINPASSWORDHASH", unique_hash, "prod")
+        self.assertEqual("", reason)
 
     def test_preflight_parser_accepts_strict(self) -> None:
         args = build_parser().parse_args(["stack", "preflight", "prod", "--strict"])

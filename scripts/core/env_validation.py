@@ -27,7 +27,14 @@ SENSITIVE_SECRET_KEYS = (
     "RABBITMQ_DEFAULT_PASS",
     "ASPIRE_FRONTEND_BROWSER_TOKEN",
     "ASPIRE_OTLP_API_KEY",
+    "SEQ_FIRSTRUN_ADMINPASSWORDHASH",
 )
+
+# Seq password hashes that were generated for dev/example environments.
+# Using one of these hashes in prod means prod and dev share the same Seq password.
+_KNOWN_DEV_SEQ_HASHES: frozenset[str] = frozenset({
+    "QBvEDvdDLmk3RDekQTL/fWzAv4jXC4HqTqCvOBRzJ0DrZ4rSotnS+AsFCAjTgz+RfDtvFS5tMvbaWbF+nBQ/rEsp+U1G9UyjIXOnX0OlrxTy",
+})
 
 WEAK_SECRET_VALUES = {
     "admin",
@@ -82,6 +89,8 @@ def weak_secret_reason(key: str, value: str, environment: str) -> str:
         return "well-known default value"
     if "strong_password_1234" in lowered:
         return "template-like password value"
+    if key == "SEQ_FIRSTRUN_ADMINPASSWORDHASH" and environment == "prod" and stripped in _KNOWN_DEV_SEQ_HASHES:
+        return "dev Seq hash reused in prod — generate a unique hash with scripts/tools/seq-hash.sh"
     if environment == "prod" and "dev" in lowered:
         return "dev-looking value in prod"
     if environment == "prod" and not is_token_key(key) and len(stripped) < 16:
