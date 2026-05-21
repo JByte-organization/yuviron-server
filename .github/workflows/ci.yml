@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Python dependencies
         run: |
@@ -48,7 +48,7 @@ jobs:
     runs-on: [self-hosted, yuviron]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Run E2E dry-run
         env:
@@ -62,7 +62,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Scan dotnet/aspnet:9.0 base image (informational)
         uses: aquasecurity/trivy-action@v0.36.0
@@ -99,7 +99,7 @@ jobs:
     runs-on: [self-hosted, yuviron]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Check backend source availability
         id: check-src
