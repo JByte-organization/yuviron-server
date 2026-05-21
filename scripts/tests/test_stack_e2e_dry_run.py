@@ -27,7 +27,8 @@ MYSQL_PASSWORD=e2e-db-password-1234567890
 
 ASPNETCORE_ENVIRONMENT=Development
 ConnectionStrings__Default=server=mysql;port=3306;database=yuviron_e2e;user=yuviron_e2e;password=e2e-db-password-1234567890;
-ConnectionStrings__Redis=redis:6379
+REDIS_PASSWORD=e2e-redis-password-1234567890
+ConnectionStrings__Redis=redis:6379,password=e2e-redis-password-1234567890
 Swagger__Enabled=true
 
 FILE_STORAGE_ROOT=/var/yuviron-server/storage
