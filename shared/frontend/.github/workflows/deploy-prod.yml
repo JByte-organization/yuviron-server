@@ -196,6 +196,23 @@ jobs:
           cd /opt/yuviron-server/src/yuviron-frontend
           pnpm install --frozen-lockfile
 
+      - name: Generate API types
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server/src/yuviron-frontend
+
+          mkdir -p packages/api/openapi
+
+          docker exec yuviron-prod-backend \
+            wget -qO- http://127.0.0.1:5073/swagger/admin/swagger.json \
+            > packages/api/openapi/admin.swagger.json
+
+          docker exec yuviron-prod-backend \
+            wget -qO- http://127.0.0.1:5073/swagger/client/swagger.json \
+            > packages/api/openapi/client.swagger.json
+
+          pnpm api:gen
+
       - name: Typecheck affected app
         run: |
           set -Eeuo pipefail
@@ -249,7 +266,7 @@ jobs:
           git clean -fdx
 
           cd /opt/yuviron-server
-          timeout 1200 python3 ./scripts/cli.py stack up prod
+          timeout 1200 python3 ./scripts/cli.py stack up prod --no-rollback --skip-migrate --no-build
           python3 ./scripts/cli.py stack smoke prod
 
       - name: Trim Docker build cache

@@ -245,7 +245,7 @@ jobs:
           done
 
           cd /opt/yuviron-server
-          timeout 1200 python3 ./scripts/cli.py stack up dev
+          timeout 1200 python3 ./scripts/cli.py stack up dev --no-rollback --skip-migrate --no-build
           python3 ./scripts/cli.py stack smoke dev
 
       - name: Cleanup backend rollback snapshot
