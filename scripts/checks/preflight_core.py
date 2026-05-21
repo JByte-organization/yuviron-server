@@ -147,6 +147,16 @@ def check_docker_access(ctx: object) -> None:
     log_ok("Docker daemon is available")
 
 
+def check_internet_connectivity(ctx: object) -> None:
+    log_info("Checking internet connectivity and DNS resolution (ping google.com)")
+    result = run(["ping", "-c", "1", "-W", "3", "google.com"], check=False, capture_output=True)
+    if result.returncode != 0:
+        details = (result.stderr or result.stdout or "").strip()
+        suffix = f": {details}" if details else ""
+        fail(f"No internet connectivity or DNS resolution failed{suffix}")
+    log_ok("Internet connectivity and DNS resolution are working")
+
+
 def ensure_preflight_generated(ctx: object) -> None:
     ensure_generated_basic_auth_file(ctx.root_dir, ctx.environment)
     if generated_exists(ctx.root_dir, ctx.environment):

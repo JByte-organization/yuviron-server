@@ -3,12 +3,14 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
+from checks import preflight_core
 from core.preflight import GenerationSettings, resolve_generation_settings
 from core.validators import CommandError
 
@@ -47,6 +49,43 @@ class CorePreflightTests(unittest.TestCase):
             )
 
         warn_if_dev_like_domain.assert_called_once_with("dev", "dev-example.com")
+
+
+class CheckInternetConnectivityTests(unittest.TestCase):
+    def _make_result(self, returncode: int, stderr: str = "") -> MagicMock:
+        result = MagicMock()
+        result.returncode = returncode
+        result.stdout = ""
+        result.stderr = stderr
+        return result
+
+    def test_passes_when_ping_succeeds(self) -> None:
+        ctx = SimpleNamespace()
+        with patch("checks.preflight_core.run", return_value=self._make_result(0)) as mock_run:
+            preflight_core.check_internet_connectivity(ctx)
+
+        mock_run.assert_called_once_with(
+            ["ping", "-c", "1", "-W", "3", "google.com"],
+            check=False,
+            capture_output=True,
+        )
+
+    def test_fails_when_ping_returns_nonzero(self) -> None:
+        ctx = SimpleNamespace()
+        with patch("checks.preflight_core.run", return_value=self._make_result(1, "ping: google.com: Name or service not known")):
+            with self.assertRaises(CommandError) as raised:
+                preflight_core.check_internet_connectivity(ctx)
+
+        self.assertIn("No internet connectivity or DNS resolution failed", str(raised.exception))
+
+    def test_failure_message_includes_ping_stderr(self) -> None:
+        ctx = SimpleNamespace()
+        stderr_msg = "ping: google.com: Temporary failure in name resolution"
+        with patch("checks.preflight_core.run", return_value=self._make_result(2, stderr_msg)):
+            with self.assertRaises(CommandError) as raised:
+                preflight_core.check_internet_connectivity(ctx)
+
+        self.assertIn(stderr_msg, str(raised.exception))
 
 
 if __name__ == "__main__":
