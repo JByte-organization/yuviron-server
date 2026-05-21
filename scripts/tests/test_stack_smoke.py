@@ -31,12 +31,13 @@ class StackSmokeTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def _up_args(self, *, dry_run: bool = False, skip_migrate: bool = False) -> SimpleNamespace:
+    def _up_args(self, *, dry_run: bool = False, skip_migrate: bool = False, no_build: bool = False) -> SimpleNamespace:
         return SimpleNamespace(
             environment="dev",
             project_root=str(self.root),
             dry_run=dry_run,
             skip_migrate=skip_migrate,
+            no_build=no_build,
         )
 
     def test_https_route_url_omits_default_port(self) -> None:
@@ -95,18 +96,19 @@ class StackSmokeTests(unittest.TestCase):
         swagger_mock.assert_called_once_with(self.context, self.root, dry_run=False)
         self.assertEqual(
             [
+                call(self.context, "--profile", "migrate", "build", "--pull=false", "migrator"),
                 call(
                     self.context,
                     "--profile",
                     "migrate",
                     "run",
                     "--rm",
-                    "--build",
                     "-T",
                     "--remove-orphans",
                     "migrator",
                 ),
-                call(self.context, "up", "-d", "--build", "--remove-orphans"),
+                call(self.context, "build", "--pull=false"),
+                call(self.context, "up", "-d", "--remove-orphans"),
             ],
             run_compose_mock.call_args_list,
         )
@@ -150,7 +152,26 @@ class StackSmokeTests(unittest.TestCase):
             stack.cmd_up(self._up_args(skip_migrate=True))
 
         swagger_mock.assert_called_once_with(self.context, self.root, dry_run=False)
-        run_compose_mock.assert_called_once_with(self.context, "up", "-d", "--build", "--remove-orphans")
+        self.assertEqual(
+            [
+                call(self.context, "build", "--pull=false"),
+                call(self.context, "up", "-d", "--remove-orphans"),
+            ],
+            run_compose_mock.call_args_list,
+        )
+
+    def test_stack_up_no_build_skips_swagger_and_omits_build_flag(self) -> None:
+        with (
+            patch.object(stack, "create_compose_context", return_value=self.context),
+            patch.object(stack.preflight_core, "prepare_host_storage_layout"),
+            patch.object(stack, "_prepare_frontend_swagger") as swagger_mock,
+            patch.object(stack, "_snapshot_rollback_images", return_value={}),
+            patch.object(stack, "run_compose") as run_compose_mock,
+        ):
+            stack.cmd_up(self._up_args(skip_migrate=True, no_build=True))
+
+        swagger_mock.assert_not_called()
+        run_compose_mock.assert_called_once_with(self.context, "up", "-d", "--remove-orphans")
 
     def test_prepare_frontend_swagger_starts_backend_and_writes_documents(self) -> None:
         runtime_env = self.root / "generated" / "dev" / "deploy.env"
@@ -182,6 +203,7 @@ class StackSmokeTests(unittest.TestCase):
         with (
             patch.object(stack, "run_compose", side_effect=run_compose_side_effect) as run_compose_mock,
             patch.object(stack, "_wait_for_service_health") as wait_mock,
+            patch.object(stack, "_ensure_swagger_backend_image", return_value=False),
         ):
             stack._prepare_frontend_swagger(context, self.root)
 
@@ -191,8 +213,12 @@ class StackSmokeTests(unittest.TestCase):
 
         calls = run_compose_mock.call_args_list
         self.assertEqual(
-            ("up", "-d", "--build", "mysql", "redis", "rabbitmq", "backend"),
+            ("build", "--pull=false", "mysql", "redis", "rabbitmq", "backend"),
             calls[0].args[1:],
+        )
+        self.assertEqual(
+            ("up", "-d", "--no-build", "mysql", "redis", "rabbitmq", "backend"),
+            calls[1].args[1:],
         )
         self.assertEqual(
             ("stop", "mysql", "redis", "rabbitmq", "backend"),
@@ -202,6 +228,44 @@ class StackSmokeTests(unittest.TestCase):
         swagger_dir = self.root / "src" / "yuviron-frontend" / "packages" / "api" / "openapi"
         self.assertTrue((swagger_dir / "admin.swagger.json").is_file())
         self.assertTrue((swagger_dir / "client.swagger.json").is_file())
+
+    def test_prepare_frontend_swagger_uses_no_build_when_image_exists(self) -> None:
+        runtime_env = self.root / "generated" / "dev" / "deploy.env"
+        runtime_env.write_text(
+            "COMPOSE_PROJECT_NAME=yuviron-dev\nSwagger__Enabled=false\nSTORAGE_PATH=storage/dev\n",
+            encoding="utf-8",
+        )
+        context = stack.ComposeContext(
+            root_dir=self.root,
+            environment="dev",
+            runtime_env=runtime_env,
+            compose_file=self.root / "infra" / "compose.yml",
+            frontends_compose=self.root / "generated" / "dev" / "compose.frontends.yml",
+            compose_project_name="yuviron-dev",
+        )
+
+        def run_compose_side_effect(_context, *args, **_kwargs):
+            if args[:3] == ("exec", "-T", "backend"):
+                doc_name = "admin" if "admin" in args[-1] else "client"
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout=f'{{"openapi":"3.0.1","info":{{"title":"{doc_name}"}}}}',
+                    stderr="",
+                )
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with (
+            patch.object(stack, "run_compose", side_effect=run_compose_side_effect) as run_compose_mock,
+            patch.object(stack, "_wait_for_service_health"),
+            patch.object(stack, "_ensure_swagger_backend_image", return_value=True),
+        ):
+            stack._prepare_frontend_swagger(context, self.root)
+
+        calls = run_compose_mock.call_args_list
+        self.assertEqual(
+            ("up", "-d", "--no-build", "mysql", "redis", "rabbitmq", "backend"),
+            calls[0].args[1:],
+        )
 
     def test_prepare_frontend_swagger_stops_services_on_fetch_failure(self) -> None:
         runtime_env = self.root / "generated" / "dev" / "deploy.env"

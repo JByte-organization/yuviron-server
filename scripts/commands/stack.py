@@ -611,9 +611,16 @@ def _run_migrator(context: ComposeContext, *, dry_run: bool = False) -> None:
         context,
         "--profile",
         MIGRATOR_PROFILE,
+        "build",
+        "--pull=false",
+        MIGRATOR_SERVICE,
+    )
+    run_compose(
+        context,
+        "--profile",
+        MIGRATOR_PROFILE,
         "run",
         "--rm",
-        "--build",
         "-T",
         "--remove-orphans",
         MIGRATOR_SERVICE,
@@ -661,6 +668,27 @@ def _write_swagger_document(root_dir: Path, name: str, raw_json: str) -> None:
     log_ok(f"Swagger document saved: {target.relative_to(root_dir)}")
 
 
+def _ensure_swagger_backend_image(swagger_context: ComposeContext, environment: str) -> bool:
+    """Ensure backend image exists for swagger prebuild without triggering a build.
+
+    In isolated mode the compose project name is unique (yuviron-dev-preflight-XXXXX),
+    so the image yuviron-dev-preflight-XXXXX-backend doesn't exist yet. Instead of
+    forcing a rebuild (which requires fetching base-image metadata from MCR/Docker Hub),
+    re-tag the main project's backend image. Returns True if the image is ready.
+    """
+    target = f"{swagger_context.compose_project_name}-backend:latest"
+    if run(["docker", "image", "inspect", target], check=False, capture_output=True).returncode == 0:
+        return True
+
+    candidate = f"yuviron-{environment}-backend:latest"
+    if run(["docker", "image", "inspect", candidate], check=False, capture_output=True).returncode == 0:
+        log_info(f"Reusing existing backend image for swagger prebuild: {candidate}")
+        run(["docker", "tag", candidate, target])
+        return True
+
+    return False
+
+
 def _prepare_frontend_swagger(context: ComposeContext, root_dir: Path, *, dry_run: bool = False) -> None:
     swagger_context = _swagger_prebuild_context(context)
 
@@ -677,7 +705,10 @@ def _prepare_frontend_swagger(context: ComposeContext, root_dir: Path, *, dry_ru
         return
 
     log_info("Preparing Swagger documents for frontend API generation")
-    run_compose(swagger_context, "up", "-d", "--build", *SWAGGER_PREBUILD_SERVICES)
+    use_no_build = _ensure_swagger_backend_image(swagger_context, context.environment)
+    if not use_no_build:
+        run_compose(swagger_context, "build", "--pull=false", *SWAGGER_PREBUILD_SERVICES)
+    run_compose(swagger_context, "up", "-d", "--no-build", *SWAGGER_PREBUILD_SERVICES)
     try:
         _wait_for_service_health(swagger_context, BACKEND_SERVICE, timeout=120)
 
@@ -769,9 +800,12 @@ def cmd_up(args: argparse.Namespace) -> int:
         context.profiles = ("observability",)
     runtime_values = parse_env_file(context.runtime_env)
     preflight_core.prepare_host_storage_layout(root_dir, runtime_values)
+    no_build = getattr(args, "no_build", False)
+
     if not args.skip_migrate:
         _run_migrator(context, dry_run=args.dry_run)
-    _prepare_frontend_swagger(context, root_dir, dry_run=args.dry_run)
+    if not no_build:
+        _prepare_frontend_swagger(context, root_dir, dry_run=args.dry_run)
 
     if args.dry_run:
         log_info("Running docker compose up in dry-run mode")
@@ -789,7 +823,11 @@ def cmd_up(args: argparse.Namespace) -> int:
             log_info("No existing built images found — rollback not available for this run")
 
     try:
-        run_compose(context, "up", "-d", "--build", "--remove-orphans")
+        if no_build:
+            run_compose(context, "up", "-d", "--remove-orphans")
+        else:
+            run_compose(context, "build", "--pull=false")
+            run_compose(context, "up", "-d", "--remove-orphans")
     except CommandError:
         if snapshot:
             _restore_rollback_images(context, snapshot)
@@ -847,6 +885,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
 
         preflight_core.check_tools(ctx)
         preflight_core.check_docker_access(ctx)
+        preflight_core.check_internet_connectivity(ctx)
 
         if ctx.strict_generated or environment == "prod":
             preflight_core.ensure_preflight_generated(ctx)
@@ -876,6 +915,8 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         preflight_core.check_shared_network(ctx)
         preflight_core.check_routes_file(ctx)
         preflight_nginx.check_compose_config(ctx)
+        if not ctx.dry_run:
+            _prepare_frontend_swagger(ctx.ensure_compose_context(), ctx.root_dir)
         preflight_nginx.check_nginx_config(ctx)
         preflight_core.check_backend_storage_permissions(ctx)
 
@@ -935,6 +976,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     up_parser.add_argument("--skip-migrate", action="store_true", help="Skip the EF Core migrator before starting services")
     up_parser.add_argument("--observability", action="store_true", help="Also start observability services (Seq, Aspire Dashboard)")
     up_parser.add_argument("--no-rollback", action="store_true", dest="no_rollback", help="Skip automatic rollback on build/start failure")
+    up_parser.add_argument("--no-build", action="store_true", dest="no_build", help="Start containers without rebuilding images; skips Swagger regeneration")
     up_parser.set_defaults(handler=cmd_up)
 
     migrate_parser = stack_sub.add_parser("migrate", help="Run EF Core database migrations")
