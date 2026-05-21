@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 FROM node:20-alpine AS base
 WORKDIR /repo
 RUN corepack enable && corepack prepare pnpm@9.0.0 --activate

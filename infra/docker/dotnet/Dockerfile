@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 ARG DOTNET_VERSION=9.0
 
 FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS source
@@ -67,6 +65,8 @@ FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION} AS runtime-base
 
 ARG DOTNET_APP_UID=10001
 ARG DOTNET_APP_GID=10001
+
+USER root
 
 COPY infra/docker/dotnet/runtime-packages.txt /tmp/runtime-packages.txt
 
