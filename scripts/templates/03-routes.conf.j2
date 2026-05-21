@@ -127,7 +127,12 @@
             limit_req_status 429;
             {% endif %}
 
+            {% if route.optional %}
+            set $upstream_{{ route.name | replace('-', '_') }} {{ route.upstream }};
+            proxy_pass http://$upstream_{{ route.name | replace('-', '_') }};
+            {% else %}
             proxy_pass http://{{ route.upstream }};
+            {% endif %}
             include /etc/nginx/proxy-params.conf;
 
             proxy_connect_timeout 5s;

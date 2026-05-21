@@ -43,6 +43,11 @@ from .validators import fail
 
 NGINX_ADMIN_ALLOWLIST_DEFAULT = "127.0.0.1/32"
 
+# Routes whose upstream containers may not be running (Docker Compose profile-gated).
+# Nginx resolves upstream hostnames eagerly at startup; for these routes a variable-based
+# proxy_pass is generated so resolution is deferred to request time.
+OPTIONAL_NGINX_ROUTES = frozenset({"seq", "aspire"})
+
 
 def _render_template(template_text: str, context: dict) -> str:
     env = Environment(autoescape=False, undefined=StrictUndefined)
@@ -211,6 +216,7 @@ def render_nginx_conf_modular(
             route_media_proxy,
         )
         route_is_management = route_name in MANAGEMENT_ROUTE_NAMES
+        route_is_optional = route_name in OPTIONAL_NGINX_ROUTES
         route_ssl_certificate = default_ssl_certificate
         route_ssl_certificate_key = default_ssl_certificate_key
         if nginx_cert_mode == NGINX_CERT_MODE_PER_ROUTE:
@@ -222,6 +228,7 @@ def render_nginx_conf_modular(
             "name": route_name,
             "host": route_host,
             "basic_auth": route_is_management,
+            "optional": route_is_optional,
             "admin_allowlist": nginx_admin_allowlist if route_is_management else (),
             "log_name": f"{route_name}-{route_host.replace('.', '_')}",
             "upstream": route_upstream,

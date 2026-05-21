@@ -11,6 +11,10 @@ http {
 
     server_tokens off;
 
+    # Docker's embedded DNS resolver — required for variable-based proxy_pass
+    # (used by optional/profile-gated upstreams so nginx starts even when they are down).
+    resolver 127.0.0.11 valid=30s ipv6=off;
+
     # -- TLS policy -----------------------------------------------------
     ssl_protocols {{ nginx_tls_protocols }};
     {% if nginx_tls_has_ciphers %}

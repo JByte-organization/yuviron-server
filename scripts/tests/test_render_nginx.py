@@ -542,5 +542,35 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("Invalid nginx upstream", str(raised.exception))
 
 
+    def test_global_template_has_docker_resolver(self) -> None:
+        template = (SCRIPTS_ROOT / "templates" / "01-global.conf.j2").read_text(encoding="utf-8")
+
+        self.assertIn("resolver 127.0.0.11", template)
+
+    def test_optional_routes_use_variable_proxy_pass_for_lazy_dns(self) -> None:
+        # seq and aspire are Docker profile-gated (observability profile).
+        # nginx resolves upstream hostnames at startup; variable proxy_pass defers resolution
+        # to request time so nginx starts even when those containers are not running.
+        for route_name, upstream in [("seq", "seq:80"), ("aspire", "aspire-dashboard:18888")]:
+            with self.subTest(route_name=route_name):
+                rendered = render_nginx_conf_modular(
+                    [(route_name, f"{route_name}.example.com", upstream, "5m")],
+                    SCRIPTS_ROOT / "templates",
+                )
+                var = route_name.replace("-", "_")
+                self.assertIn(f"set $upstream_{var} {upstream};", rendered)
+                self.assertIn(f"proxy_pass http://$upstream_{var};", rendered)
+                self.assertNotIn(f"proxy_pass http://{upstream};", rendered)
+
+    def test_non_optional_routes_keep_direct_proxy_pass(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [("api", "api.example.com", "backend:5073", "50m")],
+            SCRIPTS_ROOT / "templates",
+        )
+
+        self.assertIn("proxy_pass http://backend:5073;", rendered)
+        self.assertNotIn("set $upstream_api", rendered)
+
+
 if __name__ == "__main__":
     unittest.main()
