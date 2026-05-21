@@ -8,6 +8,32 @@ from core.models import is_valid_target
 from core.ui import log_info, log_ok, log_warn
 from core.validators import fail
 
+_PREFLIGHT_MARKER = "-preflight-"
+
+
+def _tag_missing_upstream_images(compose_project_name: str, services: list[str]) -> None:
+    """In isolated preflight mode, re-tag main-project images for services that
+    don't yet have an isolated-project image. This avoids build attempts (which
+    require network access) when images are already available under the main
+    project name (e.g. yuviron-dev-admin:latest → yuviron-dev-preflight-XXXXX-admin:latest).
+    Services that use pre-built registry images (seq, aspire-dashboard) are
+    skipped — compose resolves those directly from the image: field.
+    """
+    if _PREFLIGHT_MARKER not in compose_project_name:
+        return
+
+    env_prefix = compose_project_name.split(_PREFLIGHT_MARKER)[0]  # yuviron-dev
+
+    for service in services:
+        target = f"{compose_project_name}-{service}:latest"
+        if run(["docker", "image", "inspect", target], check=False, capture_output=True).returncode == 0:
+            continue
+
+        candidate = f"{env_prefix}-{service}:latest"
+        if run(["docker", "image", "inspect", candidate], check=False, capture_output=True).returncode == 0:
+            log_info(f"Tagging {candidate} → {target} for nginx upstream validation")
+            run(["docker", "tag", candidate, target])
+
 
 def _service_from_upstream(route_name: str, upstream: str) -> str:
     if not is_valid_target(upstream):
@@ -161,8 +187,9 @@ def check_nginx_config(ctx: object) -> None:
         return
 
     log_info(f"Starting nginx upstream dependencies for config validation: {', '.join(start_services)}")
+    _tag_missing_upstream_images(compose.compose_project_name, start_services)
     running_before = _running_project_containers(ctx)
-    started = run_compose(compose, "up", "-d", *start_services, check=False)
+    started = run_compose(compose, "up", "-d", "--no-build", *start_services, check=False)
     running_after = _running_project_containers(ctx)
 
     started_by_preflight = {
@@ -178,8 +205,10 @@ def check_nginx_config(ctx: object) -> None:
         log_info("No new containers were started by preflight")
 
     if started.returncode != 0:
-        _print_service_logs_on_failure(ctx, "backend")
-        fail("Failed to start nginx upstream dependencies")
+        log_warn(
+            "Some nginx upstream dependencies could not be started (images may not exist yet). "
+            "nginx -t will validate config syntax only."
+        )
 
     log_info("Running nginx config validation in one-off container")
     nginx_test = run_compose(

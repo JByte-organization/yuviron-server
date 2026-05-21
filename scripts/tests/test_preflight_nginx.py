@@ -60,6 +60,112 @@ class PreflightNginxTests(unittest.TestCase):
         self.assertIn("Route 'aspire' points to service 'aspire-dashboard'", message)
         self.assertIn("missing from compose config", message)
 
+    def test_tag_missing_upstream_images_skipped_when_not_isolated(self) -> None:
+        with patch.object(preflight_nginx, "run") as run_mock:
+            preflight_nginx._tag_missing_upstream_images("yuviron-dev", ["backend", "admin"])
+        run_mock.assert_not_called()
+
+    def test_tag_missing_upstream_images_tags_absent_images(self) -> None:
+        calls: list[tuple] = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(tuple(cmd))
+            if cmd[0:3] == ["docker", "image", "inspect"]:
+                image = cmd[3]
+                # Only the main-project image exists; isolated one does not
+                return SimpleNamespace(returncode=0 if "preflight" not in image else 1)
+            return SimpleNamespace(returncode=0)
+
+        with patch.object(preflight_nginx, "run", side_effect=fake_run):
+            preflight_nginx._tag_missing_upstream_images(
+                "yuviron-dev-preflight-9999-backend", ["backend", "admin"]
+            )
+
+        tag_calls = [c for c in calls if c[0:2] == ("docker", "tag")]
+        self.assertEqual(len(tag_calls), 2)
+        self.assertIn(("docker", "tag", "yuviron-dev-backend:latest", "yuviron-dev-preflight-9999-backend-backend:latest"), tag_calls)
+        self.assertIn(("docker", "tag", "yuviron-dev-admin:latest", "yuviron-dev-preflight-9999-backend-admin:latest"), tag_calls)
+
+    def test_tag_missing_upstream_images_skips_existing_images(self) -> None:
+        with patch.object(preflight_nginx, "run", return_value=SimpleNamespace(returncode=0)) as run_mock:
+            preflight_nginx._tag_missing_upstream_images("yuviron-dev-preflight-9999", ["backend"])
+
+        tag_calls = [c for c in run_mock.call_args_list if c.args[0][:2] == ["docker", "tag"]]
+        self.assertEqual(len(tag_calls), 0)
+
+    def test_check_nginx_config_uses_no_build_for_upstream_start(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            generated_nginx_conf = Path(temp_dir) / "nginx.conf"
+            routes_file = Path(temp_dir) / "routes.env"
+            generated_nginx_conf.write_text("server_name api.example.com;\n", encoding="utf-8")
+            routes_file.write_text("api|api.example.com|backend:5073\n", encoding="utf-8")
+            compose = SimpleNamespace(compose_project_name="yuviron-dev")
+            ctx = SimpleNamespace(
+                dry_run=False,
+                generated_nginx_conf=generated_nginx_conf,
+                routes_file=routes_file,
+                routes=[("api", "api.example.com", "backend:5073")],
+                ensure_compose_context=lambda: compose,
+                assert_file=lambda path: None,
+                preflight_started_containers={},
+            )
+
+            call_args_list = []
+
+            def fake_run_compose(c, *args, **kwargs):
+                call_args_list.append(args)
+                return SimpleNamespace(returncode=0)
+
+            with (
+                patch.object(preflight_nginx, "_check_route_upstreams_exist"),
+                patch.object(preflight_nginx, "_running_project_containers", return_value={}),
+                patch.object(preflight_nginx, "run_compose", side_effect=fake_run_compose),
+            ):
+                preflight_nginx.check_nginx_config(ctx)
+
+        up_call = call_args_list[0]
+        self.assertIn("--no-build", up_call)
+        self.assertEqual(up_call[0], "up")
+
+    def test_check_nginx_config_continues_nginx_t_when_upstream_start_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            generated_nginx_conf = Path(temp_dir) / "nginx.conf"
+            routes_file = Path(temp_dir) / "routes.env"
+            generated_nginx_conf.write_text("server_name api.example.com;\n", encoding="utf-8")
+            routes_file.write_text("api|api.example.com|backend:5073\n", encoding="utf-8")
+            compose = SimpleNamespace(compose_project_name="yuviron-dev")
+            ctx = SimpleNamespace(
+                dry_run=False,
+                generated_nginx_conf=generated_nginx_conf,
+                routes_file=routes_file,
+                routes=[("api", "api.example.com", "backend:5073")],
+                ensure_compose_context=lambda: compose,
+                assert_file=lambda path: None,
+                preflight_started_containers={},
+            )
+
+            call_args_list = []
+
+            def fake_run_compose(c, *args, **kwargs):
+                call_args_list.append(args)
+                # First call (up --no-build) fails — images missing
+                if args[0] == "up":
+                    return SimpleNamespace(returncode=1)
+                return SimpleNamespace(returncode=0)
+
+            with (
+                patch.object(preflight_nginx, "_check_route_upstreams_exist"),
+                patch.object(preflight_nginx, "_running_project_containers", return_value={}),
+                patch.object(preflight_nginx, "run_compose", side_effect=fake_run_compose),
+            ):
+                preflight_nginx.check_nginx_config(ctx)
+
+        # nginx -t must still run even when upstream start failed
+        run_call = next((a for a in call_args_list if a[0] == "run"), None)
+        self.assertIsNotNone(run_call, "nginx -t was not called after upstream start failure")
+        self.assertIn("nginx", run_call)
+        self.assertIn("-t", run_call)
+
     def test_check_nginx_config_dry_run_uses_compose_plan_without_starting_containers(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             generated_nginx_conf = Path(temp_dir) / "nginx.conf"
