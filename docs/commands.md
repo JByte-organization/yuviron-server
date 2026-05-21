@@ -32,6 +32,7 @@ CLI является единым интерфейсом для работы с�
 ./scripts/cli.py doctor dev
 ./scripts/cli.py doctor prod
 ./scripts/cli.py doctor dev --strict
+./scripts/cli.py doctor dev --isolated
 ```
 
 Проверяет host-level готовность окружения:
@@ -53,7 +54,10 @@ CLI является единым интерфейсом для работы с�
 * валидность nginx config через `nginx -t`
 * локальный firewall для `53/tcp`, `53/udp`, `80/tcp`, `443/tcp` и фактических HTTP/HTTPS портов
 
-По умолчанию warning'и не делают exit code non-zero. `--strict` считает warning'и ошибкой.
+Флаги:
+
+* `--strict` - считает warning'и ошибками; по умолчанию warning не влияет на exit code
+* `--isolated` - запускает compose/nginx валидацию во временном изолированном compose project без влияния на основной запущенный стек; полезно при диагностике без прерывания работающего окружения
 
 ---
 
@@ -100,6 +104,7 @@ ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
 * `--skip-migrate` - пропускает EF Core migrator перед запуском сервисов; только для аварийных случаев, когда нужно поднять стек без DB migration step
 * `--observability` - дополнительно запускает Seq и Aspire Dashboard (compose profile `observability`); по умолчанию эти сервисы не стартуют, чтобы не потреблять ресурсы в prod без необходимости
 * `--no-rollback` - отключает автоматический rollback при сбое сборки или запуска; по умолчанию CLI сохраняет снэпшот текущих образов перед `docker compose up --build` и восстанавливает их при неудаче
+* `--no-build` - не пересобирает образы: запускает контейнеры на уже существующих `:latest` образах (`docker compose up -d` без `--build`); одновременно пропускает регенерацию Swagger-документов, поскольку frontend-образы не обновляются; используется в CI-rollback-шаге, где образы предыдущей версии уже восстановлены автоматическим image-level rollback
 
 ### Миграции БД
 
@@ -234,11 +239,23 @@ ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack migrate prod
 ./scripts/cli.py certs reload --env dev
 ```
 
-Флаги:
+Флаги `certs generate`:
 
 * `--provider mkcert` - самоподписанный сертификат через mkcert + локальный Root CA; подходит для dev
 * `--provider letsencrypt` - публичный сертификат от Let's Encrypt через certbot `--webroot`; требует публичный порт 80 и правильный DNS
-* `certs renew` - продлевает существующий Let's Encrypt сертификат (режим `--keep-until-expiring`)
+* `--email` - email для Let's Encrypt аккаунта; если не указан, берётся из переменных окружения `LETSENCRYPT_EMAIL`/`CERTBOT_EMAIL` или запрашивается интерактивно
+* `--force-renewal` - принудительный перевыпуск Let's Encrypt сертификата даже если он ещё действителен; без флага используется безопасный режим `--keep-until-expiring`
+* `--no-reload` - не выполнять `nginx -s reload` после обновления cert-файлов; полезно если reload планируется вручную
+* `--skip-public-check` - пропустить self-check ACME-probe с самого сервера перед вызовом certbot; нужно в cron или средах, где сервер не может достучаться до самого себя по публичному IP
+
+Флаги `certs renew`:
+
+* `--force-renewal` - принудительное продление даже если срок ещё не подходит
+* `--no-reload` - не перезагружать nginx после продления
+* `--skip-public-check` - пропустить self-check ACME-probe
+
+Прочее:
+
 * `certs reload` - выполняет `nginx -t` внутри контейнера, затем `nginx -s reload`; применяет новые cert-файлы без перезапуска контейнера
 
 Подробнее: [certificates.md](certificates.md).
@@ -305,9 +322,19 @@ python3 scripts/init.py --env dev --domain yuviron.com
 ```bash
 ./scripts/cli.py tools rotate-htpasswd dev
 ./scripts/cli.py tools rotate-htpasswd prod
+
+./scripts/cli.py tools rotate-aspire-tokens dev
+./scripts/cli.py tools rotate-aspire-tokens prod
+
+./scripts/cli.py tools rotation-status dev
+./scripts/cli.py tools rotation-status prod
 ```
 
-Пересоздаёт `generated/<env>/htpasswd` и `htpasswd.credentials` с новым случайным паролем. nginx перечитывает htpasswd при каждом аутентифицированном запросе - перезапуск контейнера не нужен.
+`tools rotate-htpasswd` — пересоздаёт `generated/<env>/htpasswd` и `htpasswd.credentials` с новым случайным паролем. nginx перечитывает htpasswd при каждом аутентифицированном запросе — перезапуск контейнера не нужен.
+
+`tools rotate-aspire-tokens` — генерирует новые `ASPIRE_FRONTEND_BROWSER_TOKEN` и `ASPIRE_OTLP_API_KEY`, обновляет `env/<env>.env`, перегенерирует runtime config и перезапускает только `aspire-dashboard`. Полный перезапуск стека не нужен. Ротация фиксируется в `generated/<env>/rotation.json`.
+
+`tools rotation-status` — показывает, когда последний раз ротировались htpasswd и aspire-токены; завершается с exit code 1, если какой-либо секрет не обновлялся более 90 дней или не ротировался никогда. Удобно добавить в cron или monitoring.
 
 Подробнее обо всех паролях (Seq, Aspire, MySQL, RabbitMQ): [passwords.md](passwords.md).
 
@@ -322,13 +349,14 @@ python3 scripts/init.py --env dev --domain yuviron.com
 ./scripts/cli.py tools setup-certs-cron prod
 ./scripts/cli.py tools setup-logrotate
 ./scripts/cli.py tools cleanup
+./scripts/cli.py tools cleanup --yes
 ```
 
 `tools setup-certs-cron` — интерактивно устанавливает cron-задание для автоматического продления Let's Encrypt сертификата; считывает домен из `generated/<env>/manifest.env`, спрашивает время запуска и добавляет строку в crontab (с дедупликацией по маркеру). Подробнее: [certificates.md](certificates.md).
 
 `tools setup-logrotate` — устанавливает `/etc/logrotate.d/yuviron` для ротации логов в `logs/*/nginx/` и `logs/*/letsencrypt/`. Ротация ежедневная, хранится 14 сжатых копий, используется `copytruncate`.
 
-`tools cleanup` - широкий legacy cleanup script с Docker/logs/apt/tmp/generated/certs/.tmp. Автоматически удаляет пустые `*.log`-файлы старше 7 дней из `logs/` и `__pycache__` директории. Для обычной Docker-очистки используй `tools docker-clean`.
+`tools cleanup` — широкий legacy cleanup script с Docker/logs/apt/tmp/generated/certs/.tmp. Автоматически удаляет пустые `*.log`-файлы старше 7 дней из `logs/` и `__pycache__` директории. `--yes` автоматически подтверждает деструктивные промпты (аналог `-y`). Для обычной Docker-очистки используй `tools docker-clean`.
 
 ---
 
@@ -370,6 +398,15 @@ python3 scripts/init.py --env dev --domain yuviron.com
 ```bash
 ./scripts/cli.py tools docker-clean --mode deep --volumes
 ```
+
+Ограничить размер build cache по-другому — через максимально допустимый занятый объём или целевой свободный объём на диске:
+
+```bash
+./scripts/cli.py tools docker-clean --mode build-cache --max-used-space 20gb
+./scripts/cli.py tools docker-clean --mode build-cache --min-free-space 15gb
+```
+
+Все три флага (`--reserved-space`, `--max-used-space`, `--min-free-space`) пробрасываются напрямую в `docker builder prune` и работают как пороги pruning-а. Флаги не совместимы с `--mode safe` и `--mode deep`.
 
 Не используй `--volumes` перед backup/restore и не запускай deep-clean во время активной сборки.
 
