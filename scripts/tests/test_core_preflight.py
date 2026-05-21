@@ -59,29 +59,29 @@ class CheckInternetConnectivityTests(unittest.TestCase):
         result.stderr = stderr
         return result
 
-    def test_passes_when_ping_succeeds(self) -> None:
+    def test_passes_when_curl_succeeds(self) -> None:
         ctx = SimpleNamespace()
         with patch("checks.preflight_core.run", return_value=self._make_result(0)) as mock_run:
             preflight_core.check_internet_connectivity(ctx)
 
         mock_run.assert_called_once_with(
-            ["ping", "-c", "1", "-W", "3", "google.com"],
+            ["curl", "--silent", "--max-time", "3", "--output", "/dev/null", "http://google.com"],
             check=False,
             capture_output=True,
         )
 
-    def test_fails_when_ping_returns_nonzero(self) -> None:
+    def test_fails_when_curl_returns_nonzero(self) -> None:
         ctx = SimpleNamespace()
-        with patch("checks.preflight_core.run", return_value=self._make_result(1, "ping: google.com: Name or service not known")):
+        with patch("checks.preflight_core.run", return_value=self._make_result(6, "curl: (6) Could not resolve host: google.com")):
             with self.assertRaises(CommandError) as raised:
                 preflight_core.check_internet_connectivity(ctx)
 
         self.assertIn("No internet connectivity or DNS resolution failed", str(raised.exception))
 
-    def test_failure_message_includes_ping_stderr(self) -> None:
+    def test_failure_message_includes_curl_stderr(self) -> None:
         ctx = SimpleNamespace()
-        stderr_msg = "ping: google.com: Temporary failure in name resolution"
-        with patch("checks.preflight_core.run", return_value=self._make_result(2, stderr_msg)):
+        stderr_msg = "curl: (28) Connection timed out after 3000 milliseconds"
+        with patch("checks.preflight_core.run", return_value=self._make_result(28, stderr_msg)):
             with self.assertRaises(CommandError) as raised:
                 preflight_core.check_internet_connectivity(ctx)
 

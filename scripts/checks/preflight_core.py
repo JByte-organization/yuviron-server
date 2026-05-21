@@ -148,8 +148,13 @@ def check_docker_access(ctx: object) -> None:
 
 
 def check_internet_connectivity(ctx: object) -> None:
-    log_info("Checking internet connectivity and DNS resolution (ping google.com)")
-    result = run(["ping", "-c", "1", "-W", "3", "google.com"], check=False, capture_output=True)
+    log_info("Checking internet connectivity and DNS resolution")
+    # curl is used instead of ping: ICMP is commonly blocked by cloud/VPS firewalls.
+    result = run(
+        ["curl", "--silent", "--max-time", "3", "--output", "/dev/null", "http://google.com"],
+        check=False,
+        capture_output=True,
+    )
     if result.returncode != 0:
         details = (result.stderr or result.stdout or "").strip()
         suffix = f": {details}" if details else ""

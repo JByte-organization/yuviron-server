@@ -885,7 +885,8 @@ def cmd_preflight(args: argparse.Namespace) -> int:
 
         preflight_core.check_tools(ctx)
         preflight_core.check_docker_access(ctx)
-        preflight_core.check_internet_connectivity(ctx)
+        if not ctx.dry_run:
+            preflight_core.check_internet_connectivity(ctx)
 
         if ctx.strict_generated or environment == "prod":
             preflight_core.ensure_preflight_generated(ctx)
