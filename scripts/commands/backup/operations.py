@@ -37,6 +37,45 @@ from .docker_utils import _service_exists, _service_running, _wait_for_mysql_rea
 
 
 MYSQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+
+
+def _run_mysqlcheck(
+    context: object,
+    mysql_root_password: str,
+    mysql_service_name: str,
+) -> list[str]:
+    """Run mysqlcheck --all-databases --check --silent before mysqldump.
+
+    Returns a list of problem descriptions (one per affected table).
+    An empty list means all tables are OK.  A non-zero exit code without
+    any stdout is reported as a single generic problem entry so callers
+    always get actionable output when something is wrong.
+    """
+    check_cmd = context.build_compose_cmd(
+        "exec",
+        "-T",
+        mysql_service_name,
+        "mysqlcheck",
+        "-uroot",
+        f"-p{mysql_root_password}",
+        "--all-databases",
+        "--check",
+        "--silent",
+    )
+    result = run(check_cmd, check=False, capture_output=True)
+    stdout = (result.stdout or "").strip()
+    stderr = (result.stderr or "").strip()
+
+    # --silent suppresses "OK" lines; any stdout line is a table-level problem.
+    problems = [line.strip() for line in stdout.splitlines() if line.strip()]
+
+    if result.returncode != 0 and not problems:
+        problems = [
+            f"mysqlcheck exited with code {result.returncode}"
+            + (f": {stderr}" if stderr else "")
+        ]
+
+    return problems
 BACKUP_REMOTE_SAFE_PATH_RE = re.compile(r"^[A-Za-z0-9._~+/=-]+$")
 BACKUP_REMOTE_SHELL_META_RE = re.compile(r"[;&|`$(){}<>*?\\\"']")
 BACKUP_REMOTE_SCP_RE = re.compile(r"^[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+:.+")
@@ -247,6 +286,16 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
             logger.warn(f"Skipping MySQL dump for {env_name}: mysql service is not running")
             mark_warning(f"{env_name}:mysql-service-not-running")
             return
+
+        logger.info(f"Running mysqlcheck before dump for {env_name}")
+        integrity_issues = _run_mysqlcheck(context, mysql_root_password, mysql_service_name)
+        if integrity_issues:
+            for issue in integrity_issues:
+                logger.warn(f"mysqlcheck [{env_name}]: {issue}")
+            mark_warning(f"{env_name}:mysqlcheck-issues")
+            logger.warn(f"Continuing with mysqldump despite integrity issues for {env_name}")
+        else:
+            logger.info(f"mysqlcheck passed for {env_name}: all tables OK")
 
         logger.info(f"Dumping MySQL for {env_name}")
 

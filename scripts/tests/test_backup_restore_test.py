@@ -430,6 +430,53 @@ class BackupRestoreTestTests(unittest.TestCase):
         self.assertTrue(any(cmd[:3] == ["docker", "rm", "-f"] for cmd in rm_calls))
         rmtree_mock.assert_called_once()
 
+    def test_run_mysqlcheck_returns_empty_list_when_all_tables_ok(self) -> None:
+        context = SimpleNamespace(
+            build_compose_cmd=lambda *parts: ["docker", "compose", *parts]
+        )
+
+        with patch.object(
+            operations,
+            "run",
+            return_value=SimpleNamespace(returncode=0, stdout="", stderr=""),
+        ):
+            result = operations._run_mysqlcheck(context, "secret", "mysql")
+
+        self.assertEqual([], result)
+
+    def test_run_mysqlcheck_returns_problem_lines_on_non_zero_exit(self) -> None:
+        context = SimpleNamespace(
+            build_compose_cmd=lambda *parts: ["docker", "compose", *parts]
+        )
+        stdout = "yuviron_dev.Users\t\tError: Corrupt\nyuviron_dev.Tracks\t\tWarning: Not unique"
+
+        with patch.object(
+            operations,
+            "run",
+            return_value=SimpleNamespace(returncode=1, stdout=stdout, stderr=""),
+        ):
+            result = operations._run_mysqlcheck(context, "secret", "mysql")
+
+        self.assertEqual(2, len(result))
+        self.assertIn("Corrupt", result[0])
+        self.assertIn("Not unique", result[1])
+
+    def test_run_mysqlcheck_reports_exit_code_when_stdout_empty(self) -> None:
+        context = SimpleNamespace(
+            build_compose_cmd=lambda *parts: ["docker", "compose", *parts]
+        )
+
+        with patch.object(
+            operations,
+            "run",
+            return_value=SimpleNamespace(returncode=2, stdout="", stderr="connection refused"),
+        ):
+            result = operations._run_mysqlcheck(context, "secret", "mysql")
+
+        self.assertEqual(1, len(result))
+        self.assertIn("2", result[0])
+        self.assertIn("connection refused", result[0])
+
     def test_restore_test_parser_accepts_positional_environment(self) -> None:
         parser = operations.argparse.ArgumentParser()
         subparsers = parser.add_subparsers(dest="command", required=True)
