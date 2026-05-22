@@ -447,6 +447,10 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertEqual("yuviron-dev-admin", services["admin"]["container_name"])
 
 
+    @unittest.skipUnless(
+        (SCRIPTS_ROOT.parent / "src" / "yuviron-frontend").is_dir(),
+        "src/yuviron-frontend not cloned — skipping build context guard",
+    )
     def test_frontend_build_context_has_dockerignore_excluding_node_modules(self) -> None:
         root = SCRIPTS_ROOT.parent
         dockerignore = root / "src" / "yuviron-frontend" / ".dockerignore"
