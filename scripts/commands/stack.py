@@ -714,6 +714,22 @@ def _prepare_frontend_swagger(context: ComposeContext, root_dir: Path, *, dry_ru
     use_no_build = _ensure_swagger_backend_image(swagger_context, context.environment)
     if not use_no_build:
         run_compose(swagger_context, "build", "--pull=false", *SWAGGER_PREBUILD_SERVICES)
+
+    # `compose up` exits immediately with an error if a dependency (e.g. RabbitMQ) is
+    # already in the "unhealthy" state — it does not wait for recovery.  Restart any
+    # unhealthy services now so they enter "starting" state and compose can wait for them.
+    for _svc in SWAGGER_PREBUILD_SERVICES:
+        _cid = _service_container_id(swagger_context, _svc)
+        if _cid:
+            _h = run(
+                ["docker", "inspect", "-f",
+                 "{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}", _cid],
+                capture_output=True, check=False,
+            ).stdout.strip()
+            if _h == "unhealthy":
+                log_info(f"Service '{_svc}' is unhealthy — restarting before compose up")
+                run(["docker", "restart", _cid], check=False)
+
     run_compose(swagger_context, "up", "-d", "--no-build", *SWAGGER_PREBUILD_SERVICES)
 
     # When compose.yml changes (e.g. a healthcheck tweak), Docker Compose recreates
