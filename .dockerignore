@@ -1,13 +1,35 @@
+# Runtime data — never send to daemon
+env/
+backups/
+certs/
+generated/
+logs/
+storage/
+
+# Infra tool — not part of any image
+scripts/
+docs/
+config/
+.github/
+.tmp/
+
+# Git and editor
 .git
-.tmp
-backups
-certs
-generated
-logs
-storage
+*.md
 
-**/bin
-**/obj
-**/node_modules
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
 
-src/yuviron-frontend
+# .NET build artifacts
+**/bin/
+**/obj/
+
+# Frontend source and build artifacts — frontend images use src/yuviron-frontend as context
+src/yuviron-frontend/
+**/node_modules/
+**/.next/
+**/.turbo/
+**/out/
