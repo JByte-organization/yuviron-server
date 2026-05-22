@@ -1,4 +1,4 @@
-FROM node:20-alpine AS base
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS base
 WORKDIR /repo
 RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
 
@@ -25,7 +25,7 @@ COPY packages ./packages
 RUN pnpm api:gen
 RUN pnpm turbo run build --filter="${APP_NAME}..."
 
-FROM nginx:alpine AS runtime
+FROM nginx:alpine@sha256:2f07d83bf561b506400dc183b1b2003803e39efbd22451f848adaba14d28c7c7 AS runtime
 ARG APP_NAME
 
 RUN addgroup -S -g 10001 app \
