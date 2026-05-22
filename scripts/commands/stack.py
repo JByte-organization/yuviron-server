@@ -828,6 +828,10 @@ def cmd_up(args: argparse.Namespace) -> int:
         else:
             log_info("No existing built images found — rollback not available for this run")
 
+    deploy_marker = root_dir / ".tmp" / "monitoring" / f"deploy-started-{environment}"
+    deploy_marker.parent.mkdir(parents=True, exist_ok=True)
+    deploy_marker.touch()
+
     try:
         if no_build:
             run_compose(context, "up", "-d", "--remove-orphans")
@@ -838,6 +842,8 @@ def cmd_up(args: argparse.Namespace) -> int:
         if snapshot:
             _restore_rollback_images(context, snapshot)
         raise
+    finally:
+        deploy_marker.unlink(missing_ok=True)
 
     return 0
 

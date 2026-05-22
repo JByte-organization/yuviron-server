@@ -256,6 +256,248 @@ def cmd_docker_install(args: argparse.Namespace) -> int:
     return _run_tool_script(root_dir, "scripts/tools/docker_install.sh")
 
 
+def _uptimerobot_post(api_key: str, endpoint: str, **params) -> dict:
+    import urllib.parse
+    import urllib.request
+    data = urllib.parse.urlencode({"api_key": api_key, "format": "json", **params}).encode()
+    req = urllib.request.Request(
+        f"https://api.uptimerobot.com/v2/{endpoint}",
+        data=data,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.loads(resp.read())
+
+
+_SKIP_MONITORING_ROUTES = frozenset({
+    "seq", "aspire", "prometheus", "grafana", "alertmanager",
+    "adminer", "phpmyadmin", "rabbitmq", "cadvisor", "i",
+})
+
+_HEALTH_PATHS: dict[str, str] = {
+    "api": "/health/ready",
+}
+
+
+def _monitor_url(route_name: str, host: str, https_port: str) -> str:
+    port_suffix = f":{https_port}" if https_port not in ("443", "") else ""
+    path = _HEALTH_PATHS.get(route_name, "/")
+    return f"https://{host}{port_suffix}{path}"
+
+
+def cmd_setup_monitoring(args: argparse.Namespace) -> int:
+    from core.env import parse_env_file, parse_routes_file, resolve_runtime_env
+    from core.paths import resolve_root_dir
+
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+    environment = resolve_prompted_environment(getattr(args, "environment", None))
+
+    runtime_tmp_dir = root_dir / ".tmp" / "runtime"
+    runtime_tmp_dir.mkdir(parents=True, exist_ok=True)
+    runtime_env = resolve_runtime_env(root_dir, environment, runtime_tmp_dir)
+    runtime_values = parse_env_file(runtime_env)
+
+    api_key = args.api_key or runtime_values.get("UPTIMEROBOT_API_KEY", "")
+    if not api_key:
+        fail("UptimeRobot API key is required. Set UPTIMEROBOT_API_KEY in env or pass --api-key.")
+
+    https_port = runtime_values.get("HTTPS_PORT", "443")
+
+    routes_file = root_dir / "generated" / environment / "routes.env"
+    if not routes_file.is_file():
+        fail(f"routes.env not found: {routes_file}. Run generate-config first.")
+
+    routes = parse_routes_file(routes_file)
+    public_routes = [(name, host, target) for name, host, target in routes
+                     if name not in _SKIP_MONITORING_ROUTES]
+
+    if not public_routes:
+        fail("No public routes found to monitor.")
+
+    log_info(f"Routes to monitor ({environment}):")
+    for name, host, _ in public_routes:
+        url = _monitor_url(name, host, https_port)
+        log_info(f"  {name:<16} {url}")
+
+    if args.dry_run:
+        log_ok("Dry run — no monitors created.")
+        return 0
+
+    # Fetch existing monitors to avoid duplicates
+    existing = _uptimerobot_post(api_key, "getMonitors").get("monitors", [])
+    existing_urls = {m["url"] for m in existing}
+
+    # Fetch alert contacts — use the first one (account email)
+    contacts = _uptimerobot_post(api_key, "getAlertContacts").get("alert_contacts", [])
+    if not contacts:
+        fail("No alert contacts found in UptimeRobot account. Add one in the UptimeRobot dashboard.")
+    alert_contact_str = f"{contacts[0]['id']}_0_0"
+
+    created = 0
+    skipped = 0
+    for name, host, _ in public_routes:
+        url = _monitor_url(name, host, https_port)
+        if url in existing_urls:
+            log_warn(f"  {name}: monitor already exists — skipped")
+            skipped += 1
+            continue
+
+        friendly_name = f"{environment}-{name}"
+        result = _uptimerobot_post(
+            api_key, "newMonitor",
+            friendly_name=friendly_name,
+            url=url,
+            type=1,
+            interval=300,
+            alert_contacts=alert_contact_str,
+        )
+        if result.get("stat") == "ok":
+            log_ok(f"  {name}: monitor created ({url})")
+            created += 1
+        else:
+            log_warn(f"  {name}: failed — {result.get('error', result)}")
+
+    log_ok(f"Done: {created} created, {skipped} skipped.")
+    return 0
+
+
+def cmd_healthcheck_alert(args: argparse.Namespace) -> int:
+    from core.env import parse_env_file, resolve_runtime_env
+    from core.paths import resolve_root_dir
+
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+    environment = resolve_prompted_environment(getattr(args, "environment", None))
+
+    runtime_tmp_dir = root_dir / ".tmp" / "runtime"
+    runtime_tmp_dir.mkdir(parents=True, exist_ok=True)
+    runtime_env = resolve_runtime_env(root_dir, environment, runtime_tmp_dir)
+    runtime_values = parse_env_file(runtime_env)
+
+    script = root_dir / "scripts" / "tools" / "monitoring" / "healthcheck_alert.py"
+    if not script.is_file():
+        fail(f"Script not found: {script}")
+
+    alerts_email = runtime_values.get("ALERTS_EMAIL", "")
+    if not alerts_email:
+        fail("ALERTS_EMAIL is not set in the environment file.")
+
+    cmd = [
+        sys.executable, str(script),
+        "--env", environment,
+        "--root", str(root_dir),
+        "--alerts-email", alerts_email,
+        "--smtp-host", runtime_values.get("SMTP_HOST", ""),
+        "--smtp-port", runtime_values.get("SMTP_PORT", "587"),
+        "--smtp-user", runtime_values.get("SMTP_USER", ""),
+        "--smtp-password", runtime_values.get("SMTP_PASSWORD", ""),
+    ]
+    result = run(cmd, cwd=root_dir, check=False)
+    return result.returncode
+
+
+def _healthcheck_alert_cron_line(root_dir: Path, environment: str, runtime_values: dict) -> str:
+    alerts_email = runtime_values.get("ALERTS_EMAIL", "")
+    smtp_host = runtime_values.get("SMTP_HOST", "")
+    smtp_port = runtime_values.get("SMTP_PORT", "587")
+    smtp_user = runtime_values.get("SMTP_USER", "")
+    smtp_password = runtime_values.get("SMTP_PASSWORD", "")
+
+    script = root_dir / "scripts" / "tools" / "monitoring" / "healthcheck_alert.py"
+    log_dir = root_dir / "logs" / environment / "monitoring"
+    log_file = log_dir / "healthcheck-alert.log"
+
+    cmd = (
+        f"cd {root_dir} && {sys.executable} {script}"
+        f" --env {environment}"
+        f" --root {root_dir}"
+        f" --alerts-email {alerts_email}"
+        f" --smtp-host {smtp_host}"
+        f" --smtp-port {smtp_port}"
+        f" --smtp-user {smtp_user}"
+        f" --smtp-password {smtp_password}"
+        f" >> {log_file} 2>&1"
+    )
+    return f"*/5 * * * * {cmd}"
+
+
+def _healthcheck_alert_cron_marker(environment: str) -> str:
+    return f"tools/monitoring/healthcheck_alert.py --env {environment}"
+
+
+def cmd_setup_healthcheck_cron(args: argparse.Namespace) -> int:
+    from core.env import parse_env_file, resolve_runtime_env
+    from core.paths import resolve_root_dir
+
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+    environment = resolve_prompted_environment(getattr(args, "environment", None))
+
+    runtime_tmp_dir = root_dir / ".tmp" / "runtime"
+    runtime_tmp_dir.mkdir(parents=True, exist_ok=True)
+    runtime_env = resolve_runtime_env(root_dir, environment, runtime_tmp_dir)
+    runtime_values = parse_env_file(runtime_env)
+
+    alerts_email = runtime_values.get("ALERTS_EMAIL", "")
+    if not alerts_email:
+        fail("ALERTS_EMAIL is not set. Add it to env files and regenerate config first.")
+
+    log_dir = root_dir / "logs" / environment / "monitoring"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    cron_line = _healthcheck_alert_cron_line(root_dir, environment, runtime_values)
+    marker = _healthcheck_alert_cron_marker(environment)
+
+    print()
+    log_info("Generated cron job:")
+    print(f"  {cron_line}")
+    print()
+
+    if not runtime_values.get("SMTP_HOST"):
+        log_warn("SMTP_HOST is not set — emails will be logged but not sent.")
+    print()
+
+    try:
+        confirm_str = input("Apply? (y/n): ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        raise CommandError("Aborted.")
+
+    if confirm_str != "y":
+        raise CommandError("Aborted.")
+
+    existing_result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+    existing = existing_result.stdout if existing_result.returncode == 0 else ""
+    lines = [line for line in existing.splitlines() if marker not in line]
+    lines.append(cron_line)
+    new_crontab = "\n".join(lines) + "\n"
+
+    subprocess.run(["crontab", "-"], input=new_crontab, text=True, check=True)
+
+    log_ok("Cron updated successfully")
+    log_info(f"Alert logs: {log_dir}/healthcheck-alert.log")
+    print()
+    subprocess.run(["crontab", "-l"])
+    return 0
+
+
+def cmd_docker_status(args: argparse.Namespace) -> int:
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+    script = root_dir / "scripts" / "tools" / "docker" / "status.py"
+    if not script.is_file():
+        fail(f"Script not found: {script}")
+    run([sys.executable, str(script)], cwd=root_dir)
+    return 0
+
+
+def cmd_docker_dashboard(args: argparse.Namespace) -> int:
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+    script = root_dir / "scripts" / "tools" / "docker" / "dashboard.py"
+    if not script.is_file():
+        fail(f"Script not found: {script}")
+    result = run([sys.executable, str(script)], cwd=root_dir, check=False)
+    return 0 if result.returncode in (0, 130) else result.returncode
+
+
 def cmd_rotate_htpasswd(args: argparse.Namespace) -> int:
     root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
     environment = resolve_prompted_environment(getattr(args, "environment", None))
@@ -576,6 +818,48 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     docker_parser = tools_sub.add_parser("docker-install", help="Run docker_install.sh")
     docker_parser.add_argument("--project-root", dest="project_root")
     docker_parser.set_defaults(handler=cmd_docker_install)
+
+    setup_monitoring_parser = tools_sub.add_parser(
+        "setup-monitoring",
+        help="Create UptimeRobot monitors for all public HTTPS endpoints",
+    )
+    setup_monitoring_parser.add_argument("environment", nargs="?")
+    setup_monitoring_parser.add_argument("--project-root", dest="project_root")
+    setup_monitoring_parser.add_argument("--api-key", default="", dest="api_key",
+                                         help="UptimeRobot API key (overrides UPTIMEROBOT_API_KEY env var)")
+    setup_monitoring_parser.add_argument("--dry-run", action="store_true",
+                                         help="Preview monitors without creating them")
+    setup_monitoring_parser.set_defaults(handler=cmd_setup_monitoring)
+
+    healthcheck_alert_parser = tools_sub.add_parser(
+        "healthcheck-alert",
+        help="Run healthcheck alert check once (use setup-healthcheck-cron for automatic scheduling)",
+    )
+    healthcheck_alert_parser.add_argument("environment", nargs="?")
+    healthcheck_alert_parser.add_argument("--project-root", dest="project_root")
+    healthcheck_alert_parser.set_defaults(handler=cmd_healthcheck_alert)
+
+    setup_healthcheck_cron_parser = tools_sub.add_parser(
+        "setup-healthcheck-cron",
+        help="Install a cron job that checks Docker healthchecks every 5 minutes and sends email alerts",
+    )
+    setup_healthcheck_cron_parser.add_argument("environment", nargs="?")
+    setup_healthcheck_cron_parser.add_argument("--project-root", dest="project_root")
+    setup_healthcheck_cron_parser.set_defaults(handler=cmd_setup_healthcheck_cron)
+
+    docker_status_parser = tools_sub.add_parser(
+        "docker-status",
+        help="Show running containers grouped by compose project",
+    )
+    docker_status_parser.add_argument("--project-root", dest="project_root")
+    docker_status_parser.set_defaults(handler=cmd_docker_status)
+
+    docker_dashboard_parser = tools_sub.add_parser(
+        "docker-dashboard",
+        help="Live container dashboard (CPU, memory, health) — refreshes every 3s, Ctrl+C to exit",
+    )
+    docker_dashboard_parser.add_argument("--project-root", dest="project_root")
+    docker_dashboard_parser.set_defaults(handler=cmd_docker_dashboard)
 
     rotate_htpasswd_parser = tools_sub.add_parser(
         "rotate-htpasswd",

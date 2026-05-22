@@ -30,6 +30,7 @@
     "NGINX_BASIC_AUTH_USER",
     "NGINX_CERT_GROUP_ID",
     "NGINX_CERT_MODE",
+    "NGINX_WORKER_CONNECTIONS",
     "NGINX_WORKER_PROCESSES",
     "OTEL_EXPORTER_OTLP_ENDPOINT",
     "OTEL_EXPORTER_OTLP_HEADERS",
@@ -52,9 +53,34 @@
     "Swagger__Enabled"
   ],
   "properties": {
+    "ALERTS_EMAIL": {
+      "type": "string",
+      "description": "Recipient email for healthcheck-alert cron notifications."
+    },
     "ALLOW_PRODUCTION_MIGRATE": {
       "type": "string",
       "description": "Set to the database name (MYSQL_DATABASE value) to authorize production migrations. 'false' disables. Must match the actual database name — not 'true'."
+    },
+    "SMTP_HOST": {
+      "type": "string",
+      "description": "SMTP relay host for healthcheck-alert emails, e.g. smtp.gmail.com."
+    },
+    "SMTP_PORT": {
+      "type": "string",
+      "format": "port",
+      "description": "SMTP port (587 = STARTTLS, 465 = SSL). Default: 587."
+    },
+    "SMTP_USER": {
+      "type": "string",
+      "description": "SMTP auth username."
+    },
+    "SMTP_PASSWORD": {
+      "type": "string",
+      "description": "SMTP auth password (e.g. Gmail app password)."
+    },
+    "UPTIMEROBOT_API_KEY": {
+      "type": "string",
+      "description": "UptimeRobot API key used by `tools setup-monitoring`."
     },
     "ASPNETCORE_ENVIRONMENT": {
       "type": "string",
@@ -242,6 +268,10 @@
     "NGINX_PUBLIC_RATE_LIMIT": {
       "type": "string",
       "format": "nginx-rate"
+    },
+    "NGINX_WORKER_CONNECTIONS": {
+      "type": "string",
+      "format": "positive-integer"
     },
     "NGINX_WORKER_PROCESSES": {
       "type": "string",

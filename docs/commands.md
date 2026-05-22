@@ -313,6 +313,74 @@ python3 scripts/generate-config.py --env dev --domain yuviron.com --apps admin,b
 python3 scripts/init.py --env dev --domain yuviron.com
 ```
 
+### Внешний мониторинг (UptimeRobot)
+
+Создать мониторы в UptimeRobot для всех публичных HTTPS-эндпоинтов (читает `generated/<env>/routes.env`):
+
+```bash
+./scripts/cli.py tools setup-monitoring prod
+./scripts/cli.py tools setup-monitoring prod --dry-run      # только предпросмотр
+./scripts/cli.py tools setup-monitoring prod --api-key <key>  # без env-переменной
+```
+
+Предварительно заполнить `env/common.env` (или `env/prod.env`):
+
+```
+UPTIMEROBOT_API_KEY=<ключ из настроек UptimeRobot>
+```
+
+Команда пропускает management-роуты (seq, aspire, prometheus…) и media CDN — они недоступны публично. Для API-роута мониторится `/health/ready`, для остальных — `/`. UptimeRobot будет слать email на адрес аккаунта при падении эндпоинта.
+
+---
+
+### Внутренний healthcheck-алертинг (cron)
+
+Установить cron-задание — проверяет `docker ps` каждые 5 минут, при unhealthy-контейнере шлёт email:
+
+```bash
+./scripts/cli.py tools setup-healthcheck-cron prod
+```
+
+Предварительно заполнить env:
+
+```
+ALERTS_EMAIL=ops@example.com
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=alerts@gmail.com
+SMTP_PASSWORD=<app-password>
+```
+
+Email-тело указывает причину: **deploy error** (если `stack up` запускался менее 15 минут назад) или **runtime crash** (сервис упал сам). Повторный алерт по тому же контейнеру — не раньше чем через 30 минут. При восстановлении cooldown очищается автоматически.
+
+Проверить алертинг вручную (без cron):
+
+```bash
+./scripts/cli.py tools healthcheck-alert prod
+```
+
+Лог: `logs/<env>/monitoring/healthcheck-alert.log`
+
+---
+
+### Мониторинг контейнеров
+
+Одноразовый снимок состояния всех запущенных контейнеров, сгруппированных по compose-проекту:
+
+```bash
+./scripts/cli.py tools docker-status
+```
+
+Живой TUI-дашборд с CPU, памятью и healthcheck-статусом; обновляется каждые 3 секунды:
+
+```bash
+./scripts/cli.py tools docker-dashboard
+```
+
+Выход из дашборда — `Ctrl+C`. Контейнеры без healthcheck показываются серым цветом; unhealthy — красным, starting — жёлтым, healthy — зелёным. Внутри каждого проекта unhealthy/starting-контейнеры поднимаются наверх.
+
+---
+
 ### Docker disk cleanup
 
 ```bash
@@ -420,7 +488,8 @@ python3 scripts/init.py --env dev --domain yuviron.com
 Просмотр контейнеров:
 
 ```bash
-docker ps
+./scripts/cli.py tools docker-status
+./scripts/cli.py tools docker-dashboard   # live TUI, Ctrl+C для выхода
 ```
 
 Просмотр логов сервиса:
