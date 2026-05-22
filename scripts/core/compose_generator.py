@@ -7,6 +7,7 @@ from typing import Dict, List
 import yaml
 
 from .models import FrontendApp
+from .nginx_route import NginxRoute
 from .paths import compose_relative_path, relative_posix_path
 
 
@@ -31,8 +32,8 @@ def render_apps_env(selected_apps: List[FrontendApp], optional_apps: List[Fronte
     )
 
 
-def render_routes_env(route_lines: List[tuple]) -> str:
-    return "\n".join(f"{name}|{host}|{upstream}" for name, host, upstream, *_ in route_lines) + "\n"
+def render_routes_env(route_lines: List[NginxRoute]) -> str:
+    return "\n".join(f"{r.name}|{r.host}|{r.upstream}" for r in route_lines) + "\n"
 
 
 def build_frontend_service(app: FrontendApp, root_dir: Path) -> dict:

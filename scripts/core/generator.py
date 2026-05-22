@@ -20,6 +20,7 @@ from .htpasswd import (
     resolve_htpasswd_path,
 )
 from .models import GenerationContext, VALID_ENVIRONMENTS  # noqa: F401 (re-export for callers)
+from .nginx_route import NginxRoute
 from .paths import compose_relative_path
 from .preflight import resolve_generation_settings
 from .compose_generator import (
@@ -63,18 +64,17 @@ def _resolve_override_path(root_dir: Path, raw_path: str, default_path: Path) ->
     return path.resolve()
 
 
-def _resolve_routes(ctx: GenerationContext, apps: dict, routes_cfg: dict) -> list[tuple]:
-    selected_set = set(ctx.selected_app_keys)
-    lines: list[tuple] = []
-    seen_names: set[str] = set()
-
+def _resolve_routes(ctx: GenerationContext, apps: dict, routes_cfg: dict) -> list[NginxRoute]:
     DEFAULT_MAX_BODY_SIZE = "5m"
+    selected_set = set(ctx.selected_app_keys)
+    lines: list[NginxRoute] = []
+    seen_names: set[str] = set()
 
     def add_route(
         name: str,
         host: str,
         upstream: str,
-        max_body_size: str = DEFAULT_MAX_BODY_SIZE,
+        max_body_size: str = "5m",
         has_auth_endpoints: bool = False,
         rate_limit_zone: str | None = None,
         rate_limit_burst: str | None = None,
@@ -87,19 +87,19 @@ def _resolve_routes(ctx: GenerationContext, apps: dict, routes_cfg: dict) -> lis
         if name in seen_names:
             fail(f"Duplicate route name generated: {name}")
         seen_names.add(name)
-        lines.append((
-            name,
-            host,
-            upstream,
-            max_body_size,
-            has_auth_endpoints,
-            rate_limit_zone,
-            rate_limit_burst,
-            upload_locations,
-            upload_client_max_body_size,
-            upload_rate_limit_zone,
-            upload_rate_limit_burst,
-            media_proxy,
+        lines.append(NginxRoute(
+            name=name,
+            host=host,
+            upstream=upstream,
+            max_body_size=max_body_size,
+            has_auth_endpoints=has_auth_endpoints,
+            rate_limit_zone=rate_limit_zone,
+            rate_limit_burst=rate_limit_burst,
+            upload_locations=upload_locations,
+            upload_client_max_body_size=upload_client_max_body_size,
+            upload_rate_limit_zone=upload_rate_limit_zone,
+            upload_rate_limit_burst=upload_rate_limit_burst,
+            media_proxy=media_proxy,
         ))
 
     if "client" not in routes_cfg:

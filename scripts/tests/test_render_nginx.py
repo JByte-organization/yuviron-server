@@ -9,6 +9,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from core.nginx_csp import STRICT_CONTENT_SECURITY_POLICY
+from core.nginx_route import NginxRoute
 from core.nginx_tls_policy import (
     DEFAULT_TLS_POLICY,
     NginxTlsPolicy,
@@ -23,7 +24,7 @@ from core.validators import CommandError
 class RenderNginxTests(unittest.TestCase):
     def test_render_accepts_valid_route_values(self) -> None:
         rendered = render_nginx_conf_modular(
-            [("api", "api.example.com", "backend:5073", "50m")],
+            [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
             SCRIPTS_ROOT / "templates",
         )
 
@@ -38,7 +39,7 @@ class RenderNginxTests(unittest.TestCase):
 
     def test_render_can_map_each_route_to_its_own_certificate(self) -> None:
         rendered = render_nginx_conf_modular(
-            [("api", "api.example.com", "backend:5073", "50m")],
+            [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
             SCRIPTS_ROOT / "templates",
             {
                 "ENVIRONMENT": "prod",
@@ -56,7 +57,7 @@ class RenderNginxTests(unittest.TestCase):
 
     def test_render_uses_nginx_worker_processes_env_value(self) -> None:
         rendered = render_nginx_conf_modular(
-            [("api", "api.example.com", "backend:5073", "50m")],
+            [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
             SCRIPTS_ROOT / "templates",
             {"NGINX_WORKER_PROCESSES": "1"},
         )
@@ -66,7 +67,7 @@ class RenderNginxTests(unittest.TestCase):
 
     def test_render_pins_default_tls_policy(self) -> None:
         rendered = render_nginx_conf_modular(
-            [("api", "api.example.com", "backend:5073", "50m")],
+            [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
             SCRIPTS_ROOT / "templates",
         )
         expected_ciphers = ":".join(DEFAULT_TLS_POLICY.ciphers)
@@ -134,7 +135,7 @@ class RenderNginxTests(unittest.TestCase):
     def test_render_rejects_invalid_nginx_worker_processes(self) -> None:
         with self.assertRaises(CommandError) as raised:
             render_nginx_conf_modular(
-                [("api", "api.example.com", "backend:5073", "50m")],
+                [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
                 SCRIPTS_ROOT / "templates",
                 {"NGINX_WORKER_PROCESSES": "auto; include /tmp/x"},
             )
@@ -143,7 +144,7 @@ class RenderNginxTests(unittest.TestCase):
 
     def test_render_uses_nginx_worker_connections_env_value(self) -> None:
         rendered = render_nginx_conf_modular(
-            [("api", "api.example.com", "backend:5073", "50m")],
+            [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
             SCRIPTS_ROOT / "templates",
             {"NGINX_WORKER_CONNECTIONS": "4096"},
         )
@@ -154,7 +155,7 @@ class RenderNginxTests(unittest.TestCase):
     def test_render_rejects_invalid_nginx_worker_connections(self) -> None:
         with self.assertRaises(CommandError) as raised:
             render_nginx_conf_modular(
-                [("api", "api.example.com", "backend:5073", "50m")],
+                [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
                 SCRIPTS_ROOT / "templates",
                 {"NGINX_WORKER_CONNECTIONS": "1024; include /tmp/x"},
             )
@@ -169,7 +170,7 @@ class RenderNginxTests(unittest.TestCase):
 
     def test_render_enables_basic_auth_for_management_routes(self) -> None:
         rendered = render_nginx_conf_modular(
-            [("seq", "seq.example.com", "seq:80", "5m")],
+            [NginxRoute("seq", "seq.example.com", "seq:80", "5m")],
             SCRIPTS_ROOT / "templates",
         )
 
@@ -180,7 +181,7 @@ class RenderNginxTests(unittest.TestCase):
 
     def test_render_uses_admin_allowlist_env_values_for_management_routes(self) -> None:
         rendered = render_nginx_conf_modular(
-            [("seq", "seq.example.com", "seq:80", "5m")],
+            [NginxRoute("seq", "seq.example.com", "seq:80", "5m")],
             SCRIPTS_ROOT / "templates",
             {"NGINX_ADMIN_ALLOWLIST": "127.0.0.1/32,10.8.0.0/24,fd7a:115c:a1e0::/48"},
         )
@@ -193,7 +194,7 @@ class RenderNginxTests(unittest.TestCase):
     def test_render_rejects_injected_admin_allowlist(self) -> None:
         with self.assertRaises(CommandError) as raised:
             render_nginx_conf_modular(
-                [("seq", "seq.example.com", "seq:80", "5m")],
+                [NginxRoute("seq", "seq.example.com", "seq:80", "5m")],
                 SCRIPTS_ROOT / "templates",
                 {"NGINX_ADMIN_ALLOWLIST": "127.0.0.1/32; allow all"},
             )
@@ -202,21 +203,7 @@ class RenderNginxTests(unittest.TestCase):
 
     def test_render_uses_public_rate_limit_env_values(self) -> None:
         rendered = render_nginx_conf_modular(
-            [
-                (
-                    "public-api",
-                    "public-api.example.com",
-                    "backend:5073",
-                    "50m",
-                    False,
-                    "api_general",
-                    None,
-                    (),
-                    None,
-                    None,
-                    None,
-                )
-            ],
+            [NginxRoute("public-api", "public-api.example.com", "backend:5073", "50m", False, "api_general")],
             SCRIPTS_ROOT / "templates",
             {
                 "NGINX_PUBLIC_RATE_LIMIT": "20r/s",
@@ -230,7 +217,7 @@ class RenderNginxTests(unittest.TestCase):
     def test_render_route_rate_limit_and_upload_locations_do_not_depend_on_api_name(self) -> None:
         rendered = render_nginx_conf_modular(
             [
-                (
+                NginxRoute(
                     "backend-public",
                     "backend-public.example.com",
                     "backend:5073",
@@ -255,22 +242,7 @@ class RenderNginxTests(unittest.TestCase):
 
     def test_render_media_proxy_uses_hash_cdn_cache_contract(self) -> None:
         rendered = render_nginx_conf_modular(
-            [
-                (
-                    "i",
-                    "dev-i.example.com",
-                    "backend:5073",
-                    "5m",
-                    False,
-                    None,
-                    None,
-                    (),
-                    None,
-                    None,
-                    None,
-                    True,
-                )
-            ],
+            [NginxRoute("i", "dev-i.example.com", "backend:5073", "5m", media_proxy=True)],
             SCRIPTS_ROOT / "templates",
         )
 
@@ -292,21 +264,8 @@ class RenderNginxTests(unittest.TestCase):
     def test_render_media_proxy_cors_uses_dynamic_origin_not_wildcard(self) -> None:
         rendered = render_nginx_conf_modular(
             [
-                ("api", "api.example.com", "backend:5073", "50m"),
-                (
-                    "i",
-                    "dev-i.example.com",
-                    "backend:5073",
-                    "5m",
-                    False,
-                    None,
-                    None,
-                    (),
-                    None,
-                    None,
-                    None,
-                    True,
-                ),
+                NginxRoute("api", "api.example.com", "backend:5073", "50m"),
+                NginxRoute("i", "dev-i.example.com", "backend:5073", "5m", media_proxy=True),
             ],
             SCRIPTS_ROOT / "templates",
         )
@@ -320,21 +279,8 @@ class RenderNginxTests(unittest.TestCase):
     def test_render_media_proxy_options_preflight_uses_named_location_not_if(self) -> None:
         rendered = render_nginx_conf_modular(
             [
-                ("api", "api.example.com", "backend:5073", "50m"),
-                (
-                    "i",
-                    "dev-i.example.com",
-                    "backend:5073",
-                    "5m",
-                    False,
-                    None,
-                    None,
-                    (),
-                    None,
-                    None,
-                    None,
-                    True,
-                ),
+                NginxRoute("api", "api.example.com", "backend:5073", "50m"),
+                NginxRoute("i", "dev-i.example.com", "backend:5073", "5m", media_proxy=True),
             ],
             SCRIPTS_ROOT / "templates",
         )
@@ -353,7 +299,7 @@ class RenderNginxTests(unittest.TestCase):
         # (upstream responds quickly, timeout never fires) and WebSocket/SignalR tunnels
         # that stay idle for hours.
         rendered = render_nginx_conf_modular(
-            [("api", "api.example.com", "backend:5073", "50m")],
+            [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
             SCRIPTS_ROOT / "templates",
         )
 
@@ -370,7 +316,7 @@ class RenderNginxTests(unittest.TestCase):
 
     def test_render_auth_rate_limit_follows_route_flag_not_route_name(self) -> None:
         rendered = render_nginx_conf_modular(
-            [("public-api", "public-api.example.com", "backend:5073", "50m", True)],
+            [NginxRoute("public-api", "public-api.example.com", "backend:5073", "50m", True)],
             SCRIPTS_ROOT / "templates",
         )
 
@@ -380,7 +326,7 @@ class RenderNginxTests(unittest.TestCase):
 
     def test_render_skips_auth_rate_limit_without_route_flag(self) -> None:
         rendered = render_nginx_conf_modular(
-            [("api", "api.example.com", "backend:5073", "50m", False)],
+            [NginxRoute("api", "api.example.com", "backend:5073", "50m", False)],
             SCRIPTS_ROOT / "templates",
         )
 
@@ -389,7 +335,7 @@ class RenderNginxTests(unittest.TestCase):
 
     def test_render_adds_security_headers_including_legacy_xss_scanner_header(self) -> None:
         rendered = render_nginx_conf_modular(
-            [("api", "api.example.com", "backend:5073", "50m")],
+            [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
             SCRIPTS_ROOT / "templates",
         )
 
@@ -402,7 +348,7 @@ class RenderNginxTests(unittest.TestCase):
     def test_prod_render_fails_when_csp_contains_unsafe_sources(self) -> None:
         with self.assertRaises(CommandError) as raised:
             render_nginx_conf_modular(
-                [("api", "api.example.com", "backend:5073", "50m")],
+                [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
                 SCRIPTS_ROOT / "templates",
                 {"ENVIRONMENT": "prod", "BASE_DOMAIN": "example.com"},
             )
@@ -412,7 +358,7 @@ class RenderNginxTests(unittest.TestCase):
 
     def test_prod_render_allows_strict_csp_override(self) -> None:
         rendered = render_nginx_conf_modular(
-            [("api", "api.example.com", "backend:5073", "50m")],
+            [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
             SCRIPTS_ROOT / "templates",
             {
                 "ENVIRONMENT": "prod",
@@ -428,7 +374,7 @@ class RenderNginxTests(unittest.TestCase):
     def test_render_rejects_injected_csp_override(self) -> None:
         with self.assertRaises(CommandError) as raised:
             render_nginx_conf_modular(
-                [("api", "api.example.com", "backend:5073", "50m")],
+                [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
                 SCRIPTS_ROOT / "templates",
                 {
                     "NGINX_CONTENT_SECURITY_POLICY": "default-src 'self'\";\nadd_header X-Bad yes;",
@@ -439,7 +385,7 @@ class RenderNginxTests(unittest.TestCase):
 
     def test_security_headers_live_only_in_https_server_blocks_with_hsts(self) -> None:
         rendered = render_nginx_conf_modular(
-            [("api", "api.example.com", "backend:5073", "50m")],
+            [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
             SCRIPTS_ROOT / "templates",
         )
         http_block_before_first_server = rendered.split("    server {", 1)[0]
@@ -460,7 +406,7 @@ class RenderNginxTests(unittest.TestCase):
 
     def test_render_uses_api_auth_rate_limit_env_value(self) -> None:
         rendered = render_nginx_conf_modular(
-            [("api", "api.example.com", "backend:5073", "50m")],
+            [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
             SCRIPTS_ROOT / "templates",
             {"NGINX_RATE_API_AUTH": "30r/m"},
         )
@@ -469,7 +415,7 @@ class RenderNginxTests(unittest.TestCase):
 
     def test_render_uses_api_upload_rate_limit_env_value(self) -> None:
         rendered = render_nginx_conf_modular(
-            [("api", "api.example.com", "backend:5073", "50m")],
+            [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
             SCRIPTS_ROOT / "templates",
             {"NGINX_RATE_API_UPLOAD": "20r/m"},
         )
@@ -478,7 +424,7 @@ class RenderNginxTests(unittest.TestCase):
 
     def test_render_api_auth_and_upload_use_conservative_defaults(self) -> None:
         rendered = render_nginx_conf_modular(
-            [("api", "api.example.com", "backend:5073", "50m")],
+            [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
             SCRIPTS_ROOT / "templates",
         )
 
@@ -488,7 +434,7 @@ class RenderNginxTests(unittest.TestCase):
     def test_render_rejects_invalid_api_auth_rate_limit(self) -> None:
         with self.assertRaises(CommandError) as raised:
             render_nginx_conf_modular(
-                [("api", "api.example.com", "backend:5073", "50m")],
+                [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
                 SCRIPTS_ROOT / "templates",
                 {"NGINX_RATE_API_AUTH": "10r/m; include /tmp/x"},
             )
@@ -498,7 +444,7 @@ class RenderNginxTests(unittest.TestCase):
     def test_render_rejects_invalid_api_upload_rate_limit(self) -> None:
         with self.assertRaises(CommandError) as raised:
             render_nginx_conf_modular(
-                [("api", "api.example.com", "backend:5073", "50m")],
+                [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
                 SCRIPTS_ROOT / "templates",
                 {"NGINX_RATE_API_UPLOAD": "10r/m; include /tmp/x"},
             )
@@ -508,7 +454,7 @@ class RenderNginxTests(unittest.TestCase):
     def test_render_rejects_invalid_public_rate_limit(self) -> None:
         with self.assertRaises(CommandError) as raised:
             render_nginx_conf_modular(
-                [("api", "api.example.com", "backend:5073", "50m")],
+                [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
                 SCRIPTS_ROOT / "templates",
                 {
                     "NGINX_PUBLIC_RATE_LIMIT": "20r/s; include /tmp/x",
@@ -521,7 +467,7 @@ class RenderNginxTests(unittest.TestCase):
     def test_render_rejects_invalid_public_rate_burst(self) -> None:
         with self.assertRaises(CommandError) as raised:
             render_nginx_conf_modular(
-                [("api", "api.example.com", "backend:5073", "50m")],
+                [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
                 SCRIPTS_ROOT / "templates",
                 {
                     "NGINX_PUBLIC_RATE_LIMIT": "20r/s",
@@ -534,7 +480,7 @@ class RenderNginxTests(unittest.TestCase):
     def test_render_rejects_injected_route_host(self) -> None:
         with self.assertRaises(CommandError) as raised:
             render_nginx_conf_modular(
-                [("api", "api.example.com; return 200 bad", "backend:5073", "50m")],
+                [NginxRoute("api", "api.example.com; return 200 bad", "backend:5073", "50m")],
                 SCRIPTS_ROOT / "templates",
             )
 
@@ -543,7 +489,7 @@ class RenderNginxTests(unittest.TestCase):
     def test_render_rejects_injected_upstream(self) -> None:
         with self.assertRaises(CommandError) as raised:
             render_nginx_conf_modular(
-                [("api", "api.example.com", "backend:5073; include /tmp/x", "50m")],
+                [NginxRoute("api", "api.example.com", "backend:5073; include /tmp/x", "50m")],
                 SCRIPTS_ROOT / "templates",
             )
 
@@ -552,7 +498,7 @@ class RenderNginxTests(unittest.TestCase):
     def test_render_rejects_injected_client_max_body_size(self) -> None:
         with self.assertRaises(CommandError) as raised:
             render_nginx_conf_modular(
-                [("api", "api.example.com", "backend:5073", "50m; include /tmp/x")],
+                [NginxRoute("api", "api.example.com", "backend:5073", "50m; include /tmp/x")],
                 SCRIPTS_ROOT / "templates",
             )
 
@@ -561,7 +507,7 @@ class RenderNginxTests(unittest.TestCase):
     def test_render_rejects_out_of_range_upstream_port(self) -> None:
         with self.assertRaises(CommandError) as raised:
             render_nginx_conf_modular(
-                [("api", "api.example.com", "backend:65536", "50m")],
+                [NginxRoute("api", "api.example.com", "backend:65536", "50m")],
                 SCRIPTS_ROOT / "templates",
             )
 
@@ -580,7 +526,7 @@ class RenderNginxTests(unittest.TestCase):
         for route_name, upstream in [("seq", "seq:80"), ("aspire", "aspire-dashboard:18888")]:
             with self.subTest(route_name=route_name):
                 rendered = render_nginx_conf_modular(
-                    [(route_name, f"{route_name}.example.com", upstream, "5m")],
+                    [NginxRoute(route_name, f"{route_name}.example.com", upstream, "5m")],
                     SCRIPTS_ROOT / "templates",
                 )
                 var = route_name.replace("-", "_")
@@ -590,7 +536,7 @@ class RenderNginxTests(unittest.TestCase):
 
     def test_non_optional_routes_keep_direct_proxy_pass(self) -> None:
         rendered = render_nginx_conf_modular(
-            [("api", "api.example.com", "backend:5073", "50m")],
+            [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
             SCRIPTS_ROOT / "templates",
         )
 

@@ -24,7 +24,7 @@ from .nginx_route import (
     NGINX_RATE_LIMIT_PATTERN,
     NGINX_WORKER_CONNECTIONS_PATTERN,
     NGINX_WORKER_PROCESSES_PATTERN,
-    _unpack_route_line,
+    NginxRoute,
     _validate_nginx_route,
 )
 from .nginx_tls_policy import (
@@ -142,7 +142,7 @@ def _validate_nginx_admin_allowlist(field_name: str, value: object) -> tuple[str
 
 
 def render_nginx_conf_modular(
-    route_lines: Iterable[tuple],
+    route_lines: Iterable[NginxRoute],
     template_dir: str | Path,
     env_values: Mapping[str, str] | None = None,
 ) -> str:
@@ -184,76 +184,36 @@ def render_nginx_conf_modular(
 
     routes: list[dict[str, object]] = []
     for route_line in route_lines:
-        (
-            route_name,
-            route_host,
-            route_upstream,
-            route_max_body_size,
-            route_has_auth_endpoints,
-            route_rate_limit_zone,
-            route_rate_limit_burst,
-            route_upload_locations,
-            route_upload_client_max_body_size,
-            route_upload_rate_limit_zone,
-            route_upload_rate_limit_burst,
-            route_media_proxy,
-        ) = _unpack_route_line(route_line)
-        (
-            route_name,
-            route_host,
-            route_upstream,
-            route_max_body_size,
-            route_has_auth_endpoints,
-            route_rate_limit_zone,
-            route_rate_limit_burst,
-            route_upload_locations,
-            route_upload_client_max_body_size,
-            route_upload_rate_limit_zone,
-            route_upload_rate_limit_burst,
-            route_media_proxy,
-        ) = _validate_nginx_route(
-            route_name,
-            route_host,
-            route_upstream,
-            route_max_body_size,
-            route_has_auth_endpoints,
-            route_rate_limit_zone,
-            route_rate_limit_burst,
-            route_upload_locations,
-            route_upload_client_max_body_size,
-            route_upload_rate_limit_zone,
-            route_upload_rate_limit_burst,
-            route_media_proxy,
-        )
-        route_is_management = route_name in MANAGEMENT_ROUTE_NAMES
-        route_is_optional = route_name in OPTIONAL_NGINX_ROUTE_NAMES
+        r = _validate_nginx_route(route_line)
+        route_is_management = r.name in MANAGEMENT_ROUTE_NAMES
+        route_is_optional = r.name in OPTIONAL_NGINX_ROUTE_NAMES
         route_ssl_certificate = default_ssl_certificate
         route_ssl_certificate_key = default_ssl_certificate_key
         if nginx_cert_mode == NGINX_CERT_MODE_PER_ROUTE:
             route_ssl_certificate, route_ssl_certificate_key = route_certificate_container_paths(
                 environment_name,
-                route_host,
+                r.host,
             )
         routes.append({
-            "name": route_name,
-            "host": route_host,
+            "name": r.name,
+            "host": r.host,
             "basic_auth": route_is_management,
             "optional": route_is_optional,
             "admin_allowlist": nginx_admin_allowlist if route_is_management else (),
-            "log_name": f"{route_name}-{route_host.replace('.', '_')}",
-            "upstream": route_upstream,
-            "client_max_body_size": route_max_body_size,
-            "has_auth_endpoints": route_has_auth_endpoints,
+            "log_name": f"{r.name}-{r.host.replace('.', '_')}",
+            "upstream": r.upstream,
+            "client_max_body_size": r.max_body_size,
+            "has_auth_endpoints": r.has_auth_endpoints,
             "ssl_certificate": route_ssl_certificate,
             "ssl_certificate_key": route_ssl_certificate_key,
-            "rate_limit_zone": route_rate_limit_zone,
-            "rate_limit_burst": route_rate_limit_burst or nginx_public_rate_burst,
-            "upload_locations": route_upload_locations,
-            "upload_locations_pattern": "|".join(route_upload_locations),
-            "upload_client_max_body_size": route_upload_client_max_body_size or route_max_body_size,
-            "upload_rate_limit_zone": route_upload_rate_limit_zone,
-            "upload_rate_limit_burst": route_upload_rate_limit_burst,
-            "media_proxy": route_media_proxy,
+            "rate_limit_zone": r.rate_limit_zone,
+            "rate_limit_burst": r.rate_limit_burst or nginx_public_rate_burst,
+            "upload_locations": r.upload_locations,
+            "upload_locations_pattern": "|".join(r.upload_locations),
+            "upload_client_max_body_size": r.upload_client_max_body_size or r.max_body_size,
+            "upload_rate_limit_zone": r.upload_rate_limit_zone,
+            "upload_rate_limit_burst": r.upload_rate_limit_burst,
+            "media_proxy": r.media_proxy,
         })
 
     context = {
@@ -301,5 +261,5 @@ class NginxRenderer:
         self._template_dir = template_dir
         self._env_values = env_values
 
-    def render(self, route_lines: Iterable[tuple]) -> str:
+    def render(self, route_lines: Iterable[NginxRoute]) -> str:
         return render_nginx_conf_modular(route_lines, self._template_dir, self._env_values)

@@ -37,6 +37,7 @@ BACKEND_SERVICE = "backend"
 REQUIRED_STACK_SERVICES = ("mysql", "redis", "rabbitmq", "nginx", BACKEND_SERVICE)
 # Matches ASPNETCORE_HTTP_PORTS in infra/compose.yml
 SWAGGER_BACKEND_BASE_URL = "http://127.0.0.1:5073"
+SWAGGER_BACKEND_HEALTH_TIMEOUT = 180
 SWAGGER_PREBUILD_SERVICES = ("mysql", "redis", "rabbitmq", BACKEND_SERVICE)
 FRONTEND_SWAGGER_DIR = Path("src") / "yuviron-frontend" / "packages" / "api" / "openapi"
 SWAGGER_DOCUMENTS = {
@@ -695,6 +696,21 @@ def _ensure_swagger_backend_image(swagger_context: ComposeContext, environment: 
     return False
 
 
+def _restart_if_unhealthy(context: ComposeContext, service: str, reason: str = "") -> None:
+    cid = _service_container_id(context, service)
+    if not cid:
+        return
+    health = run(
+        ["docker", "inspect", "-f",
+         "{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}", cid],
+        capture_output=True, check=False,
+    ).stdout.strip()
+    if health == "unhealthy":
+        suffix = f" — {reason}" if reason else ""
+        log_info(f"Service '{service}' is unhealthy{suffix}: restarting")
+        run(["docker", "restart", cid], check=False)
+
+
 def _prepare_frontend_swagger(context: ComposeContext, root_dir: Path, *, dry_run: bool = False) -> None:
     swagger_context = _swagger_prebuild_context(context)
 
@@ -719,16 +735,7 @@ def _prepare_frontend_swagger(context: ComposeContext, root_dir: Path, *, dry_ru
     # already in the "unhealthy" state — it does not wait for recovery.  Restart any
     # unhealthy services now so they enter "starting" state and compose can wait for them.
     for _svc in SWAGGER_PREBUILD_SERVICES:
-        _cid = _service_container_id(swagger_context, _svc)
-        if _cid:
-            _h = run(
-                ["docker", "inspect", "-f",
-                 "{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}", _cid],
-                capture_output=True, check=False,
-            ).stdout.strip()
-            if _h == "unhealthy":
-                log_info(f"Service '{_svc}' is unhealthy — restarting before compose up")
-                run(["docker", "restart", _cid], check=False)
+        _restart_if_unhealthy(swagger_context, _svc, "restarting before compose up")
 
     run_compose(swagger_context, "up", "-d", "--no-build", *SWAGGER_PREBUILD_SERVICES)
 
@@ -736,19 +743,10 @@ def _prepare_frontend_swagger(context: ComposeContext, root_dir: Path, *, dry_ru
     # RabbitMQ.  The already-running backend loses its AMQP connection and the Docker
     # healthcheck marks it unhealthy.  Restarting it gives MassTransit a clean start
     # rather than waiting for exponential-backoff reconnect.
-    cid = _service_container_id(swagger_context, BACKEND_SERVICE)
-    if cid:
-        _health = run(
-            ["docker", "inspect", "-f",
-             "{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}", cid],
-            capture_output=True, check=False,
-        ).stdout.strip()
-        if _health == "unhealthy":
-            log_info(f"Service '{BACKEND_SERVICE}' is unhealthy — restarting for a fresh AMQP connection")
-            run(["docker", "restart", cid], check=False)
+    _restart_if_unhealthy(swagger_context, BACKEND_SERVICE, "restarting for a fresh AMQP connection")
 
     try:
-        _wait_for_service_health(swagger_context, BACKEND_SERVICE, timeout=180)
+        _wait_for_service_health(swagger_context, BACKEND_SERVICE, timeout=SWAGGER_BACKEND_HEALTH_TIMEOUT)
 
         for name, path in SWAGGER_DOCUMENTS.items():
             url = f"{SWAGGER_BACKEND_BASE_URL}{path}"
