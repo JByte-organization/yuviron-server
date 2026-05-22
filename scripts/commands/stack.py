@@ -715,8 +715,24 @@ def _prepare_frontend_swagger(context: ComposeContext, root_dir: Path, *, dry_ru
     if not use_no_build:
         run_compose(swagger_context, "build", "--pull=false", *SWAGGER_PREBUILD_SERVICES)
     run_compose(swagger_context, "up", "-d", "--no-build", *SWAGGER_PREBUILD_SERVICES)
+
+    # When compose.yml changes (e.g. a healthcheck tweak), Docker Compose recreates
+    # RabbitMQ.  The already-running backend loses its AMQP connection and the Docker
+    # healthcheck marks it unhealthy.  Restarting it gives MassTransit a clean start
+    # rather than waiting for exponential-backoff reconnect.
+    cid = _service_container_id(swagger_context, BACKEND_SERVICE)
+    if cid:
+        _health = run(
+            ["docker", "inspect", "-f",
+             "{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}", cid],
+            capture_output=True, check=False,
+        ).stdout.strip()
+        if _health == "unhealthy":
+            log_info(f"Service '{BACKEND_SERVICE}' is unhealthy — restarting for a fresh AMQP connection")
+            run(["docker", "restart", cid], check=False)
+
     try:
-        _wait_for_service_health(swagger_context, BACKEND_SERVICE, timeout=120)
+        _wait_for_service_health(swagger_context, BACKEND_SERVICE, timeout=180)
 
         for name, path in SWAGGER_DOCUMENTS.items():
             url = f"{SWAGGER_BACKEND_BASE_URL}{path}"
