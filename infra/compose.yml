@@ -143,7 +143,7 @@ services:
       interval: 10s
       timeout: 10s
       retries: 20
-      start_period: 30s
+      start_period: 60s
     mem_limit: ${RABBITMQ_MEM_LIMIT:-512m}
     memswap_limit: ${RABBITMQ_MEMSWAP_LIMIT:-512m}
     cpus: ${RABBITMQ_CPUS:-0.5}
