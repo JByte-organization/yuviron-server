@@ -33,7 +33,12 @@ from .core import (
     _validate_redis_persistence_archive,
     _validate_tar,
 )
-from .docker_utils import _service_exists, _service_running, _wait_for_mysql_ready
+from .docker_utils import (
+    _service_exists,
+    _service_running,
+    _trigger_redis_bgsave,
+    _wait_for_mysql_ready,
+)
 
 
 MYSQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
@@ -168,6 +173,7 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
     backup_project_name = os.getenv("BACKUP_PROJECT_NAME", "yuviron-server")
     backup_envs_raw = os.getenv("BACKUP_ENVS", "dev,prod")
     mysql_service_name = os.getenv("MYSQL_SERVICE_NAME", "mysql")
+    redis_service_name = os.getenv("REDIS_SERVICE_NAME", "redis")
     backend_service_name = os.getenv("BACKEND_SERVICE_NAME", "backend")
     run_restore_test_after_create = (
         not getattr(args, "skip_restore_test", False)
@@ -456,6 +462,22 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
             except FileNotFoundError:
                 continue
 
+    def _bgsave_redis_before_snapshot(env_name: str, context: object) -> None:
+        if not _service_running(context, redis_service_name):
+            logger.info(f"Redis service '{redis_service_name}' for {env_name} is not running; skipping BGSAVE")
+            return
+
+        redis_password = parse_env_file(context.runtime_env).get("REDIS_PASSWORD", "")
+        bgsave_ok = _trigger_redis_bgsave(
+            context,
+            redis_service_name,
+            redis_password,
+            logger,
+            timeout=int(os.getenv("REDIS_BGSAVE_TIMEOUT", "30")),
+        )
+        if not bgsave_ok:
+            mark_warning(f"{env_name}:redis-bgsave-skipped")
+
     def backup_env(env_name: str) -> None:
         if not generated_exists(root_dir, env_name):
             logger.warn(f"Skipping {env_name} backup: generated config is missing")
@@ -475,10 +497,14 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
         dump_mysql(env_name, env_dir / "mysql.sql.gz")
         archive_storage(env_name, env_dir / "storage.tar.gz")
 
-        project_name = read_env_value(get_context(env_name).runtime_env, "COMPOSE_PROJECT_NAME") or f"yuviron-{env_name}"
+        context = get_context(env_name)
+        project_name = read_env_value(context.runtime_env, "COMPOSE_PROJECT_NAME") or f"yuviron-{env_name}"
         if project_name:
             archive_named_volume(env_name, "mysql", f"{project_name}_mysql_data", env_dir / "volume_mysql_data.tar.gz")
+
+            _bgsave_redis_before_snapshot(env_name, context)
             archive_named_volume(env_name, "redis", f"{project_name}_redis_data", env_dir / "volume_redis_data.tar.gz")
+
             archive_named_volume(env_name, "rabbitmq", f"{project_name}_rabbitmq_data", env_dir / "volume_rabbitmq_data.tar.gz")
         else:
             logger.warn(f"Could not resolve COMPOSE_PROJECT_NAME for {env_name}")
