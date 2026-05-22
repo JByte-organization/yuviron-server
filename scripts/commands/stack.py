@@ -367,7 +367,7 @@ def _restore_rollback_images(context: ComposeContext, snapshot: dict[str, str]) 
             ["docker", "tag", rollback_tag, f"{image_name}:latest"],
             capture_output=True, check=False,
         )
-        log_info(f"  Restored: {service} ← {rollback_tag}")
+        log_info(f"  Restored: {service} <- {rollback_tag}")
 
     run_compose(context, "up", "-d", "--remove-orphans")
     log_ok("Rollback complete — previous images are running.")
