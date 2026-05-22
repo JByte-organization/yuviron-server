@@ -18,7 +18,7 @@ if __package__ in {None, ""}:
     cli_path = scripts_dir / "cli.py"
     raise SystemExit(subprocess.call([str(cli_path), "doctor", *sys.argv[1:]]))
 
-from checks import preflight_core, preflight_nginx
+from checks import preflight_checks
 from commands.stack import DEFAULT_ROOT, PreflightContext
 from core.docker import container_id_for_service
 from core.env import parse_env_file, parse_routes_file
@@ -750,13 +750,13 @@ def _check_docker_network(ctx: PreflightContext) -> str:
 
 
 def _check_compose_config(ctx: PreflightContext) -> str:
-    preflight_nginx.check_compose_config(ctx)
+    preflight_checks.check_compose_config(ctx)
     return "Compose config is valid"
 
 
 def _check_nginx_config(ctx: PreflightContext) -> str:
-    preflight_core.check_routes_file(ctx)
-    preflight_nginx.check_nginx_config(ctx)
+    preflight_checks.check_routes_file(ctx)
+    preflight_checks.check_nginx_config(ctx)
     return "Generated nginx config is valid"
 
 

@@ -82,7 +82,7 @@ class StackSmokeTests(unittest.TestCase):
     def test_stack_up_prepares_host_storage_before_compose_up(self) -> None:
         with (
             patch.object(stack, "create_compose_context", return_value=self.context),
-            patch.object(stack.preflight_core, "prepare_host_storage_layout") as prepare_mock,
+            patch.object(stack.preflight_checks, "prepare_host_storage_layout") as prepare_mock,
             patch.object(stack, "_prepare_frontend_swagger") as swagger_mock,
             patch.object(stack, "_snapshot_rollback_images", return_value={}),
             patch.object(stack, "run_compose") as run_compose_mock,
@@ -116,7 +116,7 @@ class StackSmokeTests(unittest.TestCase):
     def test_stack_up_dry_run_uses_compose_dry_run_without_starting_containers(self) -> None:
         with (
             patch.object(stack, "create_compose_context", return_value=self.context),
-            patch.object(stack.preflight_core, "prepare_host_storage_layout"),
+            patch.object(stack.preflight_checks, "prepare_host_storage_layout"),
             patch.object(stack, "_prepare_frontend_swagger") as swagger_mock,
             patch.object(stack, "run_compose") as run_compose_mock,
         ):
@@ -144,7 +144,7 @@ class StackSmokeTests(unittest.TestCase):
     def test_stack_up_can_skip_migration(self) -> None:
         with (
             patch.object(stack, "create_compose_context", return_value=self.context),
-            patch.object(stack.preflight_core, "prepare_host_storage_layout"),
+            patch.object(stack.preflight_checks, "prepare_host_storage_layout"),
             patch.object(stack, "_prepare_frontend_swagger") as swagger_mock,
             patch.object(stack, "_snapshot_rollback_images", return_value={}),
             patch.object(stack, "run_compose") as run_compose_mock,
@@ -163,7 +163,7 @@ class StackSmokeTests(unittest.TestCase):
     def test_stack_up_no_build_skips_swagger_and_omits_build_flag(self) -> None:
         with (
             patch.object(stack, "create_compose_context", return_value=self.context),
-            patch.object(stack.preflight_core, "prepare_host_storage_layout"),
+            patch.object(stack.preflight_checks, "prepare_host_storage_layout"),
             patch.object(stack, "_prepare_frontend_swagger") as swagger_mock,
             patch.object(stack, "_snapshot_rollback_images", return_value={}),
             patch.object(stack, "run_compose") as run_compose_mock,

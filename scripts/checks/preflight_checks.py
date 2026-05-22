@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import stat
 from pathlib import Path
 
-from core.docker import ensure_docker_network, ensure_shared_network, run
+from core.compose_runner import validate_compose_config
+from core.docker import ensure_docker_network, ensure_shared_network, run, run_compose
 from core.env import (
     ensure_generated_basic_auth_file,
     generated_exists,
+    hash_file,
     parse_env_file,
     parse_routes_file,
     resolve_runtime_env,
@@ -16,6 +19,7 @@ from core.env import (
 from core.env_validation import ERROR, validate_runtime_env
 from core.generator import run_generate_config
 from core.htpasswd import resolve_htpasswd_path
+from core.models import is_valid_target
 from core.paths import resolve_runtime_path
 from core.tls import (
     NGINX_CERT_MODE_PER_ROUTE,
@@ -26,6 +30,9 @@ from core.tls import (
 from core.ui import log_info, log_ok, log_warn
 from core.validators import ensure_command, fail
 
+# ---------------------------------------------------------------------------
+# preflight_core — host, env, storage, network checks
+# ---------------------------------------------------------------------------
 
 REQUIRED_STORAGE_DIRS = ("avatars", "banners", "covers", "seq", "temp", "tracks")
 DEFAULT_STORAGE_DIR_MODE = "0777"
@@ -499,3 +506,356 @@ def check_routes_file(ctx: object) -> None:
 
     ctx.routes = routes
     log_ok("Routes file looks valid")
+
+
+# ---------------------------------------------------------------------------
+# preflight_generated — manifest freshness checks
+# ---------------------------------------------------------------------------
+
+_MANIFEST_TOKEN_RE = re.compile(r"[^A-Z0-9]+")
+
+
+def _manifest_token(raw: str) -> str:
+    token = _MANIFEST_TOKEN_RE.sub("_", raw.upper()).strip("_")
+    return token
+
+
+def _assert_hash_equals(file_path: Path, expected: str, label: str, *, hint: str = "") -> None:
+    if not expected:
+        fail(f"Missing expected hash for {label}")
+
+    actual = hash_file(file_path)
+    if actual != expected:
+        details = [
+            f"{label} is stale or modified: {file_path}",
+            f"expected sha256 from manifest: {expected}",
+            f"actual sha256: {actual}",
+        ]
+        if hint:
+            details.append(hint)
+        fail("\n".join(details))
+
+
+def _check_generator_dependency_hashes(ctx: object, *, hint: str = "") -> None:
+    for file_path in sorted((ctx.root_dir / "scripts" / "core").glob("*.py")):
+        token = _manifest_token(file_path.name)
+        key = f"SOURCE_CORE_{token}_SHA256"
+        expected = ctx.manifest_values.get(key, "")
+        _assert_hash_equals(file_path, expected, "generator library dependency", hint=hint)
+
+    for file_path in sorted((ctx.root_dir / "scripts" / "templates").glob("*.j2")):
+        token = _manifest_token(file_path.name)
+        key = f"SOURCE_TEMPLATE_{token}_SHA256"
+        expected = ctx.manifest_values.get(key, "")
+        _assert_hash_equals(file_path, expected, "generator template dependency", hint=hint)
+
+
+def load_manifest_file(ctx: object) -> None:
+    log_info(f"Loading manifest file: {ctx.manifest_file}")
+    if not ctx.manifest_file.is_file():
+        fail(f"Manifest file not found: {ctx.manifest_file}")
+
+    ctx.manifest_values = parse_env_file(ctx.manifest_file)
+    log_ok("Manifest file loaded")
+
+
+def check_generated_freshness(ctx: object) -> None:
+    log_info("Checking generated files freshness")
+
+    regenerate_hint = f"Regenerate generated config: ./scripts/init.py --env {ctx.environment} --no-up"
+
+    _assert_hash_equals(
+        ctx.env_dir / "common.env",
+        ctx.manifest_values.get("SOURCE_COMMON_ENV_SHA256", ""),
+        "common env source",
+        hint=regenerate_hint,
+    )
+    _assert_hash_equals(
+        ctx.env_dir / f"{ctx.environment}.env",
+        ctx.manifest_values.get("SOURCE_ENV_SHA256", ""),
+        "environment env source",
+        hint=regenerate_hint,
+    )
+    _assert_hash_equals(
+        ctx.root_dir / "config" / "apps.yml",
+        ctx.manifest_values.get("SOURCE_APPS_CONFIG_SHA256", ""),
+        "apps config",
+        hint=regenerate_hint,
+    )
+    _assert_hash_equals(
+        ctx.root_dir / "config" / "routes.yml",
+        ctx.manifest_values.get("SOURCE_ROUTES_CONFIG_SHA256", ""),
+        "routes config",
+        hint=regenerate_hint,
+    )
+    _assert_hash_equals(
+        ctx.root_dir / "scripts" / "generate-config.py",
+        ctx.manifest_values.get("SOURCE_GENERATOR_SHA256", ""),
+        "config generator",
+        hint=regenerate_hint,
+    )
+
+    _check_generator_dependency_hashes(ctx, hint=regenerate_hint)
+
+    _assert_hash_equals(
+        ctx.apps_file,
+        ctx.manifest_values.get("GENERATED_APPS_ENV_SHA256", ""),
+        "generated apps.env",
+        hint=regenerate_hint,
+    )
+    _assert_hash_equals(
+        ctx.routes_file,
+        ctx.manifest_values.get("GENERATED_ROUTES_ENV_SHA256", ""),
+        "generated routes.env",
+        hint=regenerate_hint,
+    )
+    _assert_hash_equals(
+        ctx.stack_env_file,
+        ctx.manifest_values.get("GENERATED_STACK_ENV_SHA256", ""),
+        "generated stack.env",
+        hint=regenerate_hint,
+    )
+    _assert_hash_equals(
+        ctx.env_file,
+        ctx.manifest_values.get("GENERATED_DEPLOY_ENV_SHA256", ""),
+        "generated deploy.env",
+        hint=regenerate_hint,
+    )
+    _assert_hash_equals(
+        ctx.frontends_compose_file,
+        ctx.manifest_values.get("GENERATED_FRONTENDS_COMPOSE_SHA256", ""),
+        "generated compose.frontends.yml",
+        hint=regenerate_hint,
+    )
+    _assert_hash_equals(
+        ctx.generated_nginx_conf,
+        ctx.manifest_values.get("GENERATED_NGINX_CONF_SHA256", ""),
+        "generated nginx.conf",
+        hint=regenerate_hint,
+    )
+
+    log_ok("Generated files are fresh")
+
+
+# ---------------------------------------------------------------------------
+# preflight_nginx — compose config and nginx config validation
+# ---------------------------------------------------------------------------
+
+_PREFLIGHT_MARKER = "-preflight-"
+
+
+def _tag_missing_upstream_images(compose_project_name: str, services: list[str]) -> None:
+    """In isolated preflight mode, re-tag main-project images for services that
+    don't yet have an isolated-project image. This avoids build attempts (which
+    require network access) when images are already available under the main
+    project name (e.g. yuviron-dev-admin:latest → yuviron-dev-preflight-XXXXX-admin:latest).
+    Services that use pre-built registry images (seq, aspire-dashboard) are
+    skipped — compose resolves those directly from the image: field.
+    """
+    if _PREFLIGHT_MARKER not in compose_project_name:
+        return
+
+    env_prefix = compose_project_name.split(_PREFLIGHT_MARKER)[0]  # yuviron-dev
+
+    for service in services:
+        target = f"{compose_project_name}-{service}:latest"
+        if run(["docker", "image", "inspect", target], check=False, capture_output=True).returncode == 0:
+            continue
+
+        candidate = f"{env_prefix}-{service}:latest"
+        if run(["docker", "image", "inspect", candidate], check=False, capture_output=True).returncode == 0:
+            log_info(f"Tagging {candidate} → {target} for nginx upstream validation")
+            run(["docker", "tag", candidate, target])
+
+
+def _service_from_upstream(route_name: str, upstream: str) -> str:
+    if not is_valid_target(upstream):
+        fail(f"Route '{route_name}' has invalid upstream '{upstream}'. Expected service:port")
+
+    service, _port = upstream.rsplit(":", 1)
+    return service
+
+
+def _route_upstream_services(ctx: object) -> list[tuple[str, str, str]]:
+    return [
+        (route_name, route_upstream, _service_from_upstream(route_name, route_upstream))
+        for route_name, _route_host, route_upstream in ctx.routes
+    ]
+
+
+def _unique_services(route_services: list[tuple[str, str, str]]) -> list[str]:
+    services: list[str] = []
+    seen: set[str] = set()
+
+    for _route_name, _route_upstream, service in route_services:
+        if service in seen:
+            continue
+        seen.add(service)
+        services.append(service)
+
+    return services
+
+
+def _load_compose_services(ctx: object) -> set[str]:
+    compose = ctx.ensure_compose_context()
+    # COMPOSE_PROFILES=* activates all profiles so profile-gated services
+    # (e.g. observability) are included in the reachability check.
+    result = run(
+        compose.build_compose_cmd("config", "--services"),
+        cwd=compose.root_dir,
+        env={**os.environ, "COMPOSE_PROFILES": "*"},
+        capture_output=True,
+    )
+    return {
+        line.strip()
+        for line in (result.stdout or "").splitlines()
+        if line.strip()
+    }
+
+
+def _check_route_upstreams_exist(ctx: object, route_services: list[tuple[str, str, str]]) -> None:
+    log_info("Checking route upstream services against compose config")
+
+    compose_services = _load_compose_services(ctx)
+    missing = [
+        (route_name, route_upstream, service)
+        for route_name, route_upstream, service in route_services
+        if service not in compose_services
+    ]
+
+    if missing:
+        details = [
+            (
+                f"Route '{route_name}' points to service '{service}' via upstream "
+                f"'{route_upstream}', but this service is missing from compose config"
+            )
+            for route_name, route_upstream, service in missing
+        ]
+        fail("Route upstream service mismatch:\n" + "\n".join(details))
+
+    log_ok("Route upstream services exist in compose config")
+
+
+def _print_service_logs_on_failure(ctx: object, service: str) -> None:
+    compose = ctx.ensure_compose_context()
+    log_info(f"Last logs for failed service: {service}")
+    run_compose(compose, "logs", "--no-color", "--tail=200", service, check=False)
+
+
+def check_compose_config(ctx: object) -> None:
+    validate_compose_config(ctx.ensure_compose_context())
+
+
+def _running_project_containers(ctx: object) -> dict[str, str]:
+    compose = ctx.ensure_compose_context()
+    result = run(
+        [
+            "docker",
+            "ps",
+            "--filter",
+            f"label=com.docker.compose.project={compose.compose_project_name}",
+            "--format",
+            "{{.Names}}",
+        ],
+        capture_output=True,
+        check=False,
+    )
+
+    containers: dict[str, str] = {}
+    for line in (result.stdout or "").splitlines():
+        name = line.strip()
+        if name:
+            containers[name] = name
+    return containers
+
+
+def check_nginx_config(ctx: object) -> None:
+    log_info("Validating generated nginx config file")
+
+    ctx.assert_file(ctx.generated_nginx_conf)
+    if ctx.generated_nginx_conf.stat().st_size == 0:
+        fail(f"Generated nginx config is empty: {ctx.generated_nginx_conf}")
+
+    nginx_content = ctx.generated_nginx_conf.read_text(encoding="utf-8")
+
+    if not ctx.routes:
+        ctx.routes = parse_routes_file(ctx.routes_file)
+
+    for _route_name, route_host, _route_upstream in ctx.routes:
+        marker = f"server_name {route_host};"
+        if marker not in nginx_content:
+            fail(f"Generated nginx config does not contain route host: {route_host}")
+
+    route_services = _route_upstream_services(ctx)
+    _check_route_upstreams_exist(ctx, route_services)
+    start_services = _unique_services(route_services)
+    if not start_services:
+        fail(f"Routes file does not contain upstream services: {ctx.routes_file}")
+
+    compose = ctx.ensure_compose_context()
+
+    if bool(getattr(ctx, "dry_run", False)):
+        log_info(
+            "Dry-run: validating nginx upstream dependency plan without starting containers: "
+            + ", ".join(start_services)
+        )
+        dry_run = run_compose(
+            compose,
+            "--dry-run",
+            "up",
+            "--no-start",
+            "--build",
+            "--remove-orphans",
+            *start_services,
+            check=False,
+        )
+        if dry_run.returncode != 0:
+            fail("Docker compose dry-run failed for nginx upstream dependency plan")
+
+        log_warn("Dry-run preflight skips runtime nginx -t because no container is started")
+        log_ok("Generated nginx config dry-run compose plan looks valid")
+        return
+
+    log_info(f"Starting nginx upstream dependencies for config validation: {', '.join(start_services)}")
+    _tag_missing_upstream_images(compose.compose_project_name, start_services)
+    running_before = _running_project_containers(ctx)
+    started = run_compose(compose, "up", "-d", "--no-build", *start_services, check=False)
+    running_after = _running_project_containers(ctx)
+
+    started_by_preflight = {
+        name: name
+        for name in running_after
+        if name not in running_before
+    }
+    ctx.preflight_started_containers.update(started_by_preflight)
+
+    if started_by_preflight:
+        log_info(f"Containers started by preflight: {', '.join(sorted(started_by_preflight))}")
+    else:
+        log_info("No new containers were started by preflight")
+
+    if started.returncode != 0:
+        log_warn(
+            "Some nginx upstream dependencies could not be started (images may not exist yet). "
+            "nginx -t will validate config syntax only."
+        )
+
+    log_info("Running nginx config validation in one-off container")
+    nginx_test = run_compose(
+        compose,
+        "run",
+        "--rm",
+        "--no-deps",
+        "--use-aliases",
+        "--entrypoint",
+        "nginx",
+        "nginx",
+        "-t",
+        check=False,
+    )
+
+    if nginx_test.returncode != 0:
+        _print_service_logs_on_failure(ctx, "nginx")
+        fail("Generated nginx config failed nginx -t validation")
+
+    log_ok("Generated nginx config looks valid")

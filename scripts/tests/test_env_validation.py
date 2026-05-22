@@ -11,7 +11,7 @@ ROOT_DIR = SCRIPTS_ROOT.parent
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
-from checks import preflight_core
+from checks import preflight_checks
 from cli import build_parser
 from core.config_loader import load_frontend_apps
 from core.env import parse_env_file
@@ -181,7 +181,7 @@ class EnvValidationTests(unittest.TestCase):
         )
 
         with self.assertRaises(CommandError) as raised:
-            preflight_core.check_env_policy(ctx)
+            preflight_checks.check_env_policy(ctx)
 
         message = str(raised.exception)
         self.assertIn("Unsafe env values for prod", message)
@@ -220,7 +220,7 @@ class EnvValidationTests(unittest.TestCase):
         )
 
         with self.assertRaises(CommandError) as raised:
-            preflight_core.check_env_policy(ctx)
+            preflight_checks.check_env_policy(ctx)
 
         message = str(raised.exception)
         self.assertIn("Unsafe env values for prod", message)

@@ -11,7 +11,7 @@ SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
-from checks import preflight_nginx
+from checks import preflight_checks
 from core.validators import CommandError
 
 
@@ -31,7 +31,7 @@ class PreflightNginxTests(unittest.TestCase):
                 ("client", "client-app:3000", "client-app"),
                 ("admin", "admin:3000", "admin"),
             ],
-            preflight_nginx._route_upstream_services(ctx),
+            preflight_checks._route_upstream_services(ctx),
         )
 
     def test_unique_services_preserves_route_order(self) -> None:
@@ -43,7 +43,7 @@ class PreflightNginxTests(unittest.TestCase):
 
         self.assertEqual(
             ["backend", "client-app"],
-            preflight_nginx._unique_services(route_services),
+            preflight_checks._unique_services(route_services),
         )
 
     def test_missing_compose_service_fails_with_route_context(self) -> None:
@@ -52,17 +52,17 @@ class PreflightNginxTests(unittest.TestCase):
             ("aspire", "aspire-dashboard:18888", "aspire-dashboard"),
         ]
 
-        with patch.object(preflight_nginx, "_load_compose_services", return_value={"backend"}):
+        with patch.object(preflight_checks, "_load_compose_services", return_value={"backend"}):
             with self.assertRaises(CommandError) as raised:
-                preflight_nginx._check_route_upstreams_exist(SimpleNamespace(), route_services)
+                preflight_checks._check_route_upstreams_exist(SimpleNamespace(), route_services)
 
         message = str(raised.exception)
         self.assertIn("Route 'aspire' points to service 'aspire-dashboard'", message)
         self.assertIn("missing from compose config", message)
 
     def test_tag_missing_upstream_images_skipped_when_not_isolated(self) -> None:
-        with patch.object(preflight_nginx, "run") as run_mock:
-            preflight_nginx._tag_missing_upstream_images("yuviron-dev", ["backend", "admin"])
+        with patch.object(preflight_checks, "run") as run_mock:
+            preflight_checks._tag_missing_upstream_images("yuviron-dev", ["backend", "admin"])
         run_mock.assert_not_called()
 
     def test_tag_missing_upstream_images_tags_absent_images(self) -> None:
@@ -76,8 +76,8 @@ class PreflightNginxTests(unittest.TestCase):
                 return SimpleNamespace(returncode=0 if "preflight" not in image else 1)
             return SimpleNamespace(returncode=0)
 
-        with patch.object(preflight_nginx, "run", side_effect=fake_run):
-            preflight_nginx._tag_missing_upstream_images(
+        with patch.object(preflight_checks, "run", side_effect=fake_run):
+            preflight_checks._tag_missing_upstream_images(
                 "yuviron-dev-preflight-9999-backend", ["backend", "admin"]
             )
 
@@ -87,8 +87,8 @@ class PreflightNginxTests(unittest.TestCase):
         self.assertIn(("docker", "tag", "yuviron-dev-admin:latest", "yuviron-dev-preflight-9999-backend-admin:latest"), tag_calls)
 
     def test_tag_missing_upstream_images_skips_existing_images(self) -> None:
-        with patch.object(preflight_nginx, "run", return_value=SimpleNamespace(returncode=0)) as run_mock:
-            preflight_nginx._tag_missing_upstream_images("yuviron-dev-preflight-9999", ["backend"])
+        with patch.object(preflight_checks, "run", return_value=SimpleNamespace(returncode=0)) as run_mock:
+            preflight_checks._tag_missing_upstream_images("yuviron-dev-preflight-9999", ["backend"])
 
         tag_calls = [c for c in run_mock.call_args_list if c.args[0][:2] == ["docker", "tag"]]
         self.assertEqual(len(tag_calls), 0)
@@ -117,11 +117,11 @@ class PreflightNginxTests(unittest.TestCase):
                 return SimpleNamespace(returncode=0)
 
             with (
-                patch.object(preflight_nginx, "_check_route_upstreams_exist"),
-                patch.object(preflight_nginx, "_running_project_containers", return_value={}),
-                patch.object(preflight_nginx, "run_compose", side_effect=fake_run_compose),
+                patch.object(preflight_checks, "_check_route_upstreams_exist"),
+                patch.object(preflight_checks, "_running_project_containers", return_value={}),
+                patch.object(preflight_checks, "run_compose", side_effect=fake_run_compose),
             ):
-                preflight_nginx.check_nginx_config(ctx)
+                preflight_checks.check_nginx_config(ctx)
 
         up_call = call_args_list[0]
         self.assertIn("--no-build", up_call)
@@ -154,11 +154,11 @@ class PreflightNginxTests(unittest.TestCase):
                 return SimpleNamespace(returncode=0)
 
             with (
-                patch.object(preflight_nginx, "_check_route_upstreams_exist"),
-                patch.object(preflight_nginx, "_running_project_containers", return_value={}),
-                patch.object(preflight_nginx, "run_compose", side_effect=fake_run_compose),
+                patch.object(preflight_checks, "_check_route_upstreams_exist"),
+                patch.object(preflight_checks, "_running_project_containers", return_value={}),
+                patch.object(preflight_checks, "run_compose", side_effect=fake_run_compose),
             ):
-                preflight_nginx.check_nginx_config(ctx)
+                preflight_checks.check_nginx_config(ctx)
 
         # nginx -t must still run even when upstream start failed
         run_call = next((a for a in call_args_list if a[0] == "run"), None)
@@ -183,10 +183,10 @@ class PreflightNginxTests(unittest.TestCase):
             )
 
             with (
-                patch.object(preflight_nginx, "_check_route_upstreams_exist"),
-                patch.object(preflight_nginx, "run_compose", return_value=SimpleNamespace(returncode=0)) as run_compose_mock,
+                patch.object(preflight_checks, "_check_route_upstreams_exist"),
+                patch.object(preflight_checks, "run_compose", return_value=SimpleNamespace(returncode=0)) as run_compose_mock,
             ):
-                preflight_nginx.check_nginx_config(ctx)
+                preflight_checks.check_nginx_config(ctx)
 
         run_compose_mock.assert_called_once_with(
             compose,

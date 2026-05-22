@@ -12,8 +12,8 @@ SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
-from checks import preflight_core
-from checks.preflight_generated import _assert_hash_equals
+from checks import preflight_checks
+from checks.preflight_checks import _assert_hash_equals
 from core.env import hash_file
 from core.validators import CommandError
 
@@ -53,10 +53,10 @@ class PreflightGeneratedTests(unittest.TestCase):
             )
 
             with (
-                patch.object(preflight_core, "run_generate_config") as gen_mock,
-                patch.object(preflight_core, "ensure_shared_network") as network_mock,
+                patch.object(preflight_checks, "run_generate_config") as gen_mock,
+                patch.object(preflight_checks, "ensure_shared_network") as network_mock,
             ):
-                preflight_core.regenerate_preflight_generated(ctx)
+                preflight_checks.regenerate_preflight_generated(ctx)
 
             gen_mock.assert_called_once_with(
                 env="dev",
@@ -90,10 +90,10 @@ class PreflightGeneratedTests(unittest.TestCase):
             )
 
             with (
-                patch.object(preflight_core, "run_generate_config") as gen_mock,
-                patch.object(preflight_core, "ensure_shared_network"),
+                patch.object(preflight_checks, "run_generate_config") as gen_mock,
+                patch.object(preflight_checks, "ensure_shared_network"),
             ):
-                preflight_core.regenerate_preflight_generated(ctx)
+                preflight_checks.regenerate_preflight_generated(ctx)
 
             gen_mock.assert_called_once_with(
                 env="dev",
@@ -116,7 +116,7 @@ class PreflightStorageTests(unittest.TestCase):
                 "STORAGE_DIR_MODE": "0777",
             }
 
-            preflight_core.prepare_host_storage_layout(root, env_values)
+            preflight_checks.prepare_host_storage_layout(root, env_values)
 
             self.assertTrue((root / "storage" / "dev" / "avatars").is_dir())
             self.assertTrue((root / "storage" / "dev" / "banners").is_dir())
@@ -140,7 +140,7 @@ class PreflightStorageTests(unittest.TestCase):
             root = Path(temp_dir)
 
             with self.assertRaises(CommandError) as raised:
-                preflight_core.prepare_host_storage_layout(
+                preflight_checks.prepare_host_storage_layout(
                     root,
                     {
                         "STORAGE_PATH": "storage/dev",

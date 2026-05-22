@@ -10,7 +10,7 @@ SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
-from checks import preflight_core
+from checks import preflight_checks
 from core.preflight import GenerationSettings, resolve_generation_settings
 from core.validators import CommandError
 
@@ -61,8 +61,8 @@ class CheckInternetConnectivityTests(unittest.TestCase):
 
     def test_passes_when_curl_succeeds(self) -> None:
         ctx = SimpleNamespace()
-        with patch("checks.preflight_core.run", return_value=self._make_result(0)) as mock_run:
-            preflight_core.check_internet_connectivity(ctx)
+        with patch("checks.preflight_checks.run", return_value=self._make_result(0)) as mock_run:
+            preflight_checks.check_internet_connectivity(ctx)
 
         mock_run.assert_called_once_with(
             ["curl", "--silent", "--max-time", "3", "--output", "/dev/null", "http://google.com"],
@@ -72,18 +72,18 @@ class CheckInternetConnectivityTests(unittest.TestCase):
 
     def test_fails_when_curl_returns_nonzero(self) -> None:
         ctx = SimpleNamespace()
-        with patch("checks.preflight_core.run", return_value=self._make_result(6, "curl: (6) Could not resolve host: google.com")):
+        with patch("checks.preflight_checks.run", return_value=self._make_result(6, "curl: (6) Could not resolve host: google.com")):
             with self.assertRaises(CommandError) as raised:
-                preflight_core.check_internet_connectivity(ctx)
+                preflight_checks.check_internet_connectivity(ctx)
 
         self.assertIn("No internet connectivity or DNS resolution failed", str(raised.exception))
 
     def test_failure_message_includes_curl_stderr(self) -> None:
         ctx = SimpleNamespace()
         stderr_msg = "curl: (28) Connection timed out after 3000 milliseconds"
-        with patch("checks.preflight_core.run", return_value=self._make_result(28, stderr_msg)):
+        with patch("checks.preflight_checks.run", return_value=self._make_result(28, stderr_msg)):
             with self.assertRaises(CommandError) as raised:
-                preflight_core.check_internet_connectivity(ctx)
+                preflight_checks.check_internet_connectivity(ctx)
 
         self.assertIn(stderr_msg, str(raised.exception))
 
