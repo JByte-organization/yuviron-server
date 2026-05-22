@@ -53,12 +53,13 @@ class DoctorTests(unittest.TestCase):
         )
 
         with patch.object(doctor.shutil, "which", return_value="/usr/bin/docker"):
-            with patch.object(
-                doctor,
-                "_run_command",
-                return_value=subprocess.CompletedProcess(["docker"], 0, inspect_payload, ""),
-            ):
-                ports = doctor._expected_nginx_published_ports({"COMPOSE_PROJECT_NAME": "yuviron-dev"})
+            with patch.object(doctor, "container_id_for_service", return_value="abc123"):
+                with patch.object(
+                    doctor,
+                    "_run_command",
+                    return_value=subprocess.CompletedProcess(["docker"], 0, inspect_payload, ""),
+                ):
+                    ports = doctor._expected_nginx_published_ports({"COMPOSE_PROJECT_NAME": "yuviron-dev"})
 
         self.assertEqual({80, 443}, ports)
 

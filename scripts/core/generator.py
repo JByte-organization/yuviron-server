@@ -197,8 +197,7 @@ def run_generate_config(
     default_env_file_path = root_dir / "env" / f"{env_name}.env"
     common_env_path = _resolve_override_path(root_dir, common_env_file, default_common_env_path)
     env_file_path = _resolve_override_path(root_dir, env_file, default_env_file_path)
-    # generator.py itself is tracked in SOURCE_GENERATOR_SHA256 (and also via core glob)
-    generator_path = Path(__file__).resolve()
+    generator_path = Path(__file__).resolve().parent.parent / "generate-config.py"
 
     if warn_overrides and (common_env_file or env_file):
         log_warn(
