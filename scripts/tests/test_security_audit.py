@@ -191,8 +191,11 @@ class SecurityAuditTests(unittest.TestCase):
         )
         self.assertIn('case "${ASPNETCORE_ENVIRONMENT:-}" in', migrator_script)
         self.assertIn("ALLOW_PRODUCTION_MIGRATE:-false", migrator_script)
-        self.assertIn("ALLOW_PRODUCTION_MIGRATE=true", migrator_script)
+        # Fingerprint check: flag must equal MYSQL_DATABASE, not just "true"
+        self.assertIn("MYSQL_DATABASE", migrator_script)
+        self.assertIn('"${fingerprint}" != "${db_name}"', migrator_script)
         self.assertIn("Refusing to run EF Core migrations in Production.", migrator_script)
+        self.assertIn("ALLOW_PRODUCTION_MIGRATE must equal MYSQL_DATABASE", migrator_script)
 
     def test_cli_production_migrate_gate_exists_in_stack(self) -> None:
         root = SCRIPTS_ROOT.parent
@@ -200,6 +203,9 @@ class SecurityAuditTests(unittest.TestCase):
 
         self.assertIn("_confirm_production_migrate", stack_source)
         self.assertIn("ALLOW_PRODUCTION_MIGRATE", stack_source)
+        self.assertIn("MYSQL_DATABASE", stack_source)
+        # Fingerprint: flag must match database name
+        self.assertIn("fingerprint == db_name", stack_source)
         self.assertIn("yes, migrate production", stack_source)
         self.assertIn("sys.stdin.isatty()", stack_source)
         self.assertIn("context.environment == \"prod\"", stack_source)
@@ -439,6 +445,29 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertEqual([], report.findings)
         self.assertEqual(["8080:80"], services["nginx"]["ports"])
         self.assertEqual("yuviron-dev-admin", services["admin"]["container_name"])
+
+
+    def test_frontend_build_context_has_dockerignore_excluding_node_modules(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        dockerignore = root / "src" / "yuviron-frontend" / ".dockerignore"
+
+        self.assertTrue(
+            dockerignore.is_file(),
+            "src/yuviron-frontend/.dockerignore must exist — Docker build context is the "
+            "frontend monorepo root; without it node_modules and .next artifacts are sent "
+            "to the daemon and copied into image layers",
+        )
+        content = dockerignore.read_text(encoding="utf-8")
+        # node_modules must be excluded — these are installed fresh inside the build
+        self.assertIn("node_modules", content)
+        # per-app node_modules must also be excluded
+        self.assertIn("**/node_modules", content)
+        # stale Next.js build artifacts must not shadow a fresh build
+        self.assertIn("**/.next", content)
+        # git history must not enter the image
+        self.assertIn(".git", content)
+        # local env files must not leak secrets into the image
+        self.assertIn(".env", content)
 
 
 if __name__ == "__main__":

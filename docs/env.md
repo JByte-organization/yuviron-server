@@ -396,7 +396,7 @@ Backend, migrator и media-worker собираются через единый m
 
 `migrator` вынесен в compose profile `migrate`. `./scripts/cli.py stack up <env>` запускает его явно перед основным `up`, а `./scripts/cli.py stack migrate <env>` позволяет выполнить тот же шаг вручную.
 
-Внутри `infra/docker/dotnet/migrator.sh` production guard: при `ASPNETCORE_ENVIRONMENT=Production` контейнер падает, пока не передан `ALLOW_PRODUCTION_MIGRATE=true`. После guard - `dotnet ef database update`, затем `dotnet ef migrations list`; команда падает, если после update остаются pending migrations.
+Внутри `infra/docker/dotnet/migrator.sh` production fingerprint-guard: при `ASPNETCORE_ENVIRONMENT=Production` контейнер падает, пока `ALLOW_PRODUCTION_MIGRATE` не совпадает с `MYSQL_DATABASE`. Простое `=true` не принимается — нужно указать имя БД. После guard - `dotnet ef database update`, затем `dotnet ef migrations list`; команда падает, если после update остаются pending migrations.
 
 ### Frontend
 

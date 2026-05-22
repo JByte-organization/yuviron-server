@@ -100,7 +100,7 @@ cp env/example.env env/prod.env
 python3 scripts/init.py --env prod --domain yuviron.com --no-up
 ./scripts/cli.py stack preflight prod --strict
 ./scripts/cli.py security audit prod --strict
-ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
+ALLOW_PRODUCTION_MIGRATE=<db-name> ./scripts/cli.py stack up prod
 ./scripts/cli.py stack smoke prod
 ```
 
@@ -122,7 +122,7 @@ https://i.yuviron.com           -> media CDN
 
 * `ASPNETCORE_ENVIRONMENT=Production`
 * `Swagger__Enabled=false`
-* `ALLOW_PRODUCTION_MIGRATE=false` по умолчанию; включай `true` только на конкретный запуск мигратора
+* `ALLOW_PRODUCTION_MIGRATE=false` по умолчанию; для запуска мигратора установи значение равным `MYSQL_DATABASE` (имя БД), не `true`
 * `MYSQL_ROOT_PASSWORD` не равен `root`
 * production secrets не короткие и не похожи на dev/template значения
 

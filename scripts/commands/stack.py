@@ -559,22 +559,28 @@ def _show_compose_ps(context: ComposeContext) -> None:
 
 def _confirm_production_migrate(context: ComposeContext) -> None:
     runtime_values = parse_env_file(context.runtime_env)
-    allow_flag = runtime_values.get("ALLOW_PRODUCTION_MIGRATE", "false")
-
-    if allow_flag == "true":
-        log_warn("ALLOW_PRODUCTION_MIGRATE=true - running EF Core migrations on PRODUCTION")
-        return
+    db_name = runtime_values.get("MYSQL_DATABASE", "")
+    fingerprint = runtime_values.get("ALLOW_PRODUCTION_MIGRATE", "false")
+    has_fingerprint = bool(db_name) and fingerprint == db_name
 
     if not sys.stdin.isatty():
-        raise CommandError(
-            "Production migrations require ALLOW_PRODUCTION_MIGRATE=true in env/prod.env"
-        )
+        # Non-interactive (CI): fingerprint alone is sufficient — no prompt available.
+        if not has_fingerprint:
+            raise CommandError(
+                f"Production migrations require ALLOW_PRODUCTION_MIGRATE={db_name or '<MYSQL_DATABASE>'} "
+                "(must match database name) in env/prod.env"
+            )
+        log_warn(f"ALLOW_PRODUCTION_MIGRATE={fingerprint} — non-interactive production migration")
+        return
 
+    # TTY: always require interactive confirmation, regardless of fingerprint.
     print()
     log_warn("=" * 60)
     log_warn("  PRODUCTION DATABASE MIGRATION")
     log_warn("  This will apply EF Core migrations to the production DB.")
     log_warn("  Ensure you have a current backup before proceeding.")
+    if not has_fingerprint:
+        log_warn(f"  Set ALLOW_PRODUCTION_MIGRATE={db_name or '<MYSQL_DATABASE>'} to skip prompt in CI.")
     log_warn("=" * 60)
     print()
     try:

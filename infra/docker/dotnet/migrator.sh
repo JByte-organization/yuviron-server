@@ -8,12 +8,20 @@ EF_OBJ_DIR="/tmp/ef-obj"
 
 case "${ASPNETCORE_ENVIRONMENT:-}" in
     [Pp][Rr][Oo][Dd][Uu][Cc][Tt][Ii][Oo][Nn])
-        if [ "${ALLOW_PRODUCTION_MIGRATE:-false}" != "true" ]; then
+        db_name="${MYSQL_DATABASE:-}"
+        fingerprint="${ALLOW_PRODUCTION_MIGRATE:-false}"
+        if [ -z "${db_name}" ]; then
             echo "Refusing to run EF Core migrations in Production." >&2
-            echo "Set ALLOW_PRODUCTION_MIGRATE=true for this one-off migrator run." >&2
+            echo "MYSQL_DATABASE is not set; cannot verify migration fingerprint." >&2
             exit 1
         fi
-        echo "Production migration override accepted via ALLOW_PRODUCTION_MIGRATE=true"
+        if [ "${fingerprint}" != "${db_name}" ]; then
+            echo "Refusing to run EF Core migrations in Production." >&2
+            echo "ALLOW_PRODUCTION_MIGRATE must equal MYSQL_DATABASE ('${db_name}'), got '${fingerprint}'." >&2
+            echo "Set ALLOW_PRODUCTION_MIGRATE=<database-name> for this one-off migrator run." >&2
+            exit 1
+        fi
+        echo "Production migration fingerprint verified: ALLOW_PRODUCTION_MIGRATE=${fingerprint}"
         ;;
 esac
 

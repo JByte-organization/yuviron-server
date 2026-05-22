@@ -54,7 +54,7 @@
   "properties": {
     "ALLOW_PRODUCTION_MIGRATE": {
       "type": "string",
-      "enum": ["false", "true"]
+      "description": "Set to the database name (MYSQL_DATABASE value) to authorize production migrations. 'false' disables. Must match the actual database name — not 'true'."
     },
     "ASPNETCORE_ENVIRONMENT": {
       "type": "string",

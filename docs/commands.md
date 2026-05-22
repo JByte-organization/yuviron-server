@@ -89,7 +89,7 @@ CLI является единым интерфейсом для работы с�
 
 ```bash
 ./scripts/cli.py stack up dev
-ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
+ALLOW_PRODUCTION_MIGRATE=<db-name> ./scripts/cli.py stack up prod
 ./scripts/cli.py stack up dev --dry-run
 ./scripts/cli.py stack up dev --skip-migrate
 ./scripts/cli.py stack up prod --observability
@@ -110,15 +110,18 @@ ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
 
 ```bash
 ./scripts/cli.py stack migrate dev
-ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack migrate prod
+ALLOW_PRODUCTION_MIGRATE=<db-name> ./scripts/cli.py stack migrate prod
 ./scripts/cli.py stack migrate dev --dry-run
 ```
 
 `stack migrate` явно запускает EF Core migration контейнер через compose profile `migrate`. `--dry-run` проверяет compose-план profile `migrate` без запуска контейнера.
 
-Для prod CLI добавляет Python-уровневый guard до запуска Docker. В интерактивном режиме выводится баннер и требуется ввести `yes, migrate production`. В неинтерактивном режиме (CI/deploy) guard требует явного `ALLOW_PRODUCTION_MIGRATE=true` в `env/prod.env`; без него команда завершается с ошибкой, не запуская контейнер.
+Для prod CLI добавляет Python-уровневый guard до запуска Docker. **Двойная защита:**
 
-После Python-guard запускается migrator-контейнер. Внутри `infra/docker/dotnet/migrator.sh` аналогичная проверка есть на уровне shell: при `ASPNETCORE_ENVIRONMENT=Production` контейнер падает, если `ALLOW_PRODUCTION_MIGRATE=true` не передан через env. После guard выполняется `dotnet ef database update`, затем `dotnet ef migrations list`; команда падает, если после update остаются pending migrations.
+* **Интерактивный режим (TTY):** всегда выводится баннер и требуется ввести `yes, migrate production` — независимо от переменной.
+* **Неинтерактивный режим (CI/deploy):** guard требует `ALLOW_PRODUCTION_MIGRATE=<имя-БД>` в `env/prod.env`, где значение должно в точности совпадать с `MYSQL_DATABASE`. Простое `=true` не принимается. Без корректного fingerprint команда завершается с ошибкой, не запуская контейнер.
+
+После Python-guard запускается migrator-контейнер. Внутри `infra/docker/dotnet/migrator.sh` аналогичная fingerprint-проверка на уровне shell: при `ASPNETCORE_ENVIRONMENT=Production` контейнер падает, если `ALLOW_PRODUCTION_MIGRATE` не совпадает с `MYSQL_DATABASE`. После guard выполняется `dotnet ef database update`, затем `dotnet ef migrations list`; команда падает, если после update остаются pending migrations.
 
 ---
 
@@ -465,7 +468,7 @@ docker exec -it <nginx-container> nginx -t
 
 ```bash
 ./scripts/cli.py stack down prod
-ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
+ALLOW_PRODUCTION_MIGRATE=<db-name> ./scripts/cli.py stack up prod
 ```
 
 Ручная остановка dev-стека:

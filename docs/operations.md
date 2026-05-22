@@ -53,7 +53,7 @@ ALLOW_REGENERATE=1 ./scripts/cli.py stack preflight prod
 
 ```bash
 ./scripts/cli.py stack up dev
-ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
+ALLOW_PRODUCTION_MIGRATE=<db-name> ./scripts/cli.py stack up prod
 
 # С Seq и Aspire Dashboard (observability profile):
 ./scripts/cli.py stack up prod --observability
@@ -126,7 +126,7 @@ git pull
 ```bash
 ./scripts/cli.py stack down prod
 ./scripts/cli.py backup verify
-ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack up prod
+ALLOW_PRODUCTION_MIGRATE=<db-name> ./scripts/cli.py stack up prod
 ./scripts/cli.py stack smoke prod
 ```
 
@@ -238,7 +238,7 @@ admin
 
 ```bash
 ./scripts/cli.py stack migrate dev
-ALLOW_PRODUCTION_MIGRATE=true ./scripts/cli.py stack migrate prod
+ALLOW_PRODUCTION_MIGRATE=<db-name> ./scripts/cli.py stack migrate prod
 ```
 
 ---
