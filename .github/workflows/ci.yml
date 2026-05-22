@@ -35,7 +35,7 @@ jobs:
             tests.test_config_loader_routes \
             tests.test_config_loader_stack_ports \
             tests.test_render_nginx \
-            tests.test_render_compose \
+            tests.test_compose_generator \
             tests.test_dns_generate \
             tests.test_htpasswd \
             tests.test_core_preflight \
@@ -44,6 +44,14 @@ jobs:
             tests.test_security_audit \
             tests.test_generate_config \
             tests.test_smoke_logic \
+            tests.test_stack_smoke \
+            tests.test_doctor \
+            tests.test_certs_generate \
+            tests.test_certs_reload \
+            tests.test_backup_restore_test \
+            tests.test_backup_docker_utils \
+            tests.test_tools_docker_clean \
+            tests.test_backend_workflows \
             tests.test_python_requirements \
             -v
 
