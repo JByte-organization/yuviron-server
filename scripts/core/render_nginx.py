@@ -18,9 +18,11 @@ from .nginx_route import (
     DEFAULT_NGINX_PUBLIC_RATE_LIMIT,
     DEFAULT_NGINX_RATE_API_AUTH,
     DEFAULT_NGINX_RATE_API_UPLOAD,
+    DEFAULT_NGINX_WORKER_CONNECTIONS,
     DEFAULT_NGINX_WORKER_PROCESSES,
     NGINX_RATE_BURST_PATTERN,
     NGINX_RATE_LIMIT_PATTERN,
+    NGINX_WORKER_CONNECTIONS_PATTERN,
     NGINX_WORKER_PROCESSES_PATTERN,
     _unpack_route_line,
     _validate_nginx_route,
@@ -104,6 +106,16 @@ def _validate_nginx_worker_processes(field_name: str, value: object) -> str:
         fail(f"Invalid nginx {field_name}: surrounding whitespace is not allowed")
     if not NGINX_WORKER_PROCESSES_PATTERN.fullmatch(value):
         fail(f"Invalid nginx {field_name}: {value!r}. Expected 'auto' or a positive integer")
+    return value
+
+
+def _validate_nginx_worker_connections(field_name: str, value: object) -> str:
+    if not isinstance(value, str):
+        fail(f"Invalid nginx {field_name}: expected string")
+    if value != value.strip():
+        fail(f"Invalid nginx {field_name}: surrounding whitespace is not allowed")
+    if not NGINX_WORKER_CONNECTIONS_PATTERN.fullmatch(value):
+        fail(f"Invalid nginx {field_name}: {value!r}. Expected a positive integer")
     return value
 
 
@@ -257,6 +269,10 @@ def render_nginx_conf_modular(
         "nginx_worker_processes": _validate_nginx_worker_processes(
             "NGINX_WORKER_PROCESSES",
             _env_value(env_values, "NGINX_WORKER_PROCESSES", DEFAULT_NGINX_WORKER_PROCESSES),
+        ),
+        "nginx_worker_connections": _validate_nginx_worker_connections(
+            "NGINX_WORKER_CONNECTIONS",
+            _env_value(env_values, "NGINX_WORKER_CONNECTIONS", DEFAULT_NGINX_WORKER_CONNECTIONS),
         ),
         **_validate_nginx_tls_policy(DEFAULT_TLS_POLICY),
     }

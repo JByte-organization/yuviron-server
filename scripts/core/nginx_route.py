@@ -15,10 +15,12 @@ DEFAULT_NGINX_PUBLIC_RATE_BURST = "20"
 DEFAULT_NGINX_RATE_API_AUTH = "10r/m"
 DEFAULT_NGINX_RATE_API_UPLOAD = "5r/m"
 DEFAULT_NGINX_WORKER_PROCESSES = "auto"
+DEFAULT_NGINX_WORKER_CONNECTIONS = "1024"
 
 NGINX_RATE_LIMIT_PATTERN = re.compile(r"^[1-9][0-9]*r/[sm]$")
 NGINX_RATE_BURST_PATTERN = re.compile(r"^[1-9][0-9]*$")
 NGINX_WORKER_PROCESSES_PATTERN = re.compile(r"^(?:auto|[1-9][0-9]*)$")
+NGINX_WORKER_CONNECTIONS_PATTERN = re.compile(r"^[1-9][0-9]*$")
 NGINX_RATE_LIMIT_ZONES = frozenset({"api_general", "api_auth", "api_upload"})
 NGINX_UPLOAD_LOCATION_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 

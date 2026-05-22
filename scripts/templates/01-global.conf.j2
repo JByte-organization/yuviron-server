@@ -3,7 +3,7 @@ pid /tmp/nginx.pid;
 worker_processes {{ nginx_worker_processes }};
 
 events {
-    worker_connections 1024;
+    worker_connections {{ nginx_worker_connections }};
 }
 
 http {

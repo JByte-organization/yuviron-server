@@ -26,6 +26,7 @@ from .validators import ensure_file, ensure_mapping, fail
 
 
 NGINX_WORKER_PROCESSES_PATTERN = re.compile(r"^(?:auto|[1-9][0-9]*)$")
+NGINX_WORKER_CONNECTIONS_PATTERN = re.compile(r"^[1-9][0-9]*$")
 NGINX_RATE_LIMIT_ZONES = frozenset({"api_general", "api_auth", "api_upload"})
 NGINX_RATE_LIMIT_BURST_PATTERN = re.compile(r"^[1-9][0-9]*$")
 NGINX_UPLOAD_LOCATION_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -354,6 +355,23 @@ def load_nginx_worker_processes(
     return value
 
 
+def load_nginx_worker_connections(
+    root_dir: Path,
+    env_name: str,
+    common_env_path: Path | None = None,
+    env_file_path: Path | None = None,
+) -> str:
+    values = parse_env_file(common_env_path or root_dir / "env" / "common.env")
+    values.update(parse_env_file(env_file_path or root_dir / "env" / f"{env_name}.env"))
+
+    value = values.get("NGINX_WORKER_CONNECTIONS", "1024").strip()
+    if not value:
+        fail("NGINX_WORKER_CONNECTIONS must not be empty")
+    if not NGINX_WORKER_CONNECTIONS_PATTERN.fullmatch(value):
+        fail("NGINX_WORKER_CONNECTIONS must be a positive integer")
+    return value
+
+
 def load_nginx_cert_mode(
     root_dir: Path,
     env_name: str,
@@ -409,6 +427,12 @@ def render_stack_values(
             env_file_path=env_file_path,
         ),
         "NGINX_WORKER_PROCESSES": load_nginx_worker_processes(
+            root_dir,
+            env_name,
+            common_env_path=common_env_path,
+            env_file_path=env_file_path,
+        ),
+        "NGINX_WORKER_CONNECTIONS": load_nginx_worker_connections(
             root_dir,
             env_name,
             common_env_path=common_env_path,

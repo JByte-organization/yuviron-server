@@ -34,7 +34,7 @@ from .render_nginx import NginxRenderer
 from .ui import log_warn
 from .validators import fail
 
-# scripts/core/generator.py → project root is three levels up
+# scripts/core/generator.py -> project root is three levels up
 _ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 
 
