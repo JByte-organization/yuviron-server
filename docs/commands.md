@@ -361,6 +361,15 @@ Email-тело указывает причину: **deploy error** (если `st
 
 Лог: `logs/<env>/monitoring/healthcheck-alert.log`
 
+Отправить тестовое письмо для проверки SMTP (не проверяет Docker-состояние, сразу шлёт email):
+
+```bash
+./scripts/cli.py tools send-test-alert dev
+./scripts/cli.py tools send-test-alert prod
+```
+
+Тестовое письмо помечается синим значком 🔵 `[TEST]` и описанием "Test alert", чтобы его нельзя было спутать с реальным алертом. Если SMTP не настроен — команда завершается с ошибкой и объясняет какие переменные отсутствуют.
+
 ---
 
 ### Мониторинг контейнеров
@@ -380,13 +389,6 @@ Email-тело указывает причину: **deploy error** (если `st
 Выход из дашборда — `Ctrl+C`. Контейнеры без healthcheck показываются серым цветом; unhealthy — красным, starting — жёлтым, healthy — зелёным. Внутри каждого проекта unhealthy/starting-контейнеры поднимаются наверх.
 
 ---
-
-### Docker disk cleanup
-
-```bash
-./scripts/cli.py tools docker-clean --mode report
-./scripts/cli.py tools docker-clean --mode build-cache --reserved-space 10gb
-```
 
 ### Ротация паролей
 

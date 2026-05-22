@@ -17,7 +17,6 @@ class BackendWorkflowTests(unittest.TestCase):
     def test_appsettings_are_written_to_temp_files_before_atomic_replace(self) -> None:
         workflow_paths = [
             ROOT_DIR / "shared" / "backend" / ".github" / "workflows" / "deploy.yml",
-            ROOT_DIR / "shared" / "backend" / ".github" / "workflows" / "deploy.yml",
         ]
 
         for workflow_path in workflow_paths:
