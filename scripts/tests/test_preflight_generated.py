@@ -39,7 +39,6 @@ class PreflightGeneratedTests(unittest.TestCase):
             root = Path(temp_dir)
             generated = root / "generated" / "dev"
             generated.mkdir(parents=True)
-            (root / "scripts").mkdir()
             (generated / "deploy.env").write_text("BASE_DOMAIN=example.com\n", encoding="utf-8")
             (generated / "stack.env").write_text("BASE_DOMAIN=example.com\n", encoding="utf-8")
             (generated / "apps.env").write_text("FRONTEND_APP_KEYS=client,admin\n", encoding="utf-8")
@@ -54,18 +53,18 @@ class PreflightGeneratedTests(unittest.TestCase):
             )
 
             with (
-                patch.object(preflight_core, "run") as run_mock,
+                patch.object(preflight_core, "run_generate_config") as gen_mock,
                 patch.object(preflight_core, "ensure_shared_network") as network_mock,
             ):
                 preflight_core.regenerate_preflight_generated(ctx)
 
-            command = run_mock.call_args.args[0]
-            self.assertIn("python3", command)
-            self.assertIn(str(root / "scripts" / "generate-config.py"), command)
-            self.assertIn("--env=dev", command)
-            self.assertIn("--domain=example.com", command)
-            self.assertIn("--apps=client,admin", command)
-            self.assertIn("--extra-routes=", command)
+            gen_mock.assert_called_once_with(
+                env="dev",
+                domain="example.com",
+                apps="client,admin",
+                extra_routes="",
+                root_dir=root,
+            )
             network_mock.assert_called_once_with("dev", root_dir=root, generated_dir=root / "generated")
 
     def test_regenerate_preflight_generated_uses_manifest_generation_metadata(self) -> None:
@@ -73,7 +72,6 @@ class PreflightGeneratedTests(unittest.TestCase):
             root = Path(temp_dir)
             generated = root / "generated" / "dev"
             generated.mkdir(parents=True)
-            (root / "scripts").mkdir()
             (generated / "deploy.env").write_text("BASE_DOMAIN=old.example.com\n", encoding="utf-8")
             (generated / "stack.env").write_text("BASE_DOMAIN=old.example.com\n", encoding="utf-8")
             (generated / "apps.env").write_text("FRONTEND_APP_KEYS=client,admin\n", encoding="utf-8")
@@ -92,15 +90,18 @@ class PreflightGeneratedTests(unittest.TestCase):
             )
 
             with (
-                patch.object(preflight_core, "run") as run_mock,
+                patch.object(preflight_core, "run_generate_config") as gen_mock,
                 patch.object(preflight_core, "ensure_shared_network"),
             ):
                 preflight_core.regenerate_preflight_generated(ctx)
 
-            command = run_mock.call_args.args[0]
-            self.assertIn("--domain=example.com", command)
-            self.assertIn("--apps=client", command)
-            self.assertIn("--extra-routes=log=seq:80", command)
+            gen_mock.assert_called_once_with(
+                env="dev",
+                domain="example.com",
+                apps="client",
+                extra_routes="log=seq:80",
+                root_dir=root,
+            )
 
 
 class PreflightStorageTests(unittest.TestCase):

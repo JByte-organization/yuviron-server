@@ -11,6 +11,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from core.docker import ensure_shared_network, read_var_from_env_file, run
+from core.generator import run_generate_config
 from core.htpasswd import resolve_htpasswd_path
 from core.preflight import resolve_generation_settings
 from core.ui import (
@@ -208,7 +209,6 @@ def main(argv: list[str] | None = None) -> int:
     require_command("docker")
 
     for path in [
-        ROOT_DIR / "scripts" / "generate-config.py",
         ROOT_DIR / "config" / "apps.yml",
         ROOT_DIR / "config" / "routes.yml",
         ROOT_DIR / "env" / "common.env",
@@ -219,21 +219,13 @@ def main(argv: list[str] | None = None) -> int:
     print_section("Генерация конфигурации")
     ensure_dirs(environment)
 
-    log_info("Запуск generate-config.py...")
-    run(
-        [
-            "python3",
-            str(ROOT_DIR / "scripts" / "generate-config.py"),
-            "--env",
-            environment,
-            "--domain",
-            domain,
-            "--apps",
-            apps,
-            "--extra-routes",
-            routes,
-        ],
-        cwd=ROOT_DIR,
+    log_info("Генерация конфигурации...")
+    run_generate_config(
+        env=environment,
+        domain=domain,
+        apps=apps,
+        extra_routes=routes,
+        root_dir=ROOT_DIR,
     )
     log_ok("Конфигурация сгенерирована")
 

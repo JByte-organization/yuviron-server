@@ -14,6 +14,7 @@ from core.env import (
     resolve_runtime_env,
 )
 from core.env_validation import ERROR, validate_runtime_env
+from core.generator import run_generate_config
 from core.htpasswd import resolve_htpasswd_path
 from core.paths import resolve_runtime_path
 from core.tls import (
@@ -80,16 +81,12 @@ def regenerate_preflight_generated(ctx: object) -> None:
         f"domain={domain}, apps={app_keys}"
     )
 
-    run(
-        [
-            "python3",
-            str(ctx.root_dir / "scripts" / "generate-config.py"),
-            f"--env={ctx.environment}",
-            f"--domain={domain}",
-            f"--apps={app_keys}",
-            f"--extra-routes={extra_routes}",
-        ],
-        cwd=ctx.root_dir,
+    run_generate_config(
+        env=ctx.environment,
+        domain=domain,
+        apps=app_keys,
+        extra_routes=extra_routes,
+        root_dir=ctx.root_dir,
     )
     ensure_shared_network(
         ctx.environment,
