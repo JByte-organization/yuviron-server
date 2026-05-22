@@ -20,6 +20,14 @@ class PythonRequirementsTests(unittest.TestCase):
         self.assertIn("jsonschema==4.10.3", requirements)
         self.assertFalse(any(">=" in line for line in requirements if line.strip() and not line.startswith("#")))
 
+    def test_ci_workflow_audits_python_dependencies_with_pip_audit(self) -> None:
+        ci_yml = (ROOT_DIR / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+        # pip-audit must be installed in CI so the tool is available
+        self.assertIn("pip-audit", ci_yml)
+        # the audit step must target requirements.txt explicitly
+        self.assertIn("pip-audit -r requirements.txt", ci_yml)
+
 
 if __name__ == "__main__":
     unittest.main()
