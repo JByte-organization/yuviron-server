@@ -221,7 +221,6 @@ services:
       target: migrator
       args:
         <<: *dotnet-build-args
-        APP_PROJECT: src/Yuviron.Api/Yuviron.Api.csproj
         MIGRATOR_STARTUP_PROJECT: src/Yuviron.Api/Yuviron.Api.csproj
     container_name: ${COMPOSE_PROJECT_NAME}-migrator
     environment:
