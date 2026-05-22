@@ -84,6 +84,19 @@ def render_frontends_compose(frontend_apps: List[FrontendApp], root_dir: Path) -
     payload: dict = {"services": {}}
     for app in frontend_apps:
         payload["services"].update(build_frontend_service(app, root_dir))
+
+    # Patch nginx depends_on for optional frontend apps selected in this deployment.
+    # The required client-app entry is already in the static compose.yml depends_on;
+    # optional apps are dynamic and belong in this generated overlay so Docker Compose
+    # merges them into the final nginx service definition at runtime.
+    optional_nginx_deps = {
+        app.service_name: {"condition": "service_healthy"}
+        for app in frontend_apps
+        if not app.required
+    }
+    if optional_nginx_deps:
+        payload["services"]["nginx"] = {"depends_on": optional_nginx_deps}
+
     return yaml.safe_dump(payload, sort_keys=False)
 
 
