@@ -12,7 +12,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from core.models import FrontendApp
-from core.render_compose import render_frontends_compose
+from core.compose_generator import render_frontends_compose
 
 
 class RenderComposeTests(unittest.TestCase):

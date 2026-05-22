@@ -14,7 +14,7 @@ if __package__ in {None, ""}:
     cli_path = scripts_dir / "cli.py"
     raise SystemExit(subprocess.call([str(cli_path), "tools", *sys.argv[1:]]))
 
-from core.compose import create_compose_context
+from core.compose_runner import create_compose_context
 from core.docker import run, run_compose
 from core.env import parse_env_file, resolve_runtime_env
 from core.htpasswd import DEFAULT_BASIC_AUTH_USER, ensure_htpasswd_file, resolve_htpasswd_path

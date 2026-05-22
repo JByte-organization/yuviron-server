@@ -22,7 +22,7 @@ from .htpasswd import (
 from .models import GenerationContext, VALID_ENVIRONMENTS  # noqa: F401 (re-export for callers)
 from .paths import compose_relative_path
 from .preflight import resolve_generation_settings
-from .render_compose import (
+from .compose_generator import (
     render_apps_env,
     render_env_file,
     render_frontends_compose,
@@ -30,7 +30,7 @@ from .render_compose import (
     render_routes_env,
     render_stack_env,
 )
-from .render_nginx import render_nginx_conf_modular
+from .render_nginx import NginxRenderer
 from .ui import log_warn
 from .validators import fail
 
@@ -273,7 +273,7 @@ def run_generate_config(
     _write_text(stack_env_path, render_stack_env(stack_values))
     _write_text(deploy_env_path, render_env_file(merged_env_map))
     _write_text(frontends_compose_path, render_frontends_compose(selected_app_list, root_dir))
-    _write_text(nginx_conf_path, render_nginx_conf_modular(route_lines, template_dir, merged_env_map))
+    _write_text(nginx_conf_path, NginxRenderer(template_dir, merged_env_map).render(route_lines))
 
     source_hashes = {
         "SOURCE_COMMON_ENV_SHA256": hash_file(common_env_path),

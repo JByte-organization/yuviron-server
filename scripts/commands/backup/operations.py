@@ -10,7 +10,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from core.compose import create_compose_context
+from core.compose_runner import create_compose_context
 from core.docker import run, run_compose
 from core.env import (
     generated_exists,

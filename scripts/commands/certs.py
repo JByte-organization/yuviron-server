@@ -18,7 +18,7 @@ if __package__ in {None, ""}:
     cli_path = scripts_dir / "cli.py"
     raise SystemExit(subprocess.call([str(cli_path), "certs", *sys.argv[1:]]))
 
-from core.compose import create_compose_context
+from core.compose_runner import create_compose_context
 from core.docker import run, run_compose
 from core.env import load_dotenv_if_exists, parse_env_file, parse_routes_file
 from core.paths import resolve_root_dir

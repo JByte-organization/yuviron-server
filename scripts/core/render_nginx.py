@@ -272,3 +272,18 @@ def render_nginx_conf_modular(
         parts.append(rendered.rstrip("\n"))
 
     return "\n".join(parts) + "\n"
+
+
+class NginxRenderer:
+    """Stateful wrapper around render_nginx_conf_modular for a fixed template dir and env."""
+
+    def __init__(
+        self,
+        template_dir: str | Path,
+        env_values: Mapping[str, str] | None = None,
+    ) -> None:
+        self._template_dir = template_dir
+        self._env_values = env_values
+
+    def render(self, route_lines: Iterable[tuple]) -> str:
+        return render_nginx_conf_modular(route_lines, self._template_dir, self._env_values)

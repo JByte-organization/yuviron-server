@@ -24,7 +24,7 @@ from core.env_validation import (
     validate_runtime_env,
     weak_secret_reason,
 )
-from core.render_compose import render_frontends_compose
+from core.compose_generator import render_frontends_compose
 from core.validators import CommandError
 
 
