@@ -8,6 +8,13 @@ from typing import Optional, Tuple
 from .validators import fail
 
 VALID_ENVIRONMENTS = {"dev", "prod"}
+
+# Route name for the primary backend API — used in nginx generation and smoke tests.
+BACKEND_ROUTE_NAME = "api"
+
+# Route name for the media CDN proxy — used in nginx generation and smoke tests.
+MEDIA_ROUTE_NAME = "i"
+
 MANAGEMENT_ROUTE_NAMES = {
     "adminer",
     "alertmanager",
@@ -19,6 +26,11 @@ MANAGEMENT_ROUTE_NAMES = {
     "rabbitmq",
     "seq",
 }
+
+# Routes whose upstream containers may be absent at nginx startup (Docker Compose
+# profile-gated). A variable-based proxy_pass is generated for these so hostname
+# resolution is deferred to request time instead of failing at startup.
+OPTIONAL_NGINX_ROUTE_NAMES: frozenset[str] = frozenset({"seq", "aspire"})
 ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 NAME_PATTERN = re.compile(r"^[a-z0-9-]+$")
 TARGET_HOST_PATTERN = r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,251}[A-Za-z0-9])?"

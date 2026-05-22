@@ -7,7 +7,7 @@ from typing import Iterable, Mapping
 
 from jinja2 import Environment, StrictUndefined
 
-from .models import MANAGEMENT_ROUTE_NAMES, is_valid_route_host
+from .models import MANAGEMENT_ROUTE_NAMES, OPTIONAL_NGINX_ROUTE_NAMES, is_valid_route_host
 from .nginx_csp import (
     STRICT_CONTENT_SECURITY_POLICY,  # noqa: F401  (re-exported for callers)
     _resolve_content_security_policy,
@@ -43,10 +43,8 @@ from .validators import fail
 
 NGINX_ADMIN_ALLOWLIST_DEFAULT = "127.0.0.1/32"
 
-# Routes whose upstream containers may not be running (Docker Compose profile-gated).
-# Nginx resolves upstream hostnames eagerly at startup; for these routes a variable-based
-# proxy_pass is generated so resolution is deferred to request time.
-OPTIONAL_NGINX_ROUTES = frozenset({"seq", "aspire"})
+# Alias kept for any external callers; source of truth is models.OPTIONAL_NGINX_ROUTE_NAMES.
+OPTIONAL_NGINX_ROUTES = OPTIONAL_NGINX_ROUTE_NAMES
 
 
 def _render_template(template_text: str, context: dict) -> str:
@@ -216,7 +214,7 @@ def render_nginx_conf_modular(
             route_media_proxy,
         )
         route_is_management = route_name in MANAGEMENT_ROUTE_NAMES
-        route_is_optional = route_name in OPTIONAL_NGINX_ROUTES
+        route_is_optional = route_name in OPTIONAL_NGINX_ROUTE_NAMES
         route_ssl_certificate = default_ssl_certificate
         route_ssl_certificate_key = default_ssl_certificate_key
         if nginx_cert_mode == NGINX_CERT_MODE_PER_ROUTE:

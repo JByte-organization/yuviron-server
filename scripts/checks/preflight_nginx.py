@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 
+from core.compose import validate_compose_config
 from core.docker import run, run_compose
 from core.env import parse_routes_file
 from core.models import is_valid_target
@@ -110,10 +111,7 @@ def _print_service_logs_on_failure(ctx: object, service: str) -> None:
 
 
 def check_compose_config(ctx: object) -> None:
-    log_info("Validating compose config")
-    compose = ctx.ensure_compose_context()
-    run_compose(compose, "config", capture_output=True)
-    log_ok("Compose config is valid")
+    validate_compose_config(ctx.ensure_compose_context())
 
 
 def _running_project_containers(ctx: object) -> dict[str, str]:

@@ -19,7 +19,7 @@ if __package__ in {None, ""}:
 
 from checks import preflight_core, preflight_generated, preflight_nginx
 from checks.smoke_logic import smoke_expected_codes, smoke_route_path, smoke_status_allowed
-from core.compose import create_compose_context
+from core.compose import create_compose_context, validate_compose_config
 from core.docker import ComposeContext, container_id_for_service, run, run_compose
 from core.env import parse_env_file, parse_routes_file, resolve_runtime_env
 from core.paths import resolve_root_dir
@@ -950,9 +950,7 @@ def cmd_smoke(args: argparse.Namespace) -> int:
     log_info(f"Starting smoke test for environment: {environment}")
     _warn_nonstandard_public_ports(env_values, routes_file)
 
-    log_info("Validating compose config")
-    run_compose(context, "config", capture_output=True)
-    log_ok("Compose config is valid")
+    validate_compose_config(context)
 
     services = _load_compose_services(context)
     _check_stack_running(services)

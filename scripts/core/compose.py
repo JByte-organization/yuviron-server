@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .docker import ComposeContext
+from .docker import ComposeContext, run_compose
 from .env import (
     ensure_generated_basic_auth_file,
     ensure_generated_env,
@@ -10,7 +10,15 @@ from .env import (
     resolve_frontends_compose,
     resolve_runtime_env,
 )
+from .ui import log_info, log_ok
 from .validators import ensure_command, fail
+
+
+def validate_compose_config(context: ComposeContext) -> None:
+    """Run 'docker compose config' to validate the compose file and env substitution."""
+    log_info("Validating compose config")
+    run_compose(context, "config", capture_output=True)
+    log_ok("Compose config is valid")
 
 
 def create_compose_context(root_dir: Path, env_name: str, *, ensure_generated: bool = False) -> ComposeContext:
