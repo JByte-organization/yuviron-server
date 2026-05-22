@@ -115,7 +115,7 @@ class TriggerRedisBgsaveTests(unittest.TestCase):
         side_effects = [
             _result(0, "1000\n"),              # initial LASTSAVE
             _result(0, "Background saving started\n"),  # BGSAVE
-            _result(0, "1001\n"),              # poll LASTSAVE → advanced
+            _result(0, "1001\n"),              # poll LASTSAVE -> advanced
         ]
         with patch(f"{_MODULE}.run_compose", side_effect=side_effects):
             with patch(f"{_MODULE}.time.sleep"):

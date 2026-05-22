@@ -1,16 +1,20 @@
-name: Deploy frontend dev
+name: Deploy frontend
 
 on:
   push:
-    branches: [dev]
+    branches: [dev, main]
 
 concurrency:
-  group: yuviron-dev-deploy
+  group: yuviron-${{ github.ref_name == 'main' && 'prod' || 'dev' }}-deploy
   cancel-in-progress: false
 
 jobs:
   detect-affected:
     runs-on: [self-hosted, yuviron]
+
+    env:
+      DEPLOY_ENV: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+      SOURCE_BRANCH: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
 
     outputs:
       apps: ${{ steps.affected.outputs.apps }}
@@ -33,8 +37,14 @@ jobs:
         run: |
           set -Eeuo pipefail
           cd /opt/yuviron-server/src/yuviron-frontend
-          git fetch --prune origin dev
-          git reset --hard origin/dev
+          git fetch --prune origin "${SOURCE_BRANCH}"
+          incoming_sha="$(git rev-parse FETCH_HEAD)"
+          if [ "$incoming_sha" != "${{ github.sha }}" ]; then
+            echo "ERROR: fetched SHA ${incoming_sha} does not match trigger SHA ${{ github.sha }}" >&2
+            exit 1
+          fi
+          echo "Verified: incoming SHA ${incoming_sha}"
+          git reset --hard "$incoming_sha"
           git clean -fdx
 
       - name: Install frontend dependencies for detection
@@ -144,6 +154,11 @@ jobs:
 
           echo "Rolling back frontend source to ${PREVIOUS_SHA}"
           git fetch --depth=1 origin "${PREVIOUS_SHA}" || true
+          if ! git cat-file -e "${PREVIOUS_SHA}^{commit}" 2>/dev/null; then
+            echo "ERROR: rollback SHA ${PREVIOUS_SHA} is not available after fetch attempt" >&2
+            exit 1
+          fi
+          echo "Verified: rollback SHA ${PREVIOUS_SHA} is accessible"
           git reset --hard "${PREVIOUS_SHA}"
           git clean -fdx
 
@@ -151,7 +166,7 @@ jobs:
     needs: detect-affected
     if: needs.detect-affected.outputs.has_apps == 'true'
     runs-on: [self-hosted, yuviron]
-    environment: dev
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
 
     strategy:
       fail-fast: false
@@ -160,6 +175,8 @@ jobs:
         app: ${{ fromJson(needs.detect-affected.outputs.apps) }}
 
     env:
+      DEPLOY_ENV: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+      SOURCE_BRANCH: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
       DETECT_REASON: ${{ needs.detect-affected.outputs.reason }}
 
     steps:
@@ -167,8 +184,14 @@ jobs:
         run: |
           set -Eeuo pipefail
           cd /opt/yuviron-server/src/yuviron-frontend
-          git fetch --prune origin dev
-          git reset --hard origin/dev
+          git fetch --prune origin "${SOURCE_BRANCH}"
+          incoming_sha="$(git rev-parse FETCH_HEAD)"
+          if [ "$incoming_sha" != "${{ github.sha }}" ]; then
+            echo "ERROR: fetched SHA ${incoming_sha} does not match trigger SHA ${{ github.sha }}" >&2
+            exit 1
+          fi
+          echo "Verified: incoming SHA ${incoming_sha}"
+          git reset --hard "$incoming_sha"
           git clean -fdx
 
       - name: Print deploy mode
@@ -188,7 +211,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           cd /opt/yuviron-server
-          python3 ./scripts/cli.py stack preflight dev
+          python3 ./scripts/cli.py stack preflight "${DEPLOY_ENV}"
 
       - name: Install frontend dependencies
         run: |
@@ -203,11 +226,11 @@ jobs:
 
           mkdir -p packages/api/openapi
 
-          docker exec yuviron-dev-backend \
+          docker exec "yuviron-${DEPLOY_ENV}-backend" \
             wget -qO- http://127.0.0.1:5073/swagger/admin/swagger.json \
             > packages/api/openapi/admin.swagger.json
 
-          docker exec yuviron-dev-backend \
+          docker exec "yuviron-${DEPLOY_ENV}-backend" \
             wget -qO- http://127.0.0.1:5073/swagger/client/swagger.json \
             > packages/api/openapi/client.swagger.json
 
@@ -234,25 +257,25 @@ jobs:
           echo "Building frontend service: ${{ matrix.app }}"
 
           docker compose \
-            --env-file ./generated/dev/deploy.env \
-            -p yuviron-dev \
+            --env-file "./generated/${DEPLOY_ENV}/deploy.env" \
+            -p "yuviron-${DEPLOY_ENV}" \
             -f ./infra/compose.yml \
-            -f ./generated/dev/compose.frontends.yml \
+            -f "./generated/${DEPLOY_ENV}/compose.frontends.yml" \
             build "${{ matrix.app }}"
 
-      - name: Start full dev stack
+      - name: Start full stack
         run: |
           set -Eeuo pipefail
           cd /opt/yuviron-server
-          timeout 1200 python3 ./scripts/cli.py stack up dev
+          timeout 1200 python3 ./scripts/cli.py stack up "${DEPLOY_ENV}"
 
-      - name: Smoke test dev stack
+      - name: Smoke test
         run: |
           set -Eeuo pipefail
           cd /opt/yuviron-server
-          python3 ./scripts/cli.py stack smoke dev
+          python3 ./scripts/cli.py stack smoke "${DEPLOY_ENV}"
 
-      - name: Rollback frontend dev stack
+      - name: Rollback frontend stack
         if: failure() && needs.detect-affected.outputs.previous_sha != ''
         env:
           PREVIOUS_SHA: ${{ needs.detect-affected.outputs.previous_sha }}
@@ -262,12 +285,17 @@ jobs:
 
           echo "Rolling back frontend source to ${PREVIOUS_SHA}"
           git fetch --depth=1 origin "${PREVIOUS_SHA}" || true
+          if ! git cat-file -e "${PREVIOUS_SHA}^{commit}" 2>/dev/null; then
+            echo "ERROR: rollback SHA ${PREVIOUS_SHA} is not available after fetch attempt" >&2
+            exit 1
+          fi
+          echo "Verified: rollback SHA ${PREVIOUS_SHA} is accessible"
           git reset --hard "${PREVIOUS_SHA}"
           git clean -fdx
 
           cd /opt/yuviron-server
-          timeout 1200 python3 ./scripts/cli.py stack up dev --no-rollback --skip-migrate --no-build
-          python3 ./scripts/cli.py stack smoke dev
+          timeout 1200 python3 ./scripts/cli.py stack up "${DEPLOY_ENV}" --no-rollback --skip-migrate --no-build
+          python3 ./scripts/cli.py stack smoke "${DEPLOY_ENV}"
 
       - name: Trim Docker build cache
         if: success()
@@ -290,29 +318,29 @@ jobs:
           cd /opt/yuviron-server
 
           docker compose \
-            --env-file ./generated/dev/deploy.env \
-            -p yuviron-dev \
+            --env-file "./generated/${DEPLOY_ENV}/deploy.env" \
+            -p "yuviron-${DEPLOY_ENV}" \
             -f ./infra/compose.yml \
-            -f ./generated/dev/compose.frontends.yml \
+            -f "./generated/${DEPLOY_ENV}/compose.frontends.yml" \
             ps
 
       - name: Show affected frontend logs
         if: always()
         run: |
           set -Eeuo pipefail
-          docker logs --tail=160 "yuviron-dev-${{ matrix.app }}" || true
+          docker logs --tail=160 "yuviron-${DEPLOY_ENV}-${{ matrix.app }}" || true
 
       - name: Show nginx logs
         if: always()
         run: |
           set -Eeuo pipefail
-          docker logs --tail=160 yuviron-dev-nginx || true
+          docker logs --tail=160 "yuviron-${DEPLOY_ENV}-nginx" || true
 
   no-changes:
     needs: detect-affected
     if: needs.detect-affected.outputs.has_apps != 'true'
     runs-on: [self-hosted, yuviron]
-    environment: dev
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
 
     steps:
       - name: No affected frontend apps

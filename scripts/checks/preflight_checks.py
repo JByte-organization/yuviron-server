@@ -648,7 +648,7 @@ def _tag_missing_upstream_images(compose_project_name: str, services: list[str])
     """In isolated preflight mode, re-tag main-project images for services that
     don't yet have an isolated-project image. This avoids build attempts (which
     require network access) when images are already available under the main
-    project name (e.g. yuviron-dev-admin:latest → yuviron-dev-preflight-XXXXX-admin:latest).
+    project name (e.g. yuviron-dev-admin:latest -> yuviron-dev-preflight-XXXXX-admin:latest).
     Services that use pre-built registry images (seq, aspire-dashboard) are
     skipped — compose resolves those directly from the image: field.
     """
@@ -664,7 +664,7 @@ def _tag_missing_upstream_images(compose_project_name: str, services: list[str])
 
         candidate = f"{env_prefix}-{service}:latest"
         if run(["docker", "image", "inspect", candidate], check=False, capture_output=True).returncode == 0:
-            log_info(f"Tagging {candidate} → {target} for nginx upstream validation")
+            log_info(f"Tagging {candidate} -> {target} for nginx upstream validation")
             run(["docker", "tag", candidate, target])
 
 

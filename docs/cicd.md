@@ -35,10 +35,8 @@ Runner расположен на сервере:
 Актуальные shared workflow:
 
 ```text
-shared/backend/deploy-dev.yml
-shared/backend/deploy-prod.yml
-shared/frontend/.github/workflows/deploy-dev.yml
-shared/frontend/.github/workflows/deploy-prod.yml
+shared/backend/deploy.yml
+shared/frontend/.github/workflows/deploy.yml
 ```
 
 Текущий deploy flow:
@@ -62,7 +60,7 @@ Rollback работает на двух уровнях, которые допо�
 Перед `docker compose up --build` CLI тегирует текущие образы всех built-сервисов как `:rollback`. Если сборка или запуск падают, CLI:
 
 1. останавливает compose-проект
-2. возвращает тег `:rollback → :latest` для каждого сервиса
+2. возвращает тег `:rollback -> :latest` для каждого сервиса
 3. поднимает контейнеры без `--build` (на старых образах)
 4. выбрасывает ошибку — stack-шаг в CI завершается с exit code 1
 
@@ -255,10 +253,8 @@ runs-on: [self-hosted, yuviron]
 Готовые shared workflow находятся в:
 
 ```text
-shared/backend/deploy-dev.yml
-shared/backend/deploy-prod.yml
-shared/frontend/.github/workflows/deploy-dev.yml
-shared/frontend/.github/workflows/deploy-prod.yml
+shared/backend/deploy.yml
+shared/frontend/.github/workflows/deploy.yml
 ```
 
 Пример шага workflow:
