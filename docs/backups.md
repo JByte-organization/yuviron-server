@@ -44,6 +44,8 @@ COMPOSE_PROJECT_PROD=yuviron_prod
 
 MYSQL_SERVICE_NAME=mysql
 BACKEND_SERVICE_NAME=backend
+REDIS_SERVICE_NAME=redis
+REDIS_BGSAVE_TIMEOUT=30
 ```
 
 ### Команды
@@ -63,6 +65,10 @@ BACKEND_SERVICE_NAME=backend
 ```bash
 ./scripts/cli.py backup create
 ```
+
+Перед дампом MySQL запускается `mysqlcheck --all-databases --check --silent`: если обнаружены проблемные таблицы, они фиксируются в `metadata.json` как предупреждения, но дамп продолжается.
+
+Перед снятием Redis volume snapshot команда отправляет `BGSAVE` и ожидает завершения фонового сохранения (по умолчанию до 30 секунд, управляется `REDIS_BGSAVE_TIMEOUT`). Ожидание построено на `LASTSAVE`: код снимает timestamp до `BGSAVE`, затем опрашивает Redis каждую секунду — как только `LASTSAVE` увеличился, `dump.rdb` готов и снимается snapshot volume. Если Redis недоступен или таймаут истёк, предупреждение фиксируется в metadata, но snapshot тома снимается всё равно.
 
 После создания финального `backup_*.tar.gz` команда автоматически извлекает этот архив в `BACKUP_RESTORE_TEST_TMP`, поднимает временный `mysql:8.4`, импортирует каждый включённый `mysql.sql.gz` в отдельную временную базу и проверяет минимум восстановленных таблиц. Redis volume archive при создании и `backup verify` дополнительно проверяется на наличие непустого AOF/RDB-файла. Off-site copy и ротация выполняются только после успешного restore-test.
 

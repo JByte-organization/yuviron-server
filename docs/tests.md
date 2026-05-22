@@ -58,7 +58,7 @@ CLI при таком запуске предупреждает, что испо
 |---|---|
 | `test_generate_config.py` | `generate-config.py` end-to-end: генерация `deploy.env` из fixture env-файлов |
 | `test_render_nginx.py` | Jinja2-рендеринг `nginx.conf` из шаблонов - маршруты, TLS, rate limits, CSP, media CDN |
-| `test_render_compose.py` | Рендеринг `compose.frontends.yml` из `config/apps.yml` |
+| `test_compose_generator.py` | Рендеринг `compose.frontends.yml` из `config/apps.yml` |
 | `test_security_audit.py` | `security audit`: hardening, published ports, env safety, default secrets, git-tracked файлы |
 | `test_stack_smoke.py` | Логика `stack smoke`: healthcheck сервисов, HTTPS curl по routes, smoke paths по типу маршрута |
 | `test_smoke_logic.py` | Unit-тесты smoke: resolve smoke path, порядок маршрутов, edge cases |
@@ -68,6 +68,7 @@ CLI при таком запуске предупреждает, что испо
 | `test_preflight_nginx.py` | Preflight nginx config validation через `nginx -t` |
 | `test_core_preflight.py` | Ядро preflight: compose config, network, права, upstream services |
 | `test_backup_restore_test.py` | `backup restore-test`: временный MySQL, import dump, проверка таблиц, cleanup |
+| `test_backup_docker_utils.py` | Redis BGSAVE: `_redis_exec_cmd`, `_redis_lastsave`, `_trigger_redis_bgsave` — happy path, timeout, ошибки Redis |
 | `test_certs_generate.py` | `certs generate`: mkcert и letsencrypt flows, SAN-список из routes.env, per-route файлы |
 | `test_certs_reload.py` | `certs reload`: `nginx -t` + `nginx -s reload` внутри контейнера |
 | `test_dns_generate.py` | `dns generate`: генерация Corefile, template zone, ACL, AAAA NXDOMAIN |
