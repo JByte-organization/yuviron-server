@@ -16,18 +16,21 @@ Designed to be called from cron every 5 minutes:
 from __future__ import annotations
 
 import argparse
-import email.message
 import json
 import smtplib
 import ssl
 import subprocess
 import sys
 import time
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from pathlib import Path
 
 DEPLOY_MARKER_MAX_AGE = 900   # 15 min — marker written by `stack up`
 ALERT_COOLDOWN = 1800         # 30 min — don't re-alert for the same container
 
+
+# ─── Docker state ─────────────────────────────────────────────────────────────
 
 def _docker_ps() -> list[dict]:
     result = subprocess.run(
@@ -47,6 +50,8 @@ def _docker_ps() -> list[dict]:
 def _unhealthy(containers: list[dict]) -> list[str]:
     return [c["Names"] for c in containers if "(unhealthy)" in c.get("Status", "")]
 
+
+# ─── Cooldown / deploy marker ─────────────────────────────────────────────────
 
 def _is_deploy_in_progress(root_dir: Path, env: str) -> bool:
     marker = root_dir / ".tmp" / "monitoring" / f"deploy-started-{env}"
@@ -77,6 +82,108 @@ def _clear_cooldown(root_dir: Path, container: str) -> None:
     _cooldown_path(root_dir, container).unlink(missing_ok=True)
 
 
+# ─── Email formatting ─────────────────────────────────────────────────────────
+
+def build_alert_email(
+    container: str,
+    is_deploy: bool,
+    env: str,
+    root_dir: Path,
+    now_str: str,
+    is_test: bool = False,
+) -> tuple[str, str, str]:
+    """Build alert email content. Pure function — no I/O. Returns (subject, text_body, html_body)."""
+
+    if is_test:
+        icon = "🔵"
+        header_bg = "#0969da"
+        subtext_color = "#cae8ff"
+        cause_short = "Test alert"
+        cause_long = "This is a test — SMTP configuration verified successfully."
+    elif is_deploy:
+        icon = "🟡"
+        header_bg = "#9a6700"
+        subtext_color = "#fae17d"
+        cause_short = "Deploy error"
+        cause_long = "stack up ran less than 15 minutes ago — service went unhealthy during deployment"
+    else:
+        icon = "🔴"
+        header_bg = "#cf222e"
+        subtext_color = "#ffd7d5"
+        cause_short = "Runtime crash"
+        cause_long = "service went unhealthy on its own — no recent deployment detected"
+
+    test_prefix = "[TEST] " if is_test else ""
+    subject = f"{icon} {test_prefix}[{env.upper()}] Unhealthy container: {container}"
+
+    commands: list[str] = [
+        f"docker logs {container}",
+        "./scripts/cli.py tools docker-status",
+    ]
+    if is_deploy and not is_test:
+        commands.append(f"./scripts/cli.py stack up {env}  # retry deploy")
+
+    text_body = "\n".join([
+        f"Container:   {container}",
+        f"Cause:       {cause_short} — {cause_long}",
+        f"Environment: {env}",
+        f"Time:        {now_str}",
+        f"Project:     {root_dir}",
+        "",
+        "Next steps:",
+        *[f"  {cmd}" for cmd in commands],
+        "",
+    ])
+
+    def _e(s: str) -> str:
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    commands_html = "<br>".join(_e(cmd) for cmd in commands)
+
+    html_body = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:24px 16px;">
+
+    <div style="background:{header_bg};border-radius:8px 8px 0 0;padding:20px 24px;">
+      <div style="color:#ffffff;font-size:20px;font-weight:700;letter-spacing:-0.3px;">{icon}&nbsp; {_e(container)}</div>
+      <div style="color:{subtext_color};font-size:13px;margin-top:6px;">{cause_short} &mdash; {_e(env)}</div>
+    </div>
+
+    <div style="border:1px solid #d0d7de;border-top:none;border-radius:0 0 8px 8px;overflow:hidden;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <tr>
+          <td style="padding:10px 16px;background:#f6f8fa;border-bottom:1px solid #d0d7de;font-size:11px;font-weight:700;color:#57606a;text-transform:uppercase;width:120px;white-space:nowrap;">Container</td>
+          <td style="padding:10px 16px;background:#f6f8fa;border-bottom:1px solid #d0d7de;font-family:'Courier New',Courier,monospace;color:#24292f;">{_e(container)}</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 16px;background:#ffffff;border-bottom:1px solid #d0d7de;font-size:11px;font-weight:700;color:#57606a;text-transform:uppercase;">Cause</td>
+          <td style="padding:10px 16px;background:#ffffff;border-bottom:1px solid #d0d7de;color:#24292f;">{cause_short} &mdash; {_e(cause_long)}</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 16px;background:#f6f8fa;border-bottom:1px solid #d0d7de;font-size:11px;font-weight:700;color:#57606a;text-transform:uppercase;">Environment</td>
+          <td style="padding:10px 16px;background:#f6f8fa;border-bottom:1px solid #d0d7de;color:#24292f;">{_e(env)}</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 16px;background:#ffffff;font-size:11px;font-weight:700;color:#57606a;text-transform:uppercase;">Time</td>
+          <td style="padding:10px 16px;background:#ffffff;color:#24292f;">{_e(now_str)}</td>
+        </tr>
+      </table>
+
+      <div style="padding:16px;background:#f6f8fa;border-top:1px solid #d0d7de;">
+        <div style="font-size:11px;font-weight:700;color:#57606a;text-transform:uppercase;margin-bottom:10px;">Next steps</div>
+        <div style="background:#ffffff;border:1px solid #d0d7de;border-radius:6px;padding:14px 16px;font-family:'Courier New',Courier,monospace;font-size:13px;color:#0550ae;line-height:2.0;">{commands_html}</div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>"""
+
+    return subject, text_body, html_body
+
+
 def _send_email(
     smtp_host: str,
     smtp_port: int,
@@ -84,13 +191,15 @@ def _send_email(
     smtp_password: str,
     to_addr: str,
     subject: str,
-    body: str,
+    text_body: str,
+    html_body: str,
 ) -> None:
-    msg = email.message.EmailMessage()
+    msg = MIMEMultipart("alternative")
     msg["From"] = smtp_user
     msg["To"] = to_addr
     msg["Subject"] = subject
-    msg.set_content(body)
+    msg.attach(MIMEText(text_body, "plain", "utf-8"))
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
 
     ctx = ssl.create_default_context()
     with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as s:
@@ -100,15 +209,46 @@ def _send_email(
         s.send_message(msg)
 
 
+# ─── Entry points ─────────────────────────────────────────────────────────────
+
+def _run_test(args: argparse.Namespace, root_dir: Path, now_str: str) -> int:
+    smtp_configured = all([args.smtp_host, args.smtp_user, args.smtp_password])
+    if not smtp_configured:
+        print("SMTP not configured — set SMTP_HOST, SMTP_USER, SMTP_PASSWORD", file=sys.stderr)
+        return 1
+
+    subject, text_body, html_body = build_alert_email(
+        container=f"test-{args.env}-container",
+        is_deploy=False,
+        env=args.env,
+        root_dir=root_dir,
+        now_str=now_str,
+        is_test=True,
+    )
+
+    try:
+        _send_email(
+            args.smtp_host, int(args.smtp_port), args.smtp_user, args.smtp_password,
+            args.alerts_email, subject, text_body, html_body,
+        )
+        print(f"[{now_str}] Test email sent to {args.alerts_email} — SMTP config OK")
+        return 0
+    except Exception as exc:
+        print(f"[{now_str}] Failed: {exc}", file=sys.stderr)
+        return 1
+
+
 def run(args: argparse.Namespace) -> int:
     root_dir = Path(args.root).resolve()
     now_str = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+
+    if getattr(args, "test", False):
+        return _run_test(args, root_dir, now_str)
 
     containers = _docker_ps()
     all_names = {c["Names"] for c in containers}
     unhealthy = _unhealthy(containers)
 
-    # Clear cooldown for containers that recovered
     cooldown_dir = root_dir / ".tmp" / "monitoring"
     if cooldown_dir.exists():
         for f in cooldown_dir.glob("alert-sent-*"):
@@ -121,8 +261,7 @@ def run(args: argparse.Namespace) -> int:
     if not unhealthy:
         return 0
 
-    deploy_ctx = _is_deploy_in_progress(root_dir, args.env)
-
+    is_deploy = _is_deploy_in_progress(root_dir, args.env)
     to_alert = [c for c in unhealthy if not _is_in_cooldown(root_dir, c)]
     if not to_alert:
         return 0
@@ -130,32 +269,22 @@ def run(args: argparse.Namespace) -> int:
     smtp_configured = all([args.smtp_host, args.smtp_user, args.smtp_password])
 
     for container in to_alert:
-        cause = "deploy error — stack up ran less than 15 minutes ago" if deploy_ctx else "runtime crash"
-        subject = f"[{args.env.upper()}] Unhealthy container: {container}"
-        body = (
-            f"Container:  {container}\n"
-            f"Cause:      {cause}\n"
-            f"Time:       {now_str}\n"
-            f"Project:    {root_dir}\n\n"
-            f"Next steps:\n"
-            f"  docker logs {container}\n"
-            f"  ./scripts/cli.py tools docker-status\n"
-        )
-        if deploy_ctx:
-            body += f"\n  ./scripts/cli.py stack up {args.env}  # retry deploy\n"
+        cause_label = "deploy error" if is_deploy else "runtime crash"
+        print(f"[{now_str}] ALERT: {container} — {cause_label}")
 
-        print(f"[{now_str}] ALERT: {container} — {cause}")
+        subject, text_body, html_body = build_alert_email(
+            container=container,
+            is_deploy=is_deploy,
+            env=args.env,
+            root_dir=root_dir,
+            now_str=now_str,
+        )
 
         if smtp_configured:
             try:
                 _send_email(
-                    args.smtp_host,
-                    int(args.smtp_port),
-                    args.smtp_user,
-                    args.smtp_password,
-                    args.alerts_email,
-                    subject,
-                    body,
+                    args.smtp_host, int(args.smtp_port), args.smtp_user, args.smtp_password,
+                    args.alerts_email, subject, text_body, html_body,
                 )
                 print(f"[{now_str}] Email sent to {args.alerts_email}")
             except Exception as exc:
@@ -177,6 +306,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--smtp-port", default="587")
     p.add_argument("--smtp-user", default="")
     p.add_argument("--smtp-password", default="")
+    p.add_argument("--test", action="store_true",
+                   help="Send a test email without checking Docker state")
     return p
 
 

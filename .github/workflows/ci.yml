@@ -53,6 +53,7 @@ jobs:
             tests.test_tools_docker_clean \
             tests.test_backend_workflows \
             tests.test_python_requirements \
+            tests.test_healthcheck_alert \
             -v
 
   e2e-dry-run:

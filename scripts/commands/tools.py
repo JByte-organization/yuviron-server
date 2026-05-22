@@ -480,6 +480,44 @@ def cmd_setup_healthcheck_cron(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_send_test_alert(args: argparse.Namespace) -> int:
+    from core.env import parse_env_file, resolve_runtime_env
+    from core.paths import resolve_root_dir
+
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+    environment = resolve_prompted_environment(getattr(args, "environment", None))
+
+    runtime_tmp_dir = root_dir / ".tmp" / "runtime"
+    runtime_tmp_dir.mkdir(parents=True, exist_ok=True)
+    runtime_env = resolve_runtime_env(root_dir, environment, runtime_tmp_dir)
+    runtime_values = parse_env_file(runtime_env)
+
+    alerts_email = runtime_values.get("ALERTS_EMAIL", "")
+    if not alerts_email:
+        fail("ALERTS_EMAIL is not set in the environment file.")
+
+    script = root_dir / "scripts" / "tools" / "monitoring" / "healthcheck_alert.py"
+    if not script.is_file():
+        fail(f"Script not found: {script}")
+
+    result = run(
+        [
+            sys.executable, str(script),
+            "--env", environment,
+            "--root", str(root_dir),
+            "--alerts-email", alerts_email,
+            "--smtp-host", runtime_values.get("SMTP_HOST", ""),
+            "--smtp-port", runtime_values.get("SMTP_PORT", "587"),
+            "--smtp-user", runtime_values.get("SMTP_USER", ""),
+            "--smtp-password", runtime_values.get("SMTP_PASSWORD", ""),
+            "--test",
+        ],
+        cwd=root_dir,
+        check=False,
+    )
+    return result.returncode
+
+
 def cmd_docker_status(args: argparse.Namespace) -> int:
     root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
     script = root_dir / "scripts" / "tools" / "docker" / "status.py"
@@ -846,6 +884,14 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     setup_healthcheck_cron_parser.add_argument("environment", nargs="?")
     setup_healthcheck_cron_parser.add_argument("--project-root", dest="project_root")
     setup_healthcheck_cron_parser.set_defaults(handler=cmd_setup_healthcheck_cron)
+
+    send_test_alert_parser = tools_sub.add_parser(
+        "send-test-alert",
+        help="Send a test email to verify SMTP configuration",
+    )
+    send_test_alert_parser.add_argument("environment", nargs="?")
+    send_test_alert_parser.add_argument("--project-root", dest="project_root")
+    send_test_alert_parser.set_defaults(handler=cmd_send_test_alert)
 
     docker_status_parser = tools_sub.add_parser(
         "docker-status",
