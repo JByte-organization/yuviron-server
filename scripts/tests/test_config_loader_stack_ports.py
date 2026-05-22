@@ -80,6 +80,27 @@ class ConfigLoaderStackPortsTests(unittest.TestCase):
 
         self.assertEqual("auto", values["NGINX_WORKER_PROCESSES"])
 
+    def test_nginx_worker_connections_default_is_1024(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_minimal_config(root)
+
+            dev_values = render_stack_values(root, "dev", "example.com")
+            prod_values = render_stack_values(root, "prod", "example.com")
+
+        self.assertEqual("1024", dev_values["NGINX_WORKER_CONNECTIONS"])
+        self.assertEqual("1024", prod_values["NGINX_WORKER_CONNECTIONS"])
+
+    def test_env_file_overrides_default_nginx_worker_connections(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_minimal_config(root)
+            (root / "env" / "dev.env").write_text("NGINX_WORKER_CONNECTIONS=4096\n", encoding="utf-8")
+
+            values = render_stack_values(root, "dev", "example.com")
+
+        self.assertEqual("4096", values["NGINX_WORKER_CONNECTIONS"])
+
     def test_env_file_overrides_default_edge_ports(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

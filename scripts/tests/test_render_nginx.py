@@ -141,6 +141,32 @@ class RenderNginxTests(unittest.TestCase):
 
         self.assertIn("Invalid nginx NGINX_WORKER_PROCESSES", str(raised.exception))
 
+    def test_render_uses_nginx_worker_connections_env_value(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [("api", "api.example.com", "backend:5073", "50m")],
+            SCRIPTS_ROOT / "templates",
+            {"NGINX_WORKER_CONNECTIONS": "4096"},
+        )
+
+        self.assertIn("worker_connections 4096;", rendered)
+        self.assertNotIn("worker_connections 1024;", rendered)
+
+    def test_render_rejects_invalid_nginx_worker_connections(self) -> None:
+        with self.assertRaises(CommandError) as raised:
+            render_nginx_conf_modular(
+                [("api", "api.example.com", "backend:5073", "50m")],
+                SCRIPTS_ROOT / "templates",
+                {"NGINX_WORKER_CONNECTIONS": "1024; include /tmp/x"},
+            )
+
+        self.assertIn("Invalid nginx NGINX_WORKER_CONNECTIONS", str(raised.exception))
+
+    def test_worker_connections_lives_in_render_context_not_template(self) -> None:
+        template = (SCRIPTS_ROOT / "templates" / "01-global.conf.j2").read_text(encoding="utf-8")
+
+        self.assertIn("worker_connections {{ nginx_worker_connections }};", template)
+        self.assertNotIn("worker_connections 1024;", template)
+
     def test_render_enables_basic_auth_for_management_routes(self) -> None:
         rendered = render_nginx_conf_modular(
             [("seq", "seq.example.com", "seq:80", "5m")],
