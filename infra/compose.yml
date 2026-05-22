@@ -244,7 +244,6 @@ services:
       target: backend
       args:
         <<: *dotnet-build-args
-        APP_PROJECT: src/Yuviron.Api/Yuviron.Api.csproj
     container_name: ${COMPOSE_PROJECT_NAME}-backend
     environment:
       <<: *dotnet-env
@@ -273,7 +272,6 @@ services:
       target: media-worker
       args:
         <<: *dotnet-build-args
-        APP_PROJECT: src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj
     container_name: ${COMPOSE_PROJECT_NAME}-media-worker
     environment:
       <<: *dotnet-env

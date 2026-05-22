@@ -12,19 +12,25 @@ COPY src/yuviron-backend/src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj ./sr
 
 FROM source AS restore
 
-ARG APP_PROJECT=src/Yuviron.Api/Yuviron.Api.csproj
-
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
-    dotnet restore ./${APP_PROJECT}
+    dotnet restore src/Yuviron.Api/Yuviron.Api.csproj \
+    && dotnet restore src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj
 
 COPY src/yuviron-backend/ ./
 
-FROM restore AS publish
-
-ARG APP_PROJECT=src/Yuviron.Api/Yuviron.Api.csproj
+FROM restore AS publish-api
 
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
-    dotnet publish ./${APP_PROJECT} \
+    dotnet publish src/Yuviron.Api/Yuviron.Api.csproj \
+    -c Release \
+    -o /app/publish \
+    --no-restore \
+    /p:UseAppHost=false
+
+FROM restore AS publish-worker
+
+RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
+    dotnet publish src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj \
     -c Release \
     -o /app/publish \
     --no-restore \
@@ -85,7 +91,7 @@ FROM runtime-base AS backend
 ARG DOTNET_APP_UID=10001
 ARG DOTNET_APP_GID=10001
 
-COPY --chown=${DOTNET_APP_UID}:${DOTNET_APP_GID} --from=publish /app/publish ./
+COPY --chown=${DOTNET_APP_UID}:${DOTNET_APP_GID} --from=publish-api /app/publish ./
 
 USER ${DOTNET_APP_UID}:${DOTNET_APP_GID}
 ENTRYPOINT ["dotnet", "Yuviron.Api.dll"]
@@ -95,7 +101,7 @@ FROM runtime-base AS media-worker
 ARG DOTNET_APP_UID=10001
 ARG DOTNET_APP_GID=10001
 
-COPY --chown=${DOTNET_APP_UID}:${DOTNET_APP_GID} --from=publish /app/publish ./
+COPY --chown=${DOTNET_APP_UID}:${DOTNET_APP_GID} --from=publish-worker /app/publish ./
 
 USER ${DOTNET_APP_UID}:${DOTNET_APP_GID}
 ENTRYPOINT ["dotnet", "Yuviron.MediaWorker.dll"]

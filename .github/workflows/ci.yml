@@ -116,7 +116,6 @@ jobs:
         run: |
           docker build \
             --target backend \
-            --build-arg APP_PROJECT=src/Yuviron.Api/Yuviron.Api.csproj \
             --build-arg RUNTIME_PACKAGES="wget ffmpeg" \
             -t yuviron-backend:ci \
             -f infra/docker/dotnet/Dockerfile \
@@ -137,7 +136,6 @@ jobs:
         run: |
           docker build \
             --target media-worker \
-            --build-arg APP_PROJECT=src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj \
             --build-arg RUNTIME_PACKAGES="wget ffmpeg" \
             -t yuviron-media-worker:ci \
             -f infra/docker/dotnet/Dockerfile \
