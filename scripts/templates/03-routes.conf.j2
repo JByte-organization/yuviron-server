@@ -142,6 +142,8 @@
         {% endif %}
 
         location = /health {
+            limit_req zone=health_probe burst=10 nodelay;
+            limit_req_status 429;
             access_log off;
             default_type text/plain;
             return 200 "edge-nginx-ok\n";

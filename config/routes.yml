@@ -26,11 +26,13 @@ routes:
   seq:
     target: seq:80
     host_strategy: subdomain
+    rate_limit_zone: api_general
     environments: [dev]
 
   aspire:
     target: aspire-dashboard:18888
     host_strategy: subdomain
+    rate_limit_zone: api_general
     environments: [dev]
 
   i:
