@@ -42,5 +42,8 @@ ENV HOME=/tmp
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
+    CMD node -e "require('http').get('http://127.0.0.1:3000/',r=>process.exit(r.statusCode<400?0:1)).on('error',()=>process.exit(1))"
+
 USER 10001:10001
 CMD ["sh", "-c", "node apps/${APP_NAME}/server.js"]

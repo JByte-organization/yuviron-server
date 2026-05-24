@@ -93,6 +93,10 @@ ARG DOTNET_APP_GID=10001
 
 COPY --chown=${DOTNET_APP_UID}:${DOTNET_APP_GID} --from=publish-api /app/publish ./
 
+ENV ASPNETCORE_HTTP_PORTS=5073
+HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=10 \
+    CMD wget -qO- http://127.0.0.1:5073/health/ready >/dev/null || exit 1
+
 USER ${DOTNET_APP_UID}:${DOTNET_APP_GID}
 ENTRYPOINT ["dotnet", "Yuviron.Api.dll"]
 
@@ -102,6 +106,10 @@ ARG DOTNET_APP_UID=10001
 ARG DOTNET_APP_GID=10001
 
 COPY --chown=${DOTNET_APP_UID}:${DOTNET_APP_GID} --from=publish-worker /app/publish ./
+
+ENV ASPNETCORE_HTTP_PORTS=5074
+HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=10 \
+    CMD wget -qO- http://127.0.0.1:5074/health/ready >/dev/null || exit 1
 
 USER ${DOTNET_APP_UID}:${DOTNET_APP_GID}
 ENTRYPOINT ["dotnet", "Yuviron.MediaWorker.dll"]
