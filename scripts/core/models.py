@@ -30,7 +30,7 @@ MANAGEMENT_ROUTE_NAMES = {
 # Routes whose upstream containers may be absent at nginx startup (Docker Compose
 # profile-gated). A variable-based proxy_pass is generated for these so hostname
 # resolution is deferred to request time instead of failing at startup.
-OPTIONAL_NGINX_ROUTE_NAMES: frozenset[str] = frozenset({"seq", "aspire"})
+OPTIONAL_NGINX_ROUTE_NAMES: frozenset[str] = frozenset({"seq", "aspire", "rabbitmq"})
 ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 NAME_PATTERN = re.compile(r"^[a-z0-9-]+$")
 TARGET_HOST_PATTERN = r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,251}[A-Za-z0-9])?"

@@ -35,6 +35,12 @@ routes:
     rate_limit_zone: api_general
     environments: [dev]
 
+  rabbitmq:
+    target: rabbitmq:15672
+    host_strategy: subdomain
+    rate_limit_zone: api_general
+    environments: [dev]
+
   i:
     target: backend:5073
     host_strategy: subdomain
