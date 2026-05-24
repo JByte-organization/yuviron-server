@@ -866,6 +866,8 @@ def cmd_up(args: argparse.Namespace) -> int:
         if no_build:
             run_compose(context, "up", "-d", "--remove-orphans")
         else:
+            log_info("Pulling pre-built service images")
+            run_compose(context, "pull", "--ignore-buildable", check=False)
             run_compose(context, "build", "--pull=false")
             run_compose(context, "up", "-d", "--remove-orphans")
     except CommandError:
