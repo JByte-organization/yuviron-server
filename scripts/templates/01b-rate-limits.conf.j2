@@ -1,0 +1,9 @@
+
+    # -- Rate limiting zones --------------------------------------------
+    # 10m = ~160 000 IP-адресов в памяти
+    limit_req_zone $binary_remote_addr zone=api_general:10m  rate={{ nginx_public_rate_limit }};
+    limit_req_zone $binary_remote_addr zone=api_auth:10m     rate={{ nginx_rate_api_auth }};
+    limit_req_zone $binary_remote_addr zone=api_upload:10m   rate={{ nginx_rate_api_upload }};
+    # 1m достаточно для /health — burst 10 покрывает smoke-тест по всем маршрутам за раз
+    limit_req_zone $binary_remote_addr zone=health_probe:1m  rate=30r/m;
+    # -------------------------------------------------------------------
