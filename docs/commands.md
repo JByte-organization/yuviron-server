@@ -96,7 +96,7 @@ ALLOW_PRODUCTION_MIGRATE=<db-name> ./scripts/cli.py stack up prod
 ./scripts/cli.py stack up prod --no-rollback
 ```
 
-Перед основным `up` CLI запускает EF Core migrator как one-off compose run через profile `migrate`, поэтому миграции выполняются при каждом обычном `stack up`.
+Перед основным `up` CLI сначала тянет pre-built образы (`docker compose pull --ignore-buildable`; сбой сети не прерывает деплой), затем запускает EF Core migrator как one-off compose run через profile `migrate`. Миграции выполняются при каждом обычном `stack up`.
 
 Флаги:
 

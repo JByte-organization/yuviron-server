@@ -80,6 +80,7 @@ https://dev-admin.yuviron.com      -> admin
 https://dev-api.yuviron.com        -> backend
 https://dev-seq.yuviron.com        -> Seq (Basic Auth)
 https://dev-aspire.yuviron.com     -> Aspire Dashboard (Basic Auth)
+https://dev-rabbitmq.yuviron.com   -> RabbitMQ Management (Basic Auth)
 https://dev-i.yuviron.com          -> media CDN
 ```
 

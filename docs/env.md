@@ -243,6 +243,7 @@ BACKEND_MEMSWAP_LIMIT=1536m
 
 ```text
 scripts/templates/01-global.conf.j2
+scripts/templates/01b-rate-limits.conf.j2
 scripts/templates/02-ssl-defaults.conf.j2
 scripts/templates/03-routes.conf.j2
 scripts/templates/proxy-params.conf
@@ -339,7 +340,7 @@ Route `i` задаётся в `config/routes.yml` с `host_strategy: subdomain` 
 
 **Aspire Dashboard:** образ `mcr.microsoft.com/dotnet/aspire-dashboard:9.0` — distroless (chiseled), без shell и unix-утилит. Docker healthcheck отключён (`disable: true`): никакой сервис не зависит от Aspire health, а запустить probe без бинарей внутри контейнера невозможно.
 
-**Frontend (Next.js):** TCP healthcheck порта `3000` внутри контейнера. Отдельный `/api/health` endpoint во frontend-репозитории не требуется.
+**Frontend (Next.js):** HTTP healthcheck через встроенный Node.js: `http.get('http://127.0.0.1:3000/')`, ответ `< 400` — healthy. TCP-check намеренно заменён на HTTP: открытый сокет не гарантирует, что Node.js обрабатывает запросы. Отдельный `/api/health` endpoint во frontend-репозитории не требуется.
 
 Полная HTTPS-проверка по всем route hosts остаётся в `stack smoke` через `curl --resolve ... 127.0.0.1`.
 
@@ -374,6 +375,7 @@ Route `i` задаётся в `config/routes.yml` с `host_strategy: subdomain` 
 * `https://dev-api.yuviron.com` -> `backend`
 * `https://dev-seq.yuviron.com` -> `seq`
 * `https://dev-aspire.yuviron.com` -> `aspire-dashboard`
+* `https://dev-rabbitmq.yuviron.com` -> `rabbitmq` (management UI, Basic Auth + allowlist)
 * `https://dev-i.yuviron.com` -> media CDN
 
 При обращении к Ubuntu VM напрямую без внешнего portproxy dev HTTPS доступен на порту `8443`, например `https://dev.yuviron.com:8443`. При portproxy с `listenport=443` внешний URL остаётся без порта.

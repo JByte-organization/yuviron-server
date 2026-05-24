@@ -72,6 +72,7 @@ Developer / Browser / Mobile / CI smoke
 |        +--> backend:5073                                         |
 |        +--> seq:80                  dev management, Basic Auth   |
 |        +--> aspire-dashboard:18888  dev management, Basic Auth   |
+|        +--> rabbitmq:15672          dev management, Basic Auth   |
 |                                                                   |
 |  backend / media-worker / migrator                                |
 |        |                                                          |
@@ -142,6 +143,7 @@ dev-backoffice.yuviron.com -> backoffice:3000
 dev-api.yuviron.com        -> backend:5073
 dev-seq.yuviron.com        -> seq:80
 dev-aspire.yuviron.com     -> aspire-dashboard:18888
+dev-rabbitmq.yuviron.com   -> rabbitmq:15672
 dev-i.yuviron.com          -> backend:5073 через /i/<hash>, cached media edge
 ```
 
@@ -150,7 +152,7 @@ dev-i.yuviron.com          -> backend:5073 через /i/<hash>, cached media ed
 * `client`, `admin`, `backoffice` идут в frontend containers.
 * `api` идёт в backend на `5073`.
 * `dev-i.yuviron.com` / `i.yuviron.com` - отдельный media CDN route: публичный URL содержит только immutable hash, nginx переписывает запрос во внутренний backend endpoint `/i/<hash>` и кэширует успешные ответы на год.
-* `seq` и `aspire` считаются management routes и получают HTTP Basic Auth плюс `NGINX_ADMIN_ALLOWLIST`.
+* `seq`, `aspire` и `rabbitmq` считаются management routes и получают HTTP Basic Auth плюс `NGINX_ADMIN_ALLOWLIST`.
 * `/health` обслуживается самим edge nginx для healthcheck и smoke.
 * Route-level rate limiting и upload locations задаются в `config/routes.yml`; routes с `has_auth_endpoints: true` дополнительно получают более строгий limit для `/auth`, `/login`, `/token` и похожих endpoint'ов.
 * каталог `certs/` монтируется в nginx read-only; в `shared` режиме routes используют общий SAN/wildcard cert, а в `per-route` режиме nginx выбирает cert/key по SNI host через сгенерированную map.
@@ -220,6 +222,7 @@ Seq и Aspire нужны для диагностики dev-инфраструк�
 ```text
 dev-seq.yuviron.com
 dev-aspire.yuviron.com
+dev-rabbitmq.yuviron.com
 ```
 
 защищены Basic Auth на nginx edge. Credentials создаются в runtime generation:
@@ -302,7 +305,7 @@ Internal Docker network
 
 * наружу публикуется только nginx (`HTTP_PORT` / `HTTPS_PORT`);
 * data services остаются внутри Docker network;
-* management routes `seq` и `aspire` доступны только в dev и закрыты Basic Auth и CIDR allowlist;
+* management routes `seq`, `aspire` и `rabbitmq` доступны только в dev и закрыты Basic Auth и CIDR allowlist;
 * Tailscale ACL должен ограничивать SSH и service access;
 * RadminVPN остаётся compatibility path, а не основной новый слой доступа;
 * CoreDNS on Windows используется только как optional DNS endpoint;

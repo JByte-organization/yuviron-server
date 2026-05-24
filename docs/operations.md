@@ -59,7 +59,7 @@ ALLOW_PRODUCTION_MIGRATE=<db-name> ./scripts/cli.py stack up prod
 ./scripts/cli.py stack up prod --observability
 ```
 
-Перед основным `up` CLI запускает EF Core migrator как one-off compose run через profile `migrate`. `--skip-migrate` оставлен для аварийных случаев, когда нужно поднять сервисы без DB migration step.
+Перед основным `up` CLI сначала тянет pre-built образы сервисов (`docker compose pull --ignore-buildable`; ошибка сети не блокирует запуск), затем запускает EF Core migrator как one-off compose run через profile `migrate`. `--skip-migrate` оставлен для аварийных случаев, когда нужно поднять сервисы без DB migration step.
 
 По умолчанию `stack up` сохраняет снэпшот текущих образов и при сбое сборки или запуска автоматически восстанавливает предыдущее состояние (image-level rollback). Чтобы отключить: `--no-rollback`.
 
