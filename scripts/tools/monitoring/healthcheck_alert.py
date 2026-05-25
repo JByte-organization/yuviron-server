@@ -5,18 +5,19 @@ Checks Docker container health every run, sends an email if any container is
 unhealthy.  The message distinguishes between a deploy-time failure (stack up
 ran recently) and a runtime crash (service fell on its own).
 
-Designed to be called from cron every 5 minutes:
-    */5 * * * * cd /opt/yuviron-server && python3 scripts/tools/monitoring/healthcheck_alert.py \
+Designed to be called from cron every 5 minutes (SMTP_PASSWORD read from env, not CLI):
+    */5 * * * * bash -c 'set -a; source /opt/yuviron-server/generated/prod/deploy.env; set +a; \
+        python3 /opt/yuviron-server/scripts/tools/monitoring/healthcheck_alert.py \
         --env prod --root /opt/yuviron-server \
         --alerts-email ops@example.com \
-        --smtp-host smtp.gmail.com --smtp-port 587 \
-        --smtp-user alerts@gmail.com --smtp-password <app-password> \
-        >> logs/monitoring/healthcheck-alert.log 2>&1
+        --smtp-host smtp.gmail.com --smtp-port 587 --smtp-user alerts@gmail.com' \
+        >> /opt/yuviron-server/logs/prod/monitoring/healthcheck-alert.log 2>&1
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import smtplib
 import ssl
 import subprocess
@@ -211,8 +212,8 @@ def _send_email(
 
 # ─── Entry points ─────────────────────────────────────────────────────────────
 
-def _run_test(args: argparse.Namespace, root_dir: Path, now_str: str) -> int:
-    smtp_configured = all([args.smtp_host, args.smtp_user, args.smtp_password])
+def _run_test(args: argparse.Namespace, root_dir: Path, now_str: str, smtp_password: str) -> int:
+    smtp_configured = all([args.smtp_host, args.smtp_user, smtp_password])
     if not smtp_configured:
         print("SMTP not configured — set SMTP_HOST, SMTP_USER, SMTP_PASSWORD", file=sys.stderr)
         return 1
@@ -228,7 +229,7 @@ def _run_test(args: argparse.Namespace, root_dir: Path, now_str: str) -> int:
 
     try:
         _send_email(
-            args.smtp_host, int(args.smtp_port), args.smtp_user, args.smtp_password,
+            args.smtp_host, int(args.smtp_port), args.smtp_user, smtp_password,
             args.alerts_email, subject, text_body, html_body,
         )
         print(f"[{now_str}] Test email sent to {args.alerts_email} — SMTP config OK")
@@ -241,9 +242,10 @@ def _run_test(args: argparse.Namespace, root_dir: Path, now_str: str) -> int:
 def run(args: argparse.Namespace) -> int:
     root_dir = Path(args.root).resolve()
     now_str = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+    smtp_password = os.environ.get("SMTP_PASSWORD", "")
 
     if getattr(args, "test", False):
-        return _run_test(args, root_dir, now_str)
+        return _run_test(args, root_dir, now_str, smtp_password)
 
     containers = _docker_ps()
     all_names = {c["Names"] for c in containers}
@@ -266,7 +268,7 @@ def run(args: argparse.Namespace) -> int:
     if not to_alert:
         return 0
 
-    smtp_configured = all([args.smtp_host, args.smtp_user, args.smtp_password])
+    smtp_configured = all([args.smtp_host, args.smtp_user, smtp_password])
 
     for container in to_alert:
         cause_label = "deploy error" if is_deploy else "runtime crash"
@@ -283,7 +285,7 @@ def run(args: argparse.Namespace) -> int:
         if smtp_configured:
             try:
                 _send_email(
-                    args.smtp_host, int(args.smtp_port), args.smtp_user, args.smtp_password,
+                    args.smtp_host, int(args.smtp_port), args.smtp_user, smtp_password,
                     args.alerts_email, subject, text_body, html_body,
                 )
                 print(f"[{now_str}] Email sent to {args.alerts_email}")
@@ -305,7 +307,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--smtp-host", default="")
     p.add_argument("--smtp-port", default="587")
     p.add_argument("--smtp-user", default="")
-    p.add_argument("--smtp-password", default="")
     p.add_argument("--test", action="store_true",
                    help="Send a test email without checking Docker state")
     return p

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import secrets
 import subprocess
 import sys
@@ -390,9 +391,9 @@ def cmd_healthcheck_alert(args: argparse.Namespace) -> int:
         "--smtp-host", runtime_values.get("SMTP_HOST", ""),
         "--smtp-port", runtime_values.get("SMTP_PORT", "587"),
         "--smtp-user", runtime_values.get("SMTP_USER", ""),
-        "--smtp-password", runtime_values.get("SMTP_PASSWORD", ""),
     ]
-    result = run(cmd, cwd=root_dir, check=False)
+    env = {**os.environ, "SMTP_PASSWORD": runtime_values.get("SMTP_PASSWORD", "")}
+    result = run(cmd, cwd=root_dir, check=False, env=env)
     return result.returncode
 
 
@@ -401,24 +402,24 @@ def _healthcheck_alert_cron_line(root_dir: Path, environment: str, runtime_value
     smtp_host = runtime_values.get("SMTP_HOST", "")
     smtp_port = runtime_values.get("SMTP_PORT", "587")
     smtp_user = runtime_values.get("SMTP_USER", "")
-    smtp_password = runtime_values.get("SMTP_PASSWORD", "")
 
     script = root_dir / "scripts" / "tools" / "monitoring" / "healthcheck_alert.py"
+    env_file = root_dir / "generated" / environment / "deploy.env"
     log_dir = root_dir / "logs" / environment / "monitoring"
     log_file = log_dir / "healthcheck-alert.log"
 
-    cmd = (
-        f"cd {root_dir} && {sys.executable} {script}"
+    inner = (
+        f"set -a; source {env_file}; set +a; "
+        f"{sys.executable} {script}"
         f" --env {environment}"
         f" --root {root_dir}"
         f" --alerts-email {alerts_email}"
         f" --smtp-host {smtp_host}"
         f" --smtp-port {smtp_port}"
         f" --smtp-user {smtp_user}"
-        f" --smtp-password {smtp_password}"
         f" >> {log_file} 2>&1"
     )
-    return f"*/5 * * * * {cmd}"
+    return f"*/5 * * * * bash -c '{inner}'"
 
 
 def _healthcheck_alert_cron_marker(environment: str) -> str:
@@ -500,6 +501,7 @@ def cmd_send_test_alert(args: argparse.Namespace) -> int:
     if not script.is_file():
         fail(f"Script not found: {script}")
 
+    env = {**os.environ, "SMTP_PASSWORD": runtime_values.get("SMTP_PASSWORD", "")}
     result = run(
         [
             sys.executable, str(script),
@@ -509,11 +511,11 @@ def cmd_send_test_alert(args: argparse.Namespace) -> int:
             "--smtp-host", runtime_values.get("SMTP_HOST", ""),
             "--smtp-port", runtime_values.get("SMTP_PORT", "587"),
             "--smtp-user", runtime_values.get("SMTP_USER", ""),
-            "--smtp-password", runtime_values.get("SMTP_PASSWORD", ""),
             "--test",
         ],
         cwd=root_dir,
         check=False,
+        env=env,
     )
     return result.returncode
 
