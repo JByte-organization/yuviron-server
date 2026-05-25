@@ -55,7 +55,7 @@ class StackSmokeTests(unittest.TestCase):
             routes_file = Path(temp_dir) / "routes.env"
             routes_file.write_text("client|dev.yuviron.com|client-app:3000\n", encoding="utf-8")
 
-            with patch.object(stack, "log_warn") as log_warn:
+            with patch("commands.stack._common.log_warn") as log_warn:
                 stack._warn_nonstandard_public_ports(
                     {"HTTP_PORT": "8080", "HTTPS_PORT": "8443"},
                     routes_file,
@@ -72,7 +72,7 @@ class StackSmokeTests(unittest.TestCase):
             routes_file = Path(temp_dir) / "routes.env"
             routes_file.write_text("client|dev.yuviron.com|client-app:3000\n", encoding="utf-8")
 
-            with patch.object(stack, "log_warn") as log_warn:
+            with patch("commands.stack._common.log_warn") as log_warn:
                 stack._warn_nonstandard_public_ports(
                     {"HTTP_PORT": "80", "HTTPS_PORT": "443"},
                     routes_file,
@@ -81,12 +81,14 @@ class StackSmokeTests(unittest.TestCase):
         log_warn.assert_not_called()
 
     def test_stack_up_prepares_host_storage_before_compose_up(self) -> None:
+        run_compose_mock = MagicMock()
         with (
-            patch.object(stack, "create_compose_context", return_value=self.context),
+            patch("commands.stack._up.create_compose_context", return_value=self.context),
             patch.object(stack.preflight_checks, "prepare_host_storage_layout") as prepare_mock,
-            patch.object(stack, "_prepare_frontend_swagger") as swagger_mock,
-            patch.object(stack, "_snapshot_rollback_images", return_value={}),
-            patch.object(stack, "run_compose") as run_compose_mock,
+            patch("commands.stack._up._prepare_frontend_swagger") as swagger_mock,
+            patch("commands.stack._up._snapshot_rollback_images", return_value={}),
+            patch("commands.stack._up.run_compose", run_compose_mock),
+            patch("commands.stack._migrate.run_compose", run_compose_mock),
         ):
             stack.cmd_up(self._up_args())
 
@@ -116,11 +118,13 @@ class StackSmokeTests(unittest.TestCase):
         )
 
     def test_stack_up_dry_run_uses_compose_dry_run_without_starting_containers(self) -> None:
+        run_compose_mock = MagicMock()
         with (
-            patch.object(stack, "create_compose_context", return_value=self.context),
+            patch("commands.stack._up.create_compose_context", return_value=self.context),
             patch.object(stack.preflight_checks, "prepare_host_storage_layout"),
-            patch.object(stack, "_prepare_frontend_swagger") as swagger_mock,
-            patch.object(stack, "run_compose") as run_compose_mock,
+            patch("commands.stack._up._prepare_frontend_swagger") as swagger_mock,
+            patch("commands.stack._up.run_compose", run_compose_mock),
+            patch("commands.stack._migrate.run_compose", run_compose_mock),
         ):
             stack.cmd_up(self._up_args(dry_run=True))
 
@@ -145,11 +149,11 @@ class StackSmokeTests(unittest.TestCase):
 
     def test_stack_up_can_skip_migration(self) -> None:
         with (
-            patch.object(stack, "create_compose_context", return_value=self.context),
+            patch("commands.stack._up.create_compose_context", return_value=self.context),
             patch.object(stack.preflight_checks, "prepare_host_storage_layout"),
-            patch.object(stack, "_prepare_frontend_swagger") as swagger_mock,
-            patch.object(stack, "_snapshot_rollback_images", return_value={}),
-            patch.object(stack, "run_compose") as run_compose_mock,
+            patch("commands.stack._up._prepare_frontend_swagger") as swagger_mock,
+            patch("commands.stack._up._snapshot_rollback_images", return_value={}),
+            patch("commands.stack._up.run_compose") as run_compose_mock,
         ):
             stack.cmd_up(self._up_args(skip_migrate=True))
 
@@ -165,11 +169,11 @@ class StackSmokeTests(unittest.TestCase):
 
     def test_stack_up_skip_swagger_skips_swagger_but_still_builds(self) -> None:
         with (
-            patch.object(stack, "create_compose_context", return_value=self.context),
+            patch("commands.stack._up.create_compose_context", return_value=self.context),
             patch.object(stack.preflight_checks, "prepare_host_storage_layout"),
-            patch.object(stack, "_prepare_frontend_swagger") as swagger_mock,
-            patch.object(stack, "_snapshot_rollback_images", return_value={}),
-            patch.object(stack, "run_compose") as run_compose_mock,
+            patch("commands.stack._up._prepare_frontend_swagger") as swagger_mock,
+            patch("commands.stack._up._snapshot_rollback_images", return_value={}),
+            patch("commands.stack._up.run_compose") as run_compose_mock,
         ):
             stack.cmd_up(self._up_args(skip_migrate=True, skip_swagger=True))
 
@@ -181,11 +185,11 @@ class StackSmokeTests(unittest.TestCase):
 
     def test_stack_up_no_build_skips_swagger_and_omits_build_flag(self) -> None:
         with (
-            patch.object(stack, "create_compose_context", return_value=self.context),
+            patch("commands.stack._up.create_compose_context", return_value=self.context),
             patch.object(stack.preflight_checks, "prepare_host_storage_layout"),
-            patch.object(stack, "_prepare_frontend_swagger") as swagger_mock,
-            patch.object(stack, "_snapshot_rollback_images", return_value={}),
-            patch.object(stack, "run_compose") as run_compose_mock,
+            patch("commands.stack._up._prepare_frontend_swagger") as swagger_mock,
+            patch("commands.stack._up._snapshot_rollback_images", return_value={}),
+            patch("commands.stack._up.run_compose") as run_compose_mock,
         ):
             stack.cmd_up(self._up_args(skip_migrate=True, no_build=True))
 
@@ -220,9 +224,9 @@ class StackSmokeTests(unittest.TestCase):
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with (
-            patch.object(stack, "run_compose", side_effect=run_compose_side_effect) as run_compose_mock,
-            patch.object(stack, "_wait_for_service_health") as wait_mock,
-            patch.object(stack, "_ensure_swagger_backend_image", return_value=False),
+            patch("commands.stack._swagger.run_compose", side_effect=run_compose_side_effect) as run_compose_mock,
+            patch("commands.stack._swagger._wait_for_service_health") as wait_mock,
+            patch("commands.stack._swagger._ensure_swagger_backend_image", return_value=False),
         ):
             stack._prepare_frontend_swagger(context, self.root)
 
@@ -274,9 +278,9 @@ class StackSmokeTests(unittest.TestCase):
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with (
-            patch.object(stack, "run_compose", side_effect=run_compose_side_effect) as run_compose_mock,
-            patch.object(stack, "_wait_for_service_health"),
-            patch.object(stack, "_ensure_swagger_backend_image", return_value=True),
+            patch("commands.stack._swagger.run_compose", side_effect=run_compose_side_effect) as run_compose_mock,
+            patch("commands.stack._swagger._wait_for_service_health"),
+            patch("commands.stack._swagger._ensure_swagger_backend_image", return_value=True),
         ):
             stack._prepare_frontend_swagger(context, self.root)
 
@@ -307,8 +311,8 @@ class StackSmokeTests(unittest.TestCase):
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with (
-            patch.object(stack, "run_compose", side_effect=run_compose_side_effect) as run_compose_mock,
-            patch.object(stack, "_wait_for_service_health"),
+            patch("commands.stack._swagger.run_compose", side_effect=run_compose_side_effect) as run_compose_mock,
+            patch("commands.stack._swagger._wait_for_service_health"),
         ):
             with self.assertRaises(stack.CommandError):
                 stack._prepare_frontend_swagger(context, self.root)
@@ -318,8 +322,8 @@ class StackSmokeTests(unittest.TestCase):
 
     def test_swagger_gen_calls_prepare_frontend_swagger(self) -> None:
         with (
-            patch.object(stack, "create_compose_context", return_value=self.context),
-            patch.object(stack, "_prepare_frontend_swagger") as swagger_mock,
+            patch("commands.stack._swagger.create_compose_context", return_value=self.context),
+            patch("commands.stack._swagger._prepare_frontend_swagger") as swagger_mock,
         ):
             args = SimpleNamespace(environment="dev", project_root=str(self.root), dry_run=False)
             result = stack.cmd_swagger_gen(args)
@@ -329,8 +333,8 @@ class StackSmokeTests(unittest.TestCase):
 
     def test_swagger_gen_dry_run_passes_flag(self) -> None:
         with (
-            patch.object(stack, "create_compose_context", return_value=self.context),
-            patch.object(stack, "_prepare_frontend_swagger") as swagger_mock,
+            patch("commands.stack._swagger.create_compose_context", return_value=self.context),
+            patch("commands.stack._swagger._prepare_frontend_swagger") as swagger_mock,
         ):
             args = SimpleNamespace(environment="dev", project_root=str(self.root), dry_run=True)
             stack.cmd_swagger_gen(args)
@@ -344,8 +348,8 @@ class StackSmokeTests(unittest.TestCase):
             args = SimpleNamespace(environment="dev", project_root=str(root), dry_run=False)
 
             with (
-                patch.object(stack, "create_compose_context", return_value=context) as create_context,
-                patch.object(stack, "_run_migrator") as run_migrator,
+                patch("commands.stack._migrate.create_compose_context", return_value=context) as create_context,
+                patch("commands.stack._migrate._run_migrator") as run_migrator,
             ):
                 stack.cmd_migrate(args)
 
@@ -394,8 +398,8 @@ class CachePurgeTests(unittest.TestCase):
         mock_result = MagicMock(returncode=0, stdout=f"/var/cache/nginx/yuviron_media/x/xx/{expected_md5}", stderr="")
 
         with (
-            patch.object(stack, "create_compose_context", return_value=self.context),
-            patch.object(stack, "run", return_value=mock_result) as run_mock,
+            patch("commands.stack._cache.create_compose_context", return_value=self.context),
+            patch("commands.stack._cache.run", return_value=mock_result) as run_mock,
         ):
             stack.cmd_cache_purge(self._purge_args(path=file_path))
 
@@ -412,19 +416,18 @@ class CachePurgeTests(unittest.TestCase):
         mock_result = MagicMock(returncode=0, stdout="", stderr="")
 
         with (
-            patch.object(stack, "create_compose_context", return_value=self.context),
-            patch.object(stack, "run", return_value=mock_result) as run_mock,
+            patch("commands.stack._cache.create_compose_context", return_value=self.context),
+            patch("commands.stack._cache.run", return_value=mock_result) as run_mock,
         ):
             stack.cmd_cache_purge(self._purge_args(path="abc123"))
 
-        _, kwargs = run_mock.call_args
         cmd = run_mock.call_args.args[0]
         self.assertIn(expected_md5, cmd)
 
     def test_cache_purge_all_with_yes_skips_confirmation(self) -> None:
         with (
-            patch.object(stack, "create_compose_context", return_value=self.context),
-            patch.object(stack, "run") as run_mock,
+            patch("commands.stack._cache.create_compose_context", return_value=self.context),
+            patch("commands.stack._cache.run") as run_mock,
         ):
             stack.cmd_cache_purge(self._purge_args(yes=True))
 

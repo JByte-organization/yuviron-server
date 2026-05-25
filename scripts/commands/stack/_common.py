@@ -1,0 +1,119 @@
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+from core.docker import ComposeContext, container_id_for_service, run, run_compose
+from core.env import parse_routes_file
+from core.ui import log_info, log_ok, log_warn
+from core.validators import fail
+
+
+DEFAULT_ROOT = Path(__file__).resolve().parents[3]
+PREFLIGHT_CLEANUP_MOUNT = "/preflight-cleanup"
+MIGRATOR_PROFILE = "migrate"
+NGINX_MEDIA_CACHE_DIR = "/var/cache/nginx/yuviron_media"
+NGINX_MEDIA_ROUTE_NAME = "i"
+MIGRATOR_SERVICE = "migrator"
+BACKEND_SERVICE = "backend"
+REQUIRED_STACK_SERVICES = ("mysql", "redis", "rabbitmq", "nginx", BACKEND_SERVICE)
+# Matches ASPNETCORE_HTTP_PORTS in infra/compose.yml
+SWAGGER_BACKEND_BASE_URL = "http://127.0.0.1:5073"
+SWAGGER_BACKEND_HEALTH_TIMEOUT = 180
+SWAGGER_PREBUILD_SERVICES = ("mysql", "redis", "rabbitmq", BACKEND_SERVICE)
+FRONTEND_SWAGGER_DIR = Path("src") / "yuviron-frontend" / "packages" / "api" / "openapi"
+SWAGGER_DOCUMENTS = {
+    "admin": "/swagger/admin/swagger.json",
+    "client": "/swagger/client/swagger.json",
+}
+
+
+def _service_container_id(context: ComposeContext, service: str) -> str:
+    return container_id_for_service(context.compose_project_name, service)
+
+
+def _built_service_image_name(project_name: str, service: str) -> str:
+    return f"{project_name}-{service}"
+
+
+def _https_route_url(route_host: str, https_port: str, path: str) -> str:
+    normalized_path = path if path.startswith("/") else f"/{path}"
+    if https_port == "443":
+        return f"https://{route_host}{normalized_path}"
+    return f"https://{route_host}:{https_port}{normalized_path}"
+
+
+def _warn_nonstandard_public_ports(env_values: dict[str, str], routes_file: Path) -> None:
+    http_port = env_values.get("HTTP_PORT", "")
+    https_port = env_values.get("HTTPS_PORT", "")
+
+    if http_port == "80" and https_port == "443":
+        return
+
+    routes = parse_routes_file(routes_file)
+    first_host = routes[0][1] if routes else "<route-host>"
+    examples: list[str] = []
+    if https_port and https_port != "443":
+        examples.append(_https_route_url(first_host, https_port, "/"))
+    if http_port and http_port != "80":
+        examples.append(f"http://{first_host}:{http_port}/")
+
+    suffix = f" Example: {', '.join(examples)}" if examples else ""
+    log_warn(
+        "Edge ports are non-standard "
+        f"(HTTP_PORT={http_port or '<unset>'}, HTTPS_PORT={https_port or '<unset>'}). "
+        "Browser URLs without an explicit port use 80/443 and require HTTPS_PORT=443 "
+        "or an external portproxy/reverse proxy."
+        f"{suffix}"
+    )
+
+
+def _load_compose_services(context: ComposeContext) -> set[str]:
+    log_info("Loading compose services list")
+    result = run_compose(context, "config", "--services", capture_output=True)
+    services = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    if not services:
+        fail("Compose services list is empty")
+    log_ok("Compose services list loaded")
+    return services
+
+
+def _check_stack_running(services: set[str]) -> None:
+    log_info("Checking that required services exist in compose")
+    for service in REQUIRED_STACK_SERVICES:
+        if service not in services:
+            fail(f"Required service is missing from compose config: {service}")
+        log_ok(f"Required service exists: {service}")
+
+
+def _show_compose_ps(context: ComposeContext) -> None:
+    log_info("docker compose ps")
+
+    result = run_compose(context, "ps", "--format", "{{.Names}}|{{.Status}}", capture_output=True, check=False)
+    rows = (result.stdout or "").strip()
+
+    if not rows:
+        log_warn("No containers found")
+        return
+
+    print()
+    print(f"{'NAME':<35} {'STATUS':<30}")
+    print(f"{'-' * 35:<35} {'-' * 30:<30}")
+
+    for line in rows.splitlines():
+        if not line.strip() or "|" not in line:
+            continue
+        name, status = line.split("|", 1)
+        print(f"{name:<35} {status:<30}")
+
+    print()
+
+
+def _media_route_host(root_dir: Path, environment: str) -> str:
+    routes_file = root_dir / "generated" / environment / "routes.env"
+    if not routes_file.is_file():
+        fail(f"routes.env not found: {routes_file}. Run generate-config first.")
+    for name, host, _ in parse_routes_file(routes_file):
+        if name == NGINX_MEDIA_ROUTE_NAME:
+            return host
+    fail(f"No media proxy route ('{NGINX_MEDIA_ROUTE_NAME}') found in routes.env")

@@ -199,7 +199,7 @@ class SecurityAuditTests(unittest.TestCase):
 
     def test_cli_production_migrate_gate_exists_in_stack(self) -> None:
         root = SCRIPTS_ROOT.parent
-        stack_source = (root / "scripts" / "commands" / "stack.py").read_text(encoding="utf-8")
+        stack_source = (root / "scripts" / "commands" / "stack" / "_migrate.py").read_text(encoding="utf-8")
 
         self.assertIn("_confirm_production_migrate", stack_source)
         self.assertIn("ALLOW_PRODUCTION_MIGRATE", stack_source)
