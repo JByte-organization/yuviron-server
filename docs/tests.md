@@ -60,7 +60,7 @@ CLI при таком запуске предупреждает, что испо
 | `test_render_nginx.py` | Jinja2-рендеринг `nginx.conf` из шаблонов - маршруты, TLS, rate limits, CSP, media CDN |
 | `test_compose_generator.py` | Рендеринг `compose.frontends.yml` из `config/apps.yml` |
 | `test_security_audit.py` | `security audit`: hardening, published ports, env safety, default secrets, git-tracked файлы |
-| `test_stack_smoke.py` | Логика `stack smoke`: healthcheck сервисов, HTTPS curl по routes, smoke paths по типу маршрута |
+| `test_stack_smoke.py` | Stack-команды: `cmd_up` (dry-run, skip-migrate, no-build, skip-swagger, rollback), `cmd_migrate`, `cmd_swagger_gen`, `_prepare_frontend_swagger`, `cmd_cache_purge`; утилиты `_https_route_url`, `_warn_nonstandard_public_ports`, `_media_route_host` |
 | `test_smoke_logic.py` | Unit-тесты smoke: resolve smoke path, порядок маршрутов, edge cases |
 | `test_doctor.py` | `doctor`: Docker/Compose, Tailscale, DNS, cert/key, порты, storage, firewall |
 | `test_env_validation.py` | Env validation schema: обязательные ключи, форматы (`port`, `nginx-rate`, `cidr-list`), weak-secret policy |
