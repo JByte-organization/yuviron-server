@@ -48,25 +48,17 @@
 
         {% if route.media_proxy %}
         location = / {
-            add_header 'Access-Control-Allow-Origin' $cors_media_origin always;
-            add_header 'Access-Control-Allow-Methods' 'GET, HEAD, OPTIONS' always;
-            add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range' always;
-            add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range' always;
+            include /etc/nginx/cors-media-headers.conf;
             return 404;
         }
 
         location ^~ /i/ {
-            add_header 'Access-Control-Allow-Origin' $cors_media_origin always;
-            add_header 'Access-Control-Allow-Methods' 'GET, HEAD, OPTIONS' always;
-            add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range' always;
-            add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range' always;
+            include /etc/nginx/cors-media-headers.conf;
             return 404;
         }
 
         location @cors_preflight {
-            add_header 'Access-Control-Allow-Origin' $cors_media_origin always;
-            add_header 'Access-Control-Allow-Methods' 'GET, HEAD, OPTIONS' always;
-            add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range' always;
+            include /etc/nginx/cors-media-headers.conf;
             add_header 'Access-Control-Max-Age' 1728000;
             add_header 'Content-Type' 'text/plain; charset=utf-8';
             add_header 'Content-Length' 0;
@@ -96,10 +88,7 @@
             proxy_hide_header Pragma;
             proxy_hide_header Set-Cookie;
 
-            add_header 'Access-Control-Allow-Origin' $cors_media_origin always;
-            add_header 'Access-Control-Allow-Methods' 'GET, HEAD, OPTIONS' always;
-            add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range' always;
-            add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range' always;
+            include /etc/nginx/cors-media-headers.conf;
             add_header Cache-Control "public, immutable, max-age=31536000";
             add_header X-Cache-Status $upstream_cache_status always;
         }

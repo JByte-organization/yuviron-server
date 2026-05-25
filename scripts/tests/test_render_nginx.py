@@ -273,8 +273,35 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("map $http_origin $cors_media_origin {", rendered)
         self.assertIn('"https://api.example.com" $http_origin;', rendered)
         self.assertNotIn('"https://dev-i.example.com" $http_origin;', rendered)
-        self.assertIn("add_header 'Access-Control-Allow-Origin' $cors_media_origin", rendered)
+        self.assertIn("include /etc/nginx/cors-media-headers.conf;", rendered)
         self.assertNotIn("add_header 'Access-Control-Allow-Origin' '*'", rendered)
+
+    def test_media_proxy_cors_headers_are_deduplicated_via_include(self) -> None:
+        cors_headers_file = SCRIPTS_ROOT / "templates" / "cors-media-headers.conf"
+        content = cors_headers_file.read_text(encoding="utf-8")
+
+        self.assertIn("add_header 'Access-Control-Allow-Origin' $cors_media_origin always;", content)
+        self.assertIn("add_header 'Access-Control-Allow-Methods' 'GET, HEAD, OPTIONS' always;", content)
+        self.assertIn("add_header 'Access-Control-Allow-Headers'", content)
+        self.assertIn("add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range' always;", content)
+
+    def test_media_proxy_cors_include_appears_in_all_four_locations(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [NginxRoute("i", "dev-i.example.com", "backend:5073", "5m", media_proxy=True)],
+            SCRIPTS_ROOT / "templates",
+        )
+        include_directive = "include /etc/nginx/cors-media-headers.conf;"
+
+        self.assertEqual(rendered.count(include_directive), 4)
+        self.assertNotIn("add_header 'Access-Control-Allow-Origin' $cors_media_origin", rendered)
+
+    def test_media_proxy_template_has_no_raw_cors_add_headers(self) -> None:
+        template = (SCRIPTS_ROOT / "templates" / "03-routes.conf.j2").read_text(encoding="utf-8")
+
+        self.assertNotIn("add_header 'Access-Control-Allow-Origin'", template)
+        self.assertNotIn("add_header 'Access-Control-Allow-Methods'", template)
+        self.assertNotIn("add_header 'Access-Control-Expose-Headers'", template)
+        self.assertIn("include /etc/nginx/cors-media-headers.conf;", template)
 
     def test_render_media_proxy_options_preflight_uses_named_location_not_if(self) -> None:
         rendered = render_nginx_conf_modular(

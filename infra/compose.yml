@@ -318,6 +318,7 @@ services:
     volumes:
       - ../generated/${ENVIRONMENT}/nginx.conf:/etc/nginx/nginx.conf:ro
       - ../scripts/templates/proxy-params.conf:/etc/nginx/proxy-params.conf:ro
+      - ../scripts/templates/cors-media-headers.conf:/etc/nginx/cors-media-headers.conf:ro
       - ../certs/acme-challenge:/var/www/certbot:ro
       - ../certs:/etc/nginx/certs:ro
       - ${NGINX_BASIC_AUTH_FILE}:/etc/nginx/htpasswd:ro
