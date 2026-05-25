@@ -190,17 +190,23 @@ jobs:
           cd /opt/yuviron-server
           python3 ./scripts/cli.py tools docker-clean --mode report
 
+      - name: Generate Swagger docs
+        run: |
+          set -Eeuo pipefail
+          cd /opt/yuviron-server
+          python3 ./scripts/cli.py stack swagger-gen "${DEPLOY_ENV}"
+
       - name: Preflight check
         run: |
           set -Eeuo pipefail
           cd /opt/yuviron-server
-          python3 ./scripts/cli.py stack preflight "${DEPLOY_ENV}"
+          python3 ./scripts/cli.py stack preflight "${DEPLOY_ENV}" --skip-swagger
 
       - name: Start full stack
         run: |
           set -Eeuo pipefail
           cd /opt/yuviron-server
-          timeout 1200 python3 ./scripts/cli.py stack up "${DEPLOY_ENV}"
+          timeout 1200 python3 ./scripts/cli.py stack up "${DEPLOY_ENV}" --skip-swagger
 
       - name: Scan deployed images for vulnerabilities
         env:

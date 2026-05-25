@@ -31,13 +31,14 @@ class StackSmokeTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def _up_args(self, *, dry_run: bool = False, skip_migrate: bool = False, no_build: bool = False) -> SimpleNamespace:
+    def _up_args(self, *, dry_run: bool = False, skip_migrate: bool = False, no_build: bool = False, skip_swagger: bool = False) -> SimpleNamespace:
         return SimpleNamespace(
             environment="dev",
             project_root=str(self.root),
             dry_run=dry_run,
             skip_migrate=skip_migrate,
             no_build=no_build,
+            skip_swagger=skip_swagger,
         )
 
     def test_https_route_url_omits_default_port(self) -> None:
@@ -161,6 +162,22 @@ class StackSmokeTests(unittest.TestCase):
             ],
             run_compose_mock.call_args_list,
         )
+
+    def test_stack_up_skip_swagger_skips_swagger_but_still_builds(self) -> None:
+        with (
+            patch.object(stack, "create_compose_context", return_value=self.context),
+            patch.object(stack.preflight_checks, "prepare_host_storage_layout"),
+            patch.object(stack, "_prepare_frontend_swagger") as swagger_mock,
+            patch.object(stack, "_snapshot_rollback_images", return_value={}),
+            patch.object(stack, "run_compose") as run_compose_mock,
+        ):
+            stack.cmd_up(self._up_args(skip_migrate=True, skip_swagger=True))
+
+        swagger_mock.assert_not_called()
+        calls = [c.args[1:] for c in run_compose_mock.call_args_list]
+        self.assertIn(("pull", "--ignore-buildable"), calls)
+        self.assertIn(("build", "--pull=false"), calls)
+        self.assertIn(("up", "-d", "--remove-orphans"), calls)
 
     def test_stack_up_no_build_skips_swagger_and_omits_build_flag(self) -> None:
         with (
@@ -298,6 +315,27 @@ class StackSmokeTests(unittest.TestCase):
 
         stop_call = run_compose_mock.call_args_list[-1].args[1:]
         self.assertEqual(("stop", "mysql", "redis", "rabbitmq", "backend"), stop_call)
+
+    def test_swagger_gen_calls_prepare_frontend_swagger(self) -> None:
+        with (
+            patch.object(stack, "create_compose_context", return_value=self.context),
+            patch.object(stack, "_prepare_frontend_swagger") as swagger_mock,
+        ):
+            args = SimpleNamespace(environment="dev", project_root=str(self.root), dry_run=False)
+            result = stack.cmd_swagger_gen(args)
+
+        self.assertEqual(0, result)
+        swagger_mock.assert_called_once_with(self.context, self.root, dry_run=False)
+
+    def test_swagger_gen_dry_run_passes_flag(self) -> None:
+        with (
+            patch.object(stack, "create_compose_context", return_value=self.context),
+            patch.object(stack, "_prepare_frontend_swagger") as swagger_mock,
+        ):
+            args = SimpleNamespace(environment="dev", project_root=str(self.root), dry_run=True)
+            stack.cmd_swagger_gen(args)
+
+        swagger_mock.assert_called_once_with(self.context, self.root, dry_run=True)
 
     def test_stack_migrate_runs_migrator_profile(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
