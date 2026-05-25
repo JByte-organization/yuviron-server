@@ -10,6 +10,7 @@ from pathlib import Path
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from commands import appsettings as appsettings_cmd
 from commands import backup as backup_cmd
 from commands import certs as certs_cmd
 from commands import dns as dns_cmd
@@ -28,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    appsettings_cmd.register(subparsers)
     stack_cmd.register(subparsers)
     doctor_cmd.register(subparsers)
     dns_cmd.register(subparsers)
