@@ -397,7 +397,7 @@ class RenderNginxTests(unittest.TestCase):
         )
 
     def test_api_auth_and_upload_rate_limits_live_in_render_context_not_template(self) -> None:
-        template = (SCRIPTS_ROOT / "templates" / "01-global.conf.j2").read_text(encoding="utf-8")
+        template = (SCRIPTS_ROOT / "templates" / "01b-rate-limits.conf.j2").read_text(encoding="utf-8")
 
         self.assertIn("rate={{ nginx_rate_api_auth }}", template)
         self.assertIn("rate={{ nginx_rate_api_upload }}", template)

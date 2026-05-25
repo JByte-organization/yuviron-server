@@ -107,6 +107,7 @@ class StackSmokeTests(unittest.TestCase):
                     "--remove-orphans",
                     "migrator",
                 ),
+                call(self.context, "pull", "--ignore-buildable", check=False),
                 call(self.context, "build", "--pull=false"),
                 call(self.context, "up", "-d", "--remove-orphans"),
             ],
@@ -154,6 +155,7 @@ class StackSmokeTests(unittest.TestCase):
         swagger_mock.assert_called_once_with(self.context, self.root, dry_run=False)
         self.assertEqual(
             [
+                call(self.context, "pull", "--ignore-buildable", check=False),
                 call(self.context, "build", "--pull=false"),
                 call(self.context, "up", "-d", "--remove-orphans"),
             ],
