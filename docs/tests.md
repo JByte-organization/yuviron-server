@@ -79,6 +79,7 @@ CLI при таком запуске предупреждает, что испо
 | `test_paths.py` | Резолюция путей: `STORAGE_PATH`, `SEQ_STORAGE_PATH`, `CERT_FILE`, cert-режимы |
 | `test_findings.py` | Findings/result aggregation: сбор ERROR/WARNING, exit code политика |
 | `test_tools_docker_clean.py` | `tools docker-clean`: report/safe/build-cache/deep режимы, флаг `--reserved-space` |
-| `test_backend_workflows.py` | Shared backend CI/CD workflow scripts |
+| `test_appsettings.py` | `appsettings gen`: генерация `appsettings.json` для API и media worker — CORS origins, секреты, атомарная запись, права 600 |
+| `test_backend_workflows.py` | Shared backend CI/CD workflow: вызов `appsettings gen`, передача секретов, отсутствие inline Python heredoc |
 | `test_python_requirements.py` | `requirements.txt`: пакеты установлены, версии совпадают |
 | `test_stack_e2e_dry_run.py` | End-to-end dry-run: `init.py -> preflight --dry-run -> up --dry-run` (требует Docker, запускается через `YUVIRON_RUN_DOCKER_E2E=1`) |

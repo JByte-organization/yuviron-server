@@ -22,7 +22,7 @@ CLI является единым интерфейсом для работы с�
 ./scripts/cli.py <group> <action> [env]
 ```
 
-* `group` - логическая группа (stack, backup, certs, security, tools)
+* `group` - логическая группа (appsettings, stack, backup, certs, security, tools)
 * `action` - операция
 * `env` - окружение (`dev`, `prod`)
 
@@ -61,6 +61,37 @@ CLI является единым интерфейсом для работы с�
 
 ---
 
+## Appsettings
+
+### Генерация appsettings.json
+
+```bash
+./scripts/cli.py appsettings gen dev
+./scripts/cli.py appsettings gen prod
+```
+
+Генерирует `appsettings.<AspnetEnv>.json` для `Yuviron.Api` и `Yuviron.MediaWorker` из переменных окружения. Выходные файлы записываются атомарно (temp → chmod 600 → replace) в:
+
+```text
+src/yuviron-backend/src/Yuviron.Api/appsettings.<AspnetEnv>.json
+src/yuviron-backend/src/Yuviron.MediaWorker/appsettings.<AspnetEnv>.json
+```
+
+Где `AspnetEnv` — `Production` для `prod` и `Development` для `dev`.
+
+Команда читает секреты из переменных окружения:
+
+```text
+JWT_SECRET, EMAIL_USERNAME, EMAIL_PASSWORD
+SEED_ADMIN_EMAIL / _PASSWORD, SEED_MANAGER_EMAIL / _PASSWORD
+SEED_USER_EMAIL / _PASSWORD, SEED_PREMIUM_EMAIL / _PASSWORD
+JAMENDO_CLIENT_ID, STREAM_SECRET
+```
+
+Если хотя бы одна переменная отсутствует, команда завершается с ошибкой до записи файлов. В CI секреты пробрасываются через `env:` блок шага без раскрытия в логах.
+
+---
+
 ## Stack
 
 ### Preflight (обязательная проверка)
@@ -82,6 +113,20 @@ CLI является единым интерфейсом для работы с�
 * `--isolated` - проверяет compose-конфигурацию без изменений в основном запущенном compose project; полезно при параллельном запуске или диагностике
 * `--dry-run` - моделирует container-start часть через `docker compose --dry-run`, не запуская контейнеры; подходит для CI/e2e без реального Docker окружения
 * `--allow-regenerate` - разрешает автоматическую пересборку stale `generated/prod/` при обнаружении устаревшего manifest; для `dev` пересборка происходит автоматически, для `prod` требуется явный флаг или `ALLOW_REGENERATE=1`
+* `--skip-swagger` - пропускает генерацию Swagger-документов внутри preflight; используется в CI, где Swagger уже сгенерирован отдельным шагом `stack swagger-gen`
+
+---
+
+### Генерация Swagger-документов
+
+```bash
+./scripts/cli.py stack swagger-gen dev
+./scripts/cli.py stack swagger-gen prod
+```
+
+Поднимает зависимые сервисы (MySQL, Redis, RabbitMQ, backend), ждёт готовности, скачивает Swagger JSON и записывает его в `src/yuviron-frontend/packages/api/openapi/`. После успеха сервисы останавливаются.
+
+В CI этот шаг запускается один раз явно, а `stack preflight` и `stack up` вызываются с `--skip-swagger`, чтобы не повторять подъём зависимостей.
 
 ---
 
@@ -105,6 +150,7 @@ ALLOW_PRODUCTION_MIGRATE=<db-name> ./scripts/cli.py stack up prod
 * `--observability` - дополнительно запускает Seq и Aspire Dashboard (compose profile `observability`); по умолчанию эти сервисы не стартуют, чтобы не потреблять ресурсы в prod без необходимости
 * `--no-rollback` - отключает автоматический rollback при сбое сборки или запуска; по умолчанию CLI сохраняет снэпшот текущих образов перед `docker compose up --build` и восстанавливает их при неудаче
 * `--no-build` - не пересобирает образы: запускает контейнеры на уже существующих `:latest` образах (`docker compose up -d` без `--build`); одновременно пропускает регенерацию Swagger-документов, поскольку frontend-образы не обновляются; используется в CI-rollback-шаге, где образы предыдущей версии уже восстановлены автоматическим image-level rollback
+* `--skip-swagger` - пропускает генерацию Swagger-документов при обычной сборке с `--build`; используется в CI, где Swagger уже сгенерирован отдельным шагом `stack swagger-gen`
 
 ### Миграции БД
 

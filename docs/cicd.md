@@ -42,12 +42,16 @@ shared/frontend/.github/workflows/deploy.yml
 Текущий deploy flow:
 
 1. синхронизировать source repo в `src/yuviron-backend` или `src/yuviron-frontend`
-2. выполнить preflight
-3. собрать/поднять стек через `./scripts/cli.py stack up <env>`; команда перед основным `up` явно запускает EF Core migrator через compose profile `migrate`
-4. просканировать собранные образы на CVE через Trivy (после build, до smoke)
-5. выполнить `./scripts/cli.py stack smoke <env>`
-6. показать compose status и хвосты логов
-7. после успешного deploy подрезать Docker build cache через `tools docker-clean`
+2. сгенерировать `appsettings.json` через `./scripts/cli.py appsettings gen <env>` (секреты пробрасываются из CI-переменных)
+3. сгенерировать Swagger-документы через `./scripts/cli.py stack swagger-gen <env>` (поднимает MySQL/Redis/RabbitMQ/backend, скачивает OpenAPI spec, останавливает сервисы)
+4. выполнить preflight через `./scripts/cli.py stack preflight <env> --skip-swagger`
+5. собрать/поднять стек через `./scripts/cli.py stack up <env> --skip-swagger`; команда перед основным `up` явно запускает EF Core migrator через compose profile `migrate`
+6. просканировать собранные образы на CVE через Trivy (после build, до smoke)
+7. выполнить `./scripts/cli.py stack smoke <env>`
+8. показать compose status и хвосты логов
+9. после успешного deploy подрезать Docker build cache через `tools docker-clean`
+
+`--skip-swagger` в шагах 4 и 5 исключает повторный подъём зависимостей: Swagger уже сгенерирован на шаге 3, а повторный запуск добавлял бы 3+ минут к деплою.
 
 ---
 
