@@ -15,6 +15,7 @@
 
     server {
         listen 443 ssl default_server;
+        http2 on;
         server_name _;
 
         ssl_certificate {{ default_ssl_certificate }};

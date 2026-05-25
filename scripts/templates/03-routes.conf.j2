@@ -25,6 +25,7 @@
 
     server {
         listen 443 ssl;
+        http2 on;
         server_name {{ route.host }};
 
         access_log /dev/stdout main;

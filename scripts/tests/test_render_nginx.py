@@ -383,6 +383,20 @@ class RenderNginxTests(unittest.TestCase):
 
         self.assertIn("Invalid nginx NGINX_CONTENT_SECURITY_POLICY", str(raised.exception))
 
+    def test_render_enables_http2_on_https_server_blocks_only(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
+            SCRIPTS_ROOT / "templates",
+        )
+        # http2 on; must appear in every HTTPS server block (route + default catch-all)
+        self.assertIn("http2 on;", rendered)
+        # HTTP (port 80) blocks must not carry http2 — it's meaningless over plain TCP
+        http_blocks = [block for block in rendered.split("server {") if "listen 80" in block]
+        for block in http_blocks:
+            self.assertNotIn("http2 on;", block)
+        # deprecated listen-level syntax must never appear
+        self.assertNotIn("listen 443 ssl http2", rendered)
+
     def test_security_headers_live_only_in_https_server_blocks_with_hsts(self) -> None:
         rendered = render_nginx_conf_modular(
             [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
