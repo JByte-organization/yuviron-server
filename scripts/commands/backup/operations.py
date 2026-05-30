@@ -360,7 +360,24 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
             mark_warning(f"{env_name}:volume-{logical_name}-missing")
             return
 
-        logger.info(f"Archiving named volume {volume_name} for {env_name}")
+        # Prefer lightweight images that are guaranteed to be present locally
+        # (stack service images) so backup works without internet access.
+        _TAR_HELPER_IMAGES = [
+            "redis:7-alpine",
+            "mysql:8.4",
+            "alpine:3.20",
+        ]
+
+        def _pick_tar_image() -> str:
+            for img in _TAR_HELPER_IMAGES:
+                probe = run(["docker", "image", "inspect", img], check=False, capture_output=True)
+                if probe.returncode == 0:
+                    return img
+            return _TAR_HELPER_IMAGES[-1]
+
+        tar_image = _pick_tar_image()
+        uid, gid = os.getuid(), os.getgid()
+        logger.info(f"Archiving named volume {volume_name} for {env_name} (image: {tar_image})")
         packed = run(
             [
                 "docker",
@@ -370,10 +387,12 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
                 f"{volume_name}:/source:ro",
                 "-v",
                 f"{out_file.parent}:/backup",
-                "alpine:3.20",
+                tar_image,
                 "sh",
                 "-c",
-                f"tar -czf /backup/{out_file.name} -C /source .",
+                # Run tar as root (to read volume files owned by internal container users),
+                # then hand ownership back to the calling user so the host process can read it.
+                f"tar -czf /backup/{out_file.name} -C /source . && chown {uid}:{gid} /backup/{out_file.name}",
             ],
             check=False,
             capture_output=True,
@@ -381,6 +400,9 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
 
         if packed.returncode != 0:
             out_file.unlink(missing_ok=True)
+            details = (packed.stderr or packed.stdout or "").strip()
+            if details:
+                logger.error(f"docker run output: {details}")
             raise CommandError(f"Failed to archive volume {volume_name} for {env_name}")
 
         if not out_file.is_file() or out_file.stat().st_size == 0:
