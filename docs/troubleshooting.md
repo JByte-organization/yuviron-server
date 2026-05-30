@@ -108,6 +108,21 @@ sudo ss -tlnp | grep ':80\|:443'
 
 ---
 
+### `nginx -t: host not found in upstream`
+
+Исторически (до текущей версии) nginx -t падал с ошибкой `host not found in upstream "backend"` потому что прямые `proxy_pass http://backend:5073` требовали работающих контейнеров во время валидации конфига.
+
+**Текущее поведение**: nginx.conf использует variable-based proxy_pass (`set $upstream_xxx service:port; proxy_pass http://$upstream_xxx`), поэтому DNS разрешается в момент запроса, а не при старте. `nginx -t` работает без запущенных upstream-сервисов.
+
+Если ошибка всё же появилась — значит конфиг был сгенерирован старой версией шаблона. Перегенерировать:
+
+```bash
+python3 scripts/generate-config.py --env dev --domain yuviron.com --apps client,admin,backoffice
+docker compose ... restart nginx
+```
+
+---
+
 ### `nginx config invalid`
 
 Проверить конфиг внутри работающего контейнера:

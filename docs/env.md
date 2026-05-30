@@ -191,6 +191,10 @@ ASPIRE_OTLP_API_KEY=<api-key>
 RABBITMQ_DEFAULT_PASS=<password>
 JamendoApi__ClientId=<client-id>
 
+Stripe__SecretKey=sk_test_...
+Stripe__WebhookSecret=whsec_...
+TAILSCALE_FUNNEL_HOST=nf-1.tail668747.ts.net
+
 NGINX_PUBLIC_RATE_LIMIT=60r/m
 NGINX_RATE_API_AUTH=30r/m
 NGINX_RATE_API_UPLOAD=20r/m
@@ -222,6 +226,9 @@ ASPIRE_OTLP_API_KEY=<api-key>
 RABBITMQ_DEFAULT_PASS=<strong-password>
 JamendoApi__ClientId=<client-id>
 
+Stripe__SecretKey=sk_live_...
+Stripe__WebhookSecret=whsec_...
+
 NGINX_CONTENT_SECURITY_POLICY=default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob: https:; font-src 'self' data:; style-src 'self'; script-src 'self' blob:; connect-src 'self' https: wss:; media-src 'self' data: blob: https:; worker-src 'self' blob:; manifest-src 'self'
 
 NGINX_PUBLIC_RATE_LIMIT=30r/m
@@ -234,6 +241,53 @@ SEQ_MEMSWAP_LIMIT=768m
 BACKEND_MEM_LIMIT=1536m
 BACKEND_MEMSWAP_LIMIT=1536m
 ```
+
+---
+
+## Stripe
+
+Ключи Stripe передаются в backend через env-переменные, которые переопределяют значения из `appsettings.*.json`. Переменные должны быть явно объявлены в секции `environment` сервиса `backend` в `infra/compose.yml` — они **не** попадают в контейнер автоматически через `env_file`.
+
+| Переменная | Где взять |
+|---|---|
+| `Stripe__SecretKey` | Stripe Dashboard → Developers → API keys → Secret key |
+| `Stripe__WebhookSecret` | Stripe Dashboard → Developers → Webhooks → Signing secret |
+
+### Тестирование вебхуков в dev
+
+Серверы Stripe не могут достучаться до `dev-api.yuviron.com` (закрытый Tailscale-домен). Стандартное решение — Stripe CLI `listen`, который создаёт WebSocket-тоннель от Stripe до локального endpoint:
+
+```bash
+# Установка
+curl -s https://packages.stripe.dev/api/security/keypair/stripe-cli-gpg/public \
+  | gpg --dearmor | sudo tee /usr/share/keyrings/stripe.gpg > /dev/null
+echo "deb [signed-by=/usr/share/keyrings/stripe.gpg] https://packages.stripe.dev/stripe-cli-debian-local stable main" \
+  | sudo tee /etc/apt/sources.list.d/stripe.list
+sudo apt update && sudo apt install -y stripe
+
+# Авторизация
+stripe login
+
+# Добавить dev-api.yuviron.com в /etc/hosts (если не резолвится локально)
+echo "127.0.0.1 dev-api.yuviron.com" | sudo tee -a /etc/hosts
+
+# Запуск туннеля (держать открытым в отдельном терминале)
+stripe listen \
+  --forward-to https://dev-api.yuviron.com/api/webhooks/stripe \
+  --skip-verify
+# Скопировать whsec_test_... из вывода → Stripe__WebhookSecret в env/dev.env → restart backend
+
+# Тест
+stripe trigger checkout.session.completed
+```
+
+`stripe listen` выдаёт временный `whsec_test_...` — его нужно прописать в `Stripe__WebhookSecret` для dev-окружения. При каждом новом запуске `stripe listen` секрет одинаковый для одного аккаунта.
+
+### TAILSCALE_FUNNEL_HOST
+
+Опциональная переменная. Если задана, nginx генерирует дополнительный HTTPS server block для Tailscale Funnel hostname (только `/api/webhooks/` → backend). Используется когда нужен постоянный публичный webhook URL без `stripe listen`.
+
+**Предупреждение**: `tailscale serve` перехватывает весь HTTPS на Tailscale-интерфейсе и ломает доступ к кастомным доменам (`dev-api.yuviron.com`) из Tailscale-сети. Для dev-тестирования рекомендуется `stripe listen`.
 
 ---
 

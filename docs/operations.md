@@ -144,6 +144,33 @@ ALLOW_PRODUCTION_MIGRATE=<db-name> ./scripts/cli.py stack up prod
 
 ---
 
+### Тестирование Stripe вебхуков (dev)
+
+`dev-api.yuviron.com` — закрытый Tailscale-домен, серверы Stripe не могут до него достучаться напрямую. Используй `stripe listen` — он создаёт тоннель через CLI и пробрасывает события локально.
+
+**Терминал 1** (держать открытым):
+```bash
+stripe listen \
+  --forward-to https://dev-api.yuviron.com/api/webhooks/stripe \
+  --skip-verify
+# Скопировать whsec_test_... → Stripe__WebhookSecret в env/dev.env
+# Перезапустить backend если секрет изменился
+```
+
+**Терминал 2** (тест):
+```bash
+stripe trigger checkout.session.completed
+docker logs yuviron-dev-backend --follow --tail=20
+# Ожидать: [INF] Payment success received for User ...
+```
+
+Если `dev-api.yuviron.com` не резолвится на самом сервере (DNS lookup error):
+```bash
+echo "127.0.0.1 dev-api.yuviron.com" | sudo tee -a /etc/hosts
+```
+
+---
+
 ## Best Practices
 
 * Всегда запускать `preflight` перед `up`
