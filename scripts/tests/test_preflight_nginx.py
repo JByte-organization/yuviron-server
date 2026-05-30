@@ -93,7 +93,9 @@ class PreflightNginxTests(unittest.TestCase):
         tag_calls = [c for c in run_mock.call_args_list if c.args[0][:2] == ["docker", "tag"]]
         self.assertEqual(len(tag_calls), 0)
 
-    def test_check_nginx_config_uses_no_build_for_upstream_start(self) -> None:
+    def test_check_nginx_config_runs_nginx_t_without_starting_upstreams(self) -> None:
+        # nginx.conf uses variable-based proxy_pass for all upstreams, so upstream
+        # services need not be running for nginx -t to succeed.
         with tempfile.TemporaryDirectory() as temp_dir:
             generated_nginx_conf = Path(temp_dir) / "nginx.conf"
             routes_file = Path(temp_dir) / "routes.env"
@@ -118,53 +120,17 @@ class PreflightNginxTests(unittest.TestCase):
 
             with (
                 patch.object(preflight_checks, "_check_route_upstreams_exist"),
-                patch.object(preflight_checks, "_running_project_containers", return_value={}),
                 patch.object(preflight_checks, "run_compose", side_effect=fake_run_compose),
             ):
                 preflight_checks.check_nginx_config(ctx)
 
-        up_call = call_args_list[0]
-        self.assertIn("--no-build", up_call)
-        self.assertEqual(up_call[0], "up")
-
-    def test_check_nginx_config_continues_nginx_t_when_upstream_start_fails(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            generated_nginx_conf = Path(temp_dir) / "nginx.conf"
-            routes_file = Path(temp_dir) / "routes.env"
-            generated_nginx_conf.write_text("server_name api.example.com;\n", encoding="utf-8")
-            routes_file.write_text("api|api.example.com|backend:5073\n", encoding="utf-8")
-            compose = SimpleNamespace(compose_project_name="yuviron-dev")
-            ctx = SimpleNamespace(
-                dry_run=False,
-                generated_nginx_conf=generated_nginx_conf,
-                routes_file=routes_file,
-                routes=[("api", "api.example.com", "backend:5073")],
-                ensure_compose_context=lambda: compose,
-                assert_file=lambda path: None,
-                preflight_started_containers={},
-            )
-
-            call_args_list = []
-
-            def fake_run_compose(c, *args, **kwargs):
-                call_args_list.append(args)
-                # First call (up --no-build) fails — images missing
-                if args[0] == "up":
-                    return SimpleNamespace(returncode=1)
-                return SimpleNamespace(returncode=0)
-
-            with (
-                patch.object(preflight_checks, "_check_route_upstreams_exist"),
-                patch.object(preflight_checks, "_running_project_containers", return_value={}),
-                patch.object(preflight_checks, "run_compose", side_effect=fake_run_compose),
-            ):
-                preflight_checks.check_nginx_config(ctx)
-
-        # nginx -t must still run even when upstream start failed
-        run_call = next((a for a in call_args_list if a[0] == "run"), None)
-        self.assertIsNotNone(run_call, "nginx -t was not called after upstream start failure")
-        self.assertIn("nginx", run_call)
-        self.assertIn("-t", run_call)
+        # Only nginx -t should be called — no compose up to start upstreams
+        self.assertEqual(len(call_args_list), 1, "Expected exactly one run_compose call (nginx -t)")
+        nginx_t_call = call_args_list[0]
+        self.assertIn("run", nginx_t_call)
+        self.assertIn("nginx", nginx_t_call)
+        self.assertIn("-t", nginx_t_call)
+        self.assertNotIn("up", nginx_t_call)
 
     def test_check_nginx_config_dry_run_uses_compose_plan_without_starting_containers(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

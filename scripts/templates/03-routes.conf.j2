@@ -28,6 +28,9 @@
         http2 on;
         server_name {{ route.host }};
 
+        # Defers upstream DNS resolution to request time (nginx -t passes without running services)
+        set $upstream_{{ route.name | replace('-', '_') }} {{ route.upstream }};
+
         access_log /dev/stdout main;
         error_log  /dev/stderr warn;
 
@@ -70,7 +73,7 @@
 
             rewrite ^/(?!health$)(.+)$ /i/$1 break;
 
-            proxy_pass http://{{ route.upstream }};
+            proxy_pass http://$upstream_{{ route.name | replace('-', '_') }};
 
             proxy_buffering on;
 
@@ -117,12 +120,7 @@
             limit_req_status 429;
             {% endif %}
 
-            {% if route.optional %}
-            set $upstream_{{ route.name | replace('-', '_') }} {{ route.upstream }};
             proxy_pass http://$upstream_{{ route.name | replace('-', '_') }};
-            {% else %}
-            proxy_pass http://{{ route.upstream }};
-            {% endif %}
             include /etc/nginx/proxy-params.conf;
 
             proxy_connect_timeout 5s;
@@ -160,7 +158,7 @@
             limit_req zone=api_auth burst=3 nodelay;
             limit_req_status 429;
 
-            proxy_pass http://{{ route.upstream }};
+            proxy_pass http://$upstream_{{ route.name | replace('-', '_') }};
             include /etc/nginx/proxy-params.conf;
         }
         {% endif %}
@@ -176,11 +174,37 @@
 
             proxy_request_buffering off;
 
-            proxy_pass http://{{ route.upstream }};
+            proxy_pass http://$upstream_{{ route.name | replace('-', '_') }};
             include /etc/nginx/proxy-params.conf;
         }
         {% endif %}
     }
 
 {% endfor %}
+{% if tailscale_funnel_host %}
+    # Tailscale Funnel ingress — public endpoint for Stripe webhooks.
+    # Tailscale Serve terminates the outer TLS and forwards to this HTTPS server.
+    # nginx uses the Tailscale-issued cert; only /api/webhooks/ is exposed.
+    server {
+        listen 443 ssl;
+        http2 on;
+        server_name {{ tailscale_funnel_host }};
+
+        ssl_certificate     /etc/nginx/certs/{{ tailscale_funnel_host }}.pem;
+        ssl_certificate_key /etc/nginx/certs/{{ tailscale_funnel_host }}-key.pem;
+
+        access_log /dev/stdout main;
+        error_log  /dev/stderr warn;
+
+        # Tailscale Serve strips the --set-path prefix (/api/webhooks/) before
+        # forwarding here, so /api/webhooks/stripe arrives as /stripe.
+        # proxy_pass with a trailing path re-prepends the stripped prefix.
+        location / {
+            proxy_request_buffering off;
+            proxy_pass http://backend:5073/api/webhooks/;
+            include /etc/nginx/proxy-params.conf;
+            proxy_set_header X-Forwarded-Proto https;
+        }
+    }
+{% endif %}
 }

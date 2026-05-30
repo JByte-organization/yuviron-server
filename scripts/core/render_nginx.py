@@ -226,6 +226,7 @@ def render_nginx_conf_modular(
         "nginx_public_rate_burst": nginx_public_rate_burst,
         "nginx_rate_api_auth": nginx_rate_api_auth,
         "nginx_rate_api_upload": nginx_rate_api_upload,
+        "tailscale_funnel_host": _env_value(env_values, "TAILSCALE_FUNNEL_HOST", "").strip() or None,
         "nginx_worker_processes": _validate_nginx_worker_processes(
             "NGINX_WORKER_PROCESSES",
             _env_value(env_values, "NGINX_WORKER_PROCESSES", DEFAULT_NGINX_WORKER_PROCESSES),
