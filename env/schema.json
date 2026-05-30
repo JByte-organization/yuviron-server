@@ -396,6 +396,20 @@
     "Swagger__Enabled": {
       "type": "string",
       "format": "boolean"
+    },
+    "Stripe__SecretKey": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stripe secret API key (sk_live_... or sk_test_...)."
+    },
+    "Stripe__WebhookSecret": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stripe webhook signing secret (whsec_...) for HMAC signature validation."
+    },
+    "TAILSCALE_FUNNEL_HOST": {
+      "type": "string",
+      "description": "Public Tailscale Funnel hostname (e.g. nf.tail668747.ts.net). Used by nginx to accept Stripe webhooks from the public internet."
     }
   },
   "patternProperties": {

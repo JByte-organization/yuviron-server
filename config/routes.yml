@@ -4,7 +4,7 @@ routes:
     client_max_body_size: 50m
     has_auth_endpoints: true
     rate_limit_zone: api_general
-    upload_locations: [media, upload, uploads, files, file]
+    upload_locations: [media, upload, uploads, files, file, webhooks]
     upload_client_max_body_size: 50m
     upload_rate_limit_zone: api_upload
     upload_rate_limit_burst: 2

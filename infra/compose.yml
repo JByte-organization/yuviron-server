@@ -248,6 +248,8 @@ services:
       <<: *dotnet-env
       ASPNETCORE_HTTP_PORTS: 5073
       Swagger__Enabled: ${Swagger__Enabled}
+      Stripe__SecretKey: ${Stripe__SecretKey}
+      Stripe__WebhookSecret: ${Stripe__WebhookSecret}
       # Suppress health check failure logs in both pipelines:
       # - Logging:LogLevel None disables the category in the standard ILogger pipeline.
       # - Serilog:MinimumLevel:Override Fatal suppresses it in the Serilog pipeline
