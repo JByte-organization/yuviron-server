@@ -429,6 +429,17 @@ def check_storage_writable(ctx: object) -> None:
     log_ok("Storage directories exist and host-side permissions are valid")
 
 
+def _is_container_running(container_name: str) -> bool:
+    return (
+        run(
+            ["docker", "inspect", "-f", "{{.State.Running}}", container_name],
+            capture_output=True,
+            check=False,
+        ).stdout.strip()
+        == "true"
+    )
+
+
 def check_backend_storage_permissions(ctx: object) -> None:
     if bool(getattr(ctx, "dry_run", False)):
         log_warn("Dry-run preflight skips backend in-container storage permission check")
@@ -442,6 +453,16 @@ def check_backend_storage_permissions(ctx: object) -> None:
     test_dir = "/var/yuviron-server/storage/temp/test-dir"
 
     log_info(f"Checking storage permissions inside backend container: {backend_container}")
+
+    # Backend may have been stopped after swagger prebuild; start it and its
+    # dependencies (mysql, redis, rabbitmq) if needed.
+    if not _is_container_running(backend_container):
+        compose = ctx.ensure_compose_context()
+        running_before = _running_project_containers(ctx)
+        run_compose(compose, "up", "-d", "--no-build", "backend", check=False)
+        running_after = _running_project_containers(ctx)
+        started = {name: name for name in running_after if name not in running_before}
+        ctx.preflight_started_containers.update(started)
 
     result = run(
         [
@@ -788,13 +809,13 @@ def check_nginx_config(ctx: object) -> None:
 
     route_services = _route_upstream_services(ctx)
     _check_route_upstreams_exist(ctx, route_services)
-    start_services = _unique_services(route_services)
-    if not start_services:
-        fail(f"Routes file does not contain upstream services: {ctx.routes_file}")
 
     compose = ctx.ensure_compose_context()
 
     if bool(getattr(ctx, "dry_run", False)):
+        start_services = _unique_services(route_services)
+        if not start_services:
+            fail(f"Routes file does not contain upstream services: {ctx.routes_file}")
         log_info(
             "Dry-run: validating nginx upstream dependency plan without starting containers: "
             + ", ".join(start_services)
@@ -816,30 +837,8 @@ def check_nginx_config(ctx: object) -> None:
         log_ok("Generated nginx config dry-run compose plan looks valid")
         return
 
-    log_info(f"Starting nginx upstream dependencies for config validation: {', '.join(start_services)}")
-    _tag_missing_upstream_images(compose.compose_project_name, start_services)
-    running_before = _running_project_containers(ctx)
-    started = run_compose(compose, "up", "-d", "--no-build", *start_services, check=False)
-    running_after = _running_project_containers(ctx)
-
-    started_by_preflight = {
-        name: name
-        for name in running_after
-        if name not in running_before
-    }
-    ctx.preflight_started_containers.update(started_by_preflight)
-
-    if started_by_preflight:
-        log_info(f"Containers started by preflight: {', '.join(sorted(started_by_preflight))}")
-    else:
-        log_info("No new containers were started by preflight")
-
-    if started.returncode != 0:
-        log_warn(
-            "Some nginx upstream dependencies could not be started (images may not exist yet). "
-            "nginx -t will validate config syntax only."
-        )
-
+    # nginx.conf uses variable-based proxy_pass for all upstreams (set $upstream_xxx ...),
+    # so nginx -t resolves DNS at request time — upstream services need not be running.
     log_info("Running nginx config validation in one-off container")
     nginx_test = run_compose(
         compose,
