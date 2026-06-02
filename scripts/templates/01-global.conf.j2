@@ -67,9 +67,34 @@ http {
         default "";
     }
 
+    map $http_origin $cors_api_origin {
+        {% for route in routes if route.cors_origin %}
+        "https://{{ route.host }}" $http_origin;
+        {% endfor %}
+        {% if is_dev %}
+        "http://localhost:3000" $http_origin;
+        {% endif %}
+        default "";
+    }
+
     map $request_method $cors_media_route {
         OPTIONS "@cors_preflight";
         default "@media_proxy";
+    }
+
+    map $request_method $cors_api_route {
+        OPTIONS "@api_cors_preflight";
+        default "@api_proxy";
+    }
+
+    map $request_method $cors_api_auth_route {
+        OPTIONS "@api_cors_preflight";
+        default "@api_auth_proxy";
+    }
+
+    map $request_method $cors_api_upload_route {
+        OPTIONS "@api_cors_preflight";
+        default "@api_upload_proxy";
     }
 
     log_format main '$remote_addr - $remote_user [$time_local] "$request" '

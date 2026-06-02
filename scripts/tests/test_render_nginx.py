@@ -29,7 +29,8 @@ class RenderNginxTests(unittest.TestCase):
         )
 
         self.assertIn("server_name api.example.com;", rendered)
-        self.assertIn("proxy_pass http://backend:5073;", rendered)
+        self.assertIn("set $upstream_api backend:5073;", rendered)
+        self.assertIn("proxy_pass http://$upstream_api;", rendered)
         self.assertIn("client_max_body_size 50m;", rendered)
         self.assertIn("ssl_certificate /etc/nginx/certs/dev-example.com.pem;", rendered)
         self.assertIn("api.example.com /etc/nginx/certs/dev-example.com.pem;", rendered)
@@ -251,7 +252,7 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("location = / {", rendered)
         self.assertIn("location ^~ /i/ {", rendered)
         self.assertIn("rewrite ^/(?!health$)(.+)$ /i/$1 break;", rendered)
-        self.assertIn("proxy_pass http://backend:5073;", rendered)
+        self.assertIn("proxy_pass http://$upstream_i;", rendered)
         self.assertIn("proxy_cache media_cache;", rendered)
         self.assertIn("proxy_cache_valid 200 365d;", rendered)
         self.assertIn("proxy_cache_valid 404 1m;", rendered)
@@ -319,6 +320,34 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("location @media_proxy {", rendered)
         self.assertIn("try_files /nonexistent $cors_media_route;", rendered)
         self.assertIn("return 204;", rendered)
+
+    def test_render_api_options_preflight_is_handled_at_edge(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [
+                NginxRoute("api", "api.example.com", "backend:5073", "50m", has_auth_endpoints=True),
+                NginxRoute("client", "app.example.com", "client-app:3000", "5m"),
+            ],
+            SCRIPTS_ROOT / "templates",
+        )
+
+        self.assertIn("map $http_origin $cors_api_origin {", rendered)
+        self.assertIn('"https://app.example.com" $http_origin;', rendered)
+        self.assertIn('"http://localhost:3000" $http_origin;', rendered)
+        self.assertIn("map $request_method $cors_api_route {", rendered)
+        self.assertIn('OPTIONS "@api_cors_preflight";', rendered)
+        self.assertIn("location @api_cors_preflight {", rendered)
+        self.assertIn("include /etc/nginx/cors-api-preflight-headers.conf;", rendered)
+        self.assertIn("try_files /nonexistent $cors_api_route;", rendered)
+        self.assertIn("try_files /nonexistent $cors_api_auth_route;", rendered)
+        self.assertIn("return 204;", rendered)
+
+    def test_api_preflight_headers_allow_auth_and_csrf_headers(self) -> None:
+        content = (SCRIPTS_ROOT / "templates" / "cors-api-preflight-headers.conf").read_text(encoding="utf-8")
+
+        self.assertIn("add_header 'Access-Control-Allow-Origin' $cors_api_origin always;", content)
+        self.assertIn("add_header 'Access-Control-Allow-Credentials' 'true' always;", content)
+        self.assertIn("Authorization", content)
+        self.assertIn("X-CSRF-Protection", content)
 
     def test_render_proxy_read_timeout_is_3600s(self) -> None:
         # proxy_read_timeout does not support nginx variables (msec_slot directive,
@@ -575,14 +604,14 @@ class RenderNginxTests(unittest.TestCase):
                 self.assertIn(f"proxy_pass http://$upstream_{var};", rendered)
                 self.assertNotIn(f"proxy_pass http://{upstream};", rendered)
 
-    def test_non_optional_routes_keep_direct_proxy_pass(self) -> None:
+    def test_backend_route_uses_variable_proxy_pass_for_lazy_dns(self) -> None:
         rendered = render_nginx_conf_modular(
             [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
             SCRIPTS_ROOT / "templates",
         )
 
-        self.assertIn("proxy_pass http://backend:5073;", rendered)
-        self.assertNotIn("set $upstream_api", rendered)
+        self.assertIn("set $upstream_api backend:5073;", rendered)
+        self.assertIn("proxy_pass http://$upstream_api;", rendered)
 
 
 if __name__ == "__main__":

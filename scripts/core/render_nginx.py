@@ -7,7 +7,7 @@ from typing import Iterable, Mapping
 
 from jinja2 import Environment, StrictUndefined
 
-from .models import MANAGEMENT_ROUTE_NAMES, OPTIONAL_NGINX_ROUTE_NAMES, is_valid_route_host
+from .models import BACKEND_ROUTE_NAME, MANAGEMENT_ROUTE_NAMES, OPTIONAL_NGINX_ROUTE_NAMES, is_valid_route_host
 from .nginx_csp import (
     STRICT_CONTENT_SECURITY_POLICY,  # noqa: F401  (re-exported for callers)
     _resolve_content_security_policy,
@@ -187,6 +187,7 @@ def render_nginx_conf_modular(
         r = _validate_nginx_route(route_line)
         route_is_management = r.name in MANAGEMENT_ROUTE_NAMES
         route_is_optional = r.name in OPTIONAL_NGINX_ROUTE_NAMES
+        route_is_backend_api = r.name == BACKEND_ROUTE_NAME
         route_ssl_certificate = default_ssl_certificate
         route_ssl_certificate_key = default_ssl_certificate_key
         if nginx_cert_mode == NGINX_CERT_MODE_PER_ROUTE:
@@ -204,6 +205,8 @@ def render_nginx_conf_modular(
             "upstream": r.upstream,
             "client_max_body_size": r.max_body_size,
             "has_auth_endpoints": r.has_auth_endpoints,
+            "api_cors_preflight": route_is_backend_api,
+            "cors_origin": not route_is_management and not r.media_proxy and not route_is_backend_api,
             "ssl_certificate": route_ssl_certificate,
             "ssl_certificate_key": route_ssl_certificate_key,
             "rate_limit_zone": r.rate_limit_zone,
@@ -226,6 +229,7 @@ def render_nginx_conf_modular(
         "nginx_public_rate_burst": nginx_public_rate_burst,
         "nginx_rate_api_auth": nginx_rate_api_auth,
         "nginx_rate_api_upload": nginx_rate_api_upload,
+        "is_dev": environment_name == "dev",
         "tailscale_funnel_host": _env_value(env_values, "TAILSCALE_FUNNEL_HOST", "").strip() or None,
         "nginx_worker_processes": _validate_nginx_worker_processes(
             "NGINX_WORKER_PROCESSES",

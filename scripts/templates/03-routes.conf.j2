@@ -104,6 +104,40 @@
             try_files /nonexistent $cors_media_route;
         }
         {% else %}
+        {% if route.api_cors_preflight %}
+        location @api_cors_preflight {
+            include /etc/nginx/cors-api-preflight-headers.conf;
+            return 204;
+        }
+
+        location @api_proxy {
+            {% if route.basic_auth %}
+            {% for cidr in route.admin_allowlist %}
+            allow {{ cidr }};
+            {% endfor %}
+            deny all;
+
+            auth_basic "Yuviron internal";
+            auth_basic_user_file /etc/nginx/htpasswd;
+            {% endif %}
+
+            {% if route.rate_limit_zone %}
+            limit_req zone={{ route.rate_limit_zone }} burst={{ route.rate_limit_burst }} nodelay;
+            limit_req_status 429;
+            {% endif %}
+
+            proxy_pass http://$upstream_{{ route.name | replace('-', '_') }};
+            include /etc/nginx/proxy-params.conf;
+
+            proxy_connect_timeout 5s;
+            proxy_send_timeout 15s;
+            proxy_read_timeout 3600s;
+        }
+
+        location / {
+            try_files /nonexistent $cors_api_route;
+        }
+        {% else %}
         location / {
             {% if route.basic_auth %}
             {% for cidr in route.admin_allowlist %}
@@ -128,6 +162,7 @@
             proxy_read_timeout 3600s;
         }
         {% endif %}
+        {% endif %}
 
         location = /health {
             limit_req zone=health_probe burst=10 nodelay;
@@ -144,6 +179,29 @@
         }
 
         {% if route.has_auth_endpoints %}
+        {% if route.api_cors_preflight %}
+        location @api_auth_proxy {
+            {% if route.basic_auth %}
+            {% for cidr in route.admin_allowlist %}
+            allow {{ cidr }};
+            {% endfor %}
+            deny all;
+
+            auth_basic "Yuviron internal";
+            auth_basic_user_file /etc/nginx/htpasswd;
+            {% endif %}
+
+            limit_req zone=api_auth burst=3 nodelay;
+            limit_req_status 429;
+
+            proxy_pass http://$upstream_{{ route.name | replace('-', '_') }};
+            include /etc/nginx/proxy-params.conf;
+        }
+
+        location ~* ^/(auth|account|login|register|token|refresh) {
+            try_files /nonexistent $cors_api_auth_route;
+        }
+        {% else %}
         location ~* ^/(auth|account|login|register|token|refresh) {
             {% if route.basic_auth %}
             {% for cidr in route.admin_allowlist %}
@@ -162,8 +220,28 @@
             include /etc/nginx/proxy-params.conf;
         }
         {% endif %}
+        {% endif %}
 
         {% if route.upload_locations %}
+        {% if route.api_cors_preflight %}
+        location @api_upload_proxy {
+            client_max_body_size {{ route.upload_client_max_body_size }};
+
+            {% if route.upload_rate_limit_zone %}
+            limit_req zone={{ route.upload_rate_limit_zone }} burst={{ route.upload_rate_limit_burst }} nodelay;
+            limit_req_status 429;
+            {% endif %}
+
+            proxy_request_buffering off;
+
+            proxy_pass http://$upstream_{{ route.name | replace('-', '_') }};
+            include /etc/nginx/proxy-params.conf;
+        }
+
+        location ~* ^/({{ route.upload_locations_pattern }})(/|$) {
+            try_files /nonexistent $cors_api_upload_route;
+        }
+        {% else %}
         location ~* ^/({{ route.upload_locations_pattern }})(/|$) {
             client_max_body_size {{ route.upload_client_max_body_size }};
 
@@ -177,6 +255,7 @@
             proxy_pass http://$upstream_{{ route.name | replace('-', '_') }};
             include /etc/nginx/proxy-params.conf;
         }
+        {% endif %}
         {% endif %}
     }
 
