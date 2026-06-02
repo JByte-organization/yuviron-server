@@ -257,6 +257,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         allow_regenerate = os.getenv("ALLOW_REGENERATE", "0") == "1"
 
     skip_swagger = bool(getattr(args, "skip_swagger", False))
+    skip_connectivity_check = bool(getattr(args, "skip_connectivity_check", False))
 
     if not args.no_header:
         print(":: Preflight")
@@ -277,7 +278,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
 
         preflight_checks.check_tools(ctx)
         preflight_checks.check_docker_access(ctx)
-        if not ctx.dry_run:
+        if not ctx.dry_run and not skip_connectivity_check:
             preflight_checks.check_internet_connectivity(ctx)
 
         if ctx.strict_generated or environment == "prod":

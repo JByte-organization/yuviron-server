@@ -165,6 +165,37 @@ class PreflightNginxTests(unittest.TestCase):
             check=False,
         )
 
+    def test_check_nginx_config_failure_reports_nginx_t_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            generated_nginx_conf = Path(temp_dir) / "nginx.conf"
+            routes_file = Path(temp_dir) / "routes.env"
+            generated_nginx_conf.write_text("server_name api.example.com;\n", encoding="utf-8")
+            routes_file.write_text("api|api.example.com|backend:5073\n", encoding="utf-8")
+            compose = SimpleNamespace()
+            ctx = SimpleNamespace(
+                dry_run=False,
+                generated_nginx_conf=generated_nginx_conf,
+                routes_file=routes_file,
+                routes=[("api", "api.example.com", "backend:5073")],
+                ensure_compose_context=lambda: compose,
+                assert_file=lambda path: None,
+            )
+
+            with (
+                patch.object(preflight_checks, "_check_route_upstreams_exist"),
+                patch.object(
+                    preflight_checks,
+                    "run_compose",
+                    return_value=SimpleNamespace(returncode=1, stdout="", stderr="nginx: bad config"),
+                ) as run_compose_mock,
+            ):
+                with self.assertRaises(CommandError) as exc:
+                    preflight_checks.check_nginx_config(ctx)
+
+        run_compose_mock.assert_called_once()
+        self.assertTrue(run_compose_mock.call_args.kwargs["capture_output"])
+        self.assertIn("nginx: bad config", str(exc.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

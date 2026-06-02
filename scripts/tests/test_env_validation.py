@@ -208,6 +208,11 @@ class EnvValidationTests(unittest.TestCase):
 
         self.assertTrue(args.strict)
 
+    def test_preflight_parser_accepts_skip_connectivity_check(self) -> None:
+        args = build_parser().parse_args(["stack", "preflight", "dev", "--skip-connectivity-check"])
+
+        self.assertTrue(args.skip_connectivity_check)
+
     def test_preflight_env_policy_fails_prod_with_actionable_errors(self) -> None:
         ctx = SimpleNamespace(
             environment="prod",

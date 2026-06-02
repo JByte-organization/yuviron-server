@@ -99,6 +99,22 @@ def _restart_if_unhealthy(context: ComposeContext, service: str, reason: str = "
         run(["docker", "restart", cid], check=False)
 
 
+def _running_prebuild_services(context: ComposeContext) -> set[str]:
+    running: set[str] = set()
+    for service in SWAGGER_PREBUILD_SERVICES:
+        cid = _service_container_id(context, service)
+        if not cid:
+            continue
+        state = run(
+            ["docker", "inspect", "-f", "{{.State.Running}}", cid],
+            capture_output=True,
+            check=False,
+        ).stdout.strip()
+        if state == "true":
+            running.add(service)
+    return running
+
+
 def _prepare_frontend_swagger(context: ComposeContext, root_dir, *, dry_run: bool = False) -> None:
     swagger_context = _swagger_prebuild_context(context)
 
@@ -115,6 +131,7 @@ def _prepare_frontend_swagger(context: ComposeContext, root_dir, *, dry_run: boo
         return
 
     log_info("Preparing Swagger documents for frontend API generation")
+    running_before = _running_prebuild_services(swagger_context)
     use_no_build = _ensure_swagger_backend_image(swagger_context, context.environment)
     if not use_no_build:
         run_compose(swagger_context, "build", "--pull=false", *SWAGGER_PREBUILD_SERVICES)
@@ -156,7 +173,12 @@ def _prepare_frontend_swagger(context: ComposeContext, root_dir, *, dry_run: boo
 
             _write_swagger_document(root_dir, name, result.stdout)
     finally:
-        run_compose(swagger_context, "stop", *SWAGGER_PREBUILD_SERVICES)
+        services_to_stop = tuple(
+            service for service in SWAGGER_PREBUILD_SERVICES
+            if service not in running_before
+        )
+        if services_to_stop:
+            run_compose(swagger_context, "stop", *services_to_stop)
 
     log_ok("Swagger prebuild completed")
 

@@ -564,11 +564,13 @@ def _check_generator_dependency_hashes(ctx: object, *, hint: str = "") -> None:
         expected = ctx.manifest_values.get(key, "")
         _assert_hash_equals(file_path, expected, "generator library dependency", hint=hint)
 
-    for file_path in sorted((ctx.root_dir / "scripts" / "templates").glob("*.j2")):
-        token = _manifest_token(file_path.name)
-        key = f"SOURCE_TEMPLATE_{token}_SHA256"
-        expected = ctx.manifest_values.get(key, "")
-        _assert_hash_equals(file_path, expected, "generator template dependency", hint=hint)
+    templates_dir = ctx.root_dir / "scripts" / "templates"
+    for pattern in ("*.conf", "*.j2"):
+        for file_path in sorted(templates_dir.glob(pattern)):
+            token = _manifest_token(file_path.name)
+            key = f"SOURCE_TEMPLATE_{token}_SHA256"
+            expected = ctx.manifest_values.get(key, "")
+            _assert_hash_equals(file_path, expected, "generator template dependency", hint=hint)
 
 
 def load_manifest_file(ctx: object) -> None:
@@ -850,11 +852,14 @@ def check_nginx_config(ctx: object) -> None:
         "nginx",
         "nginx",
         "-t",
+        capture_output=True,
         check=False,
     )
 
     if nginx_test.returncode != 0:
-        _print_service_logs_on_failure(ctx, "nginx")
+        details = (nginx_test.stderr or nginx_test.stdout or "").strip()
+        if details:
+            fail(f"Generated nginx config failed nginx -t validation\n{details}")
         fail("Generated nginx config failed nginx -t validation")
 
     log_ok("Generated nginx config looks valid")

@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import DEFAULT, MagicMock, call, patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
@@ -31,7 +31,7 @@ class StackSmokeTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def _up_args(self, *, dry_run: bool = False, skip_migrate: bool = False, no_build: bool = False, skip_swagger: bool = False) -> SimpleNamespace:
+    def _up_args(self, *, dry_run: bool = False, skip_migrate: bool = False, no_build: bool = False, skip_swagger: bool = False, build_services: list[str] | None = None) -> SimpleNamespace:
         return SimpleNamespace(
             environment="dev",
             project_root=str(self.root),
@@ -39,6 +39,21 @@ class StackSmokeTests(unittest.TestCase):
             skip_migrate=skip_migrate,
             no_build=no_build,
             skip_swagger=skip_swagger,
+            build_services=build_services,
+        )
+
+    def _preflight_args(self, *, skip_connectivity_check: bool = False) -> SimpleNamespace:
+        return SimpleNamespace(
+            environment="dev",
+            project_root=str(self.root),
+            strict_generated=False,
+            allow_regenerate=False,
+            strict=False,
+            isolated=False,
+            dry_run=False,
+            no_header=True,
+            skip_swagger=True,
+            skip_connectivity_check=skip_connectivity_check,
         )
 
     def test_https_route_url_omits_default_port(self) -> None:
@@ -116,6 +131,33 @@ class StackSmokeTests(unittest.TestCase):
             ],
             run_compose_mock.call_args_list,
         )
+
+    def test_preflight_skip_connectivity_check_skips_internet_probe(self) -> None:
+        with (
+            patch.multiple(
+                stack.preflight_checks,
+                check_tools=DEFAULT,
+                check_docker_access=DEFAULT,
+                check_internet_connectivity=DEFAULT,
+                check_required_paths=DEFAULT,
+                load_env_file=DEFAULT,
+                check_required_env_vars=DEFAULT,
+                check_env_policy=DEFAULT,
+                check_runtime_files=DEFAULT,
+                check_storage_writable=DEFAULT,
+                check_disk_space=DEFAULT,
+                check_shared_network=DEFAULT,
+                check_routes_file=DEFAULT,
+                check_compose_config=DEFAULT,
+                check_nginx_config=DEFAULT,
+                check_backend_storage_permissions=DEFAULT,
+            ) as checks,
+            patch("commands.stack._preflight.PreflightContext.stop_preflight_stack"),
+        ):
+            result = stack.cmd_preflight(self._preflight_args(skip_connectivity_check=True))
+
+        self.assertEqual(0, result)
+        checks["check_internet_connectivity"].assert_not_called()
 
     def test_stack_up_dry_run_uses_compose_dry_run_without_starting_containers(self) -> None:
         run_compose_mock = MagicMock()
@@ -196,6 +238,45 @@ class StackSmokeTests(unittest.TestCase):
         swagger_mock.assert_not_called()
         run_compose_mock.assert_called_once_with(self.context, "up", "-d", "--remove-orphans")
 
+    def test_stack_up_build_services_limits_compose_build_targets(self) -> None:
+        with (
+            patch("commands.stack._up.create_compose_context", return_value=self.context),
+            patch.object(stack.preflight_checks, "prepare_host_storage_layout"),
+            patch("commands.stack._up._prepare_frontend_swagger") as swagger_mock,
+            patch("commands.stack._up._snapshot_rollback_images", return_value={}),
+            patch("commands.stack._up.run_compose") as run_compose_mock,
+        ):
+            stack.cmd_up(self._up_args(
+                skip_migrate=True,
+                skip_swagger=True,
+                build_services=["backend", "media-worker", "nginx"],
+            ))
+
+        swagger_mock.assert_not_called()
+        calls = [c.args[1:] for c in run_compose_mock.call_args_list]
+        self.assertIn(("build", "--pull=false", "backend", "media-worker", "nginx"), calls)
+        self.assertNotIn(("build", "--pull=false"), calls)
+        self.assertIn(("up", "-d", "--remove-orphans"), calls)
+
+    def test_stack_up_build_services_empty_list_builds_all(self) -> None:
+        with (
+            patch("commands.stack._up.create_compose_context", return_value=self.context),
+            patch.object(stack.preflight_checks, "prepare_host_storage_layout"),
+            patch("commands.stack._up._prepare_frontend_swagger") as swagger_mock,
+            patch("commands.stack._up._snapshot_rollback_images", return_value={}),
+            patch("commands.stack._up.run_compose") as run_compose_mock,
+        ):
+            stack.cmd_up(self._up_args(
+                skip_migrate=True,
+                skip_swagger=True,
+                build_services=None,
+            ))
+
+        swagger_mock.assert_not_called()
+        calls = [c.args[1:] for c in run_compose_mock.call_args_list]
+        self.assertIn(("build", "--pull=false"), calls)
+        self.assertIn(("up", "-d", "--remove-orphans"), calls)
+
     def test_prepare_frontend_swagger_starts_backend_and_writes_documents(self) -> None:
         runtime_env = self.root / "generated" / "dev" / "deploy.env"
         runtime_env.write_text(
@@ -225,6 +306,7 @@ class StackSmokeTests(unittest.TestCase):
 
         with (
             patch("commands.stack._swagger.run_compose", side_effect=run_compose_side_effect) as run_compose_mock,
+            patch("commands.stack._swagger._running_prebuild_services", return_value=set()),
             patch("commands.stack._swagger._wait_for_service_health") as wait_mock,
             patch("commands.stack._swagger._ensure_swagger_backend_image", return_value=False),
         ):
@@ -279,6 +361,7 @@ class StackSmokeTests(unittest.TestCase):
 
         with (
             patch("commands.stack._swagger.run_compose", side_effect=run_compose_side_effect) as run_compose_mock,
+            patch("commands.stack._swagger._running_prebuild_services", return_value=set()),
             patch("commands.stack._swagger._wait_for_service_health"),
             patch("commands.stack._swagger._ensure_swagger_backend_image", return_value=True),
         ):
@@ -290,7 +373,7 @@ class StackSmokeTests(unittest.TestCase):
             calls[0].args[1:],
         )
 
-    def test_prepare_frontend_swagger_stops_services_on_fetch_failure(self) -> None:
+    def test_prepare_frontend_swagger_stops_only_services_it_started_on_fetch_failure(self) -> None:
         runtime_env = self.root / "generated" / "dev" / "deploy.env"
         runtime_env.write_text(
             "COMPOSE_PROJECT_NAME=yuviron-dev\nSwagger__Enabled=false\nSTORAGE_PATH=storage/dev\n",
@@ -312,13 +395,54 @@ class StackSmokeTests(unittest.TestCase):
 
         with (
             patch("commands.stack._swagger.run_compose", side_effect=run_compose_side_effect) as run_compose_mock,
+            patch("commands.stack._swagger._running_prebuild_services", return_value={"backend"}),
             patch("commands.stack._swagger._wait_for_service_health"),
         ):
             with self.assertRaises(stack.CommandError):
                 stack._prepare_frontend_swagger(context, self.root)
 
         stop_call = run_compose_mock.call_args_list[-1].args[1:]
-        self.assertEqual(("stop", "mysql", "redis", "rabbitmq", "backend"), stop_call)
+        self.assertEqual(("stop", "mysql", "redis", "rabbitmq"), stop_call)
+
+    def test_prepare_frontend_swagger_keeps_live_services_running(self) -> None:
+        runtime_env = self.root / "generated" / "dev" / "deploy.env"
+        runtime_env.write_text(
+            "COMPOSE_PROJECT_NAME=yuviron-dev\nSwagger__Enabled=false\nSTORAGE_PATH=storage/dev\n",
+            encoding="utf-8",
+        )
+        context = stack.ComposeContext(
+            root_dir=self.root,
+            environment="dev",
+            runtime_env=runtime_env,
+            compose_file=self.root / "infra" / "compose.yml",
+            frontends_compose=self.root / "generated" / "dev" / "compose.frontends.yml",
+            compose_project_name="yuviron-dev",
+        )
+
+        def run_compose_side_effect(_context, *args, **_kwargs):
+            if args[:3] == ("exec", "-T", "backend"):
+                doc_name = "admin" if "admin" in args[-1] else "client"
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout=f'{{"openapi":"3.0.1","info":{{"title":"{doc_name}"}}}}',
+                    stderr="",
+                )
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with (
+            patch("commands.stack._swagger.run_compose", side_effect=run_compose_side_effect) as run_compose_mock,
+            patch("commands.stack._swagger._running_prebuild_services", return_value=set(stack.SWAGGER_PREBUILD_SERVICES)),
+            patch("commands.stack._swagger._wait_for_service_health"),
+            patch("commands.stack._swagger._ensure_swagger_backend_image", return_value=True),
+        ):
+            stack._prepare_frontend_swagger(context, self.root)
+
+        stop_calls = [
+            call_args.args[1:]
+            for call_args in run_compose_mock.call_args_list
+            if call_args.args[1:2] == ("stop",)
+        ]
+        self.assertEqual([], stop_calls)
 
     def test_swagger_gen_calls_prepare_frontend_swagger(self) -> None:
         with (

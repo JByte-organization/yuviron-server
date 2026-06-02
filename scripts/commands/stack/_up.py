@@ -28,6 +28,7 @@ def cmd_up(args: argparse.Namespace) -> int:
     preflight_checks.prepare_host_storage_layout(root_dir, runtime_values)
     no_build = getattr(args, "no_build", False)
     skip_swagger = getattr(args, "skip_swagger", False)
+    build_services: list[str] = list(getattr(args, "build_services", None) or [])
 
     if not args.skip_migrate:
         _run_migrator(context, dry_run=args.dry_run)
@@ -59,7 +60,10 @@ def cmd_up(args: argparse.Namespace) -> int:
         else:
             log_info("Pulling pre-built service images")
             run_compose(context, "pull", "--ignore-buildable", check=False)
-            run_compose(context, "build", "--pull=false")
+            if build_services:
+                run_compose(context, "build", "--pull=false", *build_services)
+            else:
+                run_compose(context, "build", "--pull=false")
             run_compose(context, "up", "-d", "--remove-orphans")
     except CommandError:
         if snapshot:
