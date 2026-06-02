@@ -37,7 +37,10 @@ jobs:
         run: |
           set -Eeuo pipefail
           cd /opt/yuviron-server/src/yuviron-frontend
-          git fetch --prune origin "${SOURCE_BRANCH}"
+          # Fetch the exact triggering commit, not the branch tip.
+          # Fetching the branch tip would fail when a newer push arrives
+          # while this job is still running (concurrency cancel-in-progress=false).
+          git fetch --depth=1 origin "${{ github.sha }}"
           incoming_sha="$(git rev-parse FETCH_HEAD)"
           if [ "$incoming_sha" != "${{ github.sha }}" ]; then
             echo "ERROR: fetched SHA ${incoming_sha} does not match trigger SHA ${{ github.sha }}" >&2
@@ -137,12 +140,21 @@ jobs:
             echo "has_apps=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Print affected apps
+      - name: Detection summary
+        if: always()
         run: |
           set -Eeuo pipefail
-          echo "Affected apps: ${{ steps.affected.outputs.apps }}"
-          echo "Has apps: ${{ steps.affected.outputs.has_apps }}"
-          echo "Reason: ${{ steps.affected.outputs.reason }}"
+          {
+            echo "## Frontend detection"
+            echo
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Environment | ${DEPLOY_ENV} |"
+            echo "| Branch | ${{ github.ref_name }} |"
+            echo "| Commit | \`${{ github.sha }}\` |"
+            echo "| Detected apps | \`${{ steps.affected.outputs.apps || '[]' }}\` |"
+            echo "| Reason | ${{ steps.affected.outputs.reason || '—' }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Rollback frontend source after detection failure
         if: failure() && steps.deployed-revision.outputs.previous_sha != ''
@@ -178,13 +190,28 @@ jobs:
       DEPLOY_ENV: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
       SOURCE_BRANCH: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
       DETECT_REASON: ${{ needs.detect-affected.outputs.reason }}
+      DEPLOY_APP: ${{ matrix.app }}
+      GHA_DEPLOY_TITLE: "Frontend deploy: ${{ matrix.app }}"
 
     steps:
+      - name: Initialize deploy summary
+        run: |
+          set -Eeuo pipefail
+          git -C /opt/yuviron-server/src/yuviron-frontend fetch --depth=1 origin "${{ github.sha }}"
+          git -C /opt/yuviron-server/src/yuviron-frontend show \
+            "${{ github.sha }}:scripts/ci/github_actions_observe.sh" \
+            > "${RUNNER_TEMP}/yuviron-gha-observe.sh"
+          source "${RUNNER_TEMP}/yuviron-gha-observe.sh"
+          gha_init_summary
+
       - name: Sync frontend source
         run: |
           set -Eeuo pipefail
+          source "${RUNNER_TEMP}/yuviron-gha-observe.sh"
+          gha_begin_stage "Sync frontend source" "CI / GitHub" "GitHub source / runner git" \
+            "Could not fetch or verify trigger commit. Check GitHub ref, git credentials, and local repo state."
           cd /opt/yuviron-server/src/yuviron-frontend
-          git fetch --prune origin "${SOURCE_BRANCH}"
+          git fetch --depth=1 origin "${{ github.sha }}"
           incoming_sha="$(git rev-parse FETCH_HEAD)"
           if [ "$incoming_sha" != "${{ github.sha }}" ]; then
             echo "ERROR: fetched SHA ${incoming_sha} does not match trigger SHA ${{ github.sha }}" >&2
@@ -192,36 +219,85 @@ jobs:
           fi
           echo "Verified: incoming SHA ${incoming_sha}"
           git reset --hard "$incoming_sha"
-          git clean -fdx
-
-      - name: Print deploy mode
-        run: |
-          set -Eeuo pipefail
-          echo "Deploy mode reason: ${DETECT_REASON}"
-          echo "Current app: ${{ matrix.app }}"
-          echo "Selective deploy mode."
+          # -fd instead of -fdx: preserves gitignored files (node_modules) installed
+          # by the detect-affected job, making pnpm install a fast lockfile check.
+          git clean -fd
+          gha_pass_stage "Deployed commit: \`${incoming_sha}\`. Detect reason: ${DETECT_REASON}."
 
       - name: Docker disk usage before deploy
+        continue-on-error: true
         run: |
           set -Eeuo pipefail
+          source "${RUNNER_TEMP}/yuviron-gha-observe.sh"
+          gha_begin_stage "Docker disk report before deploy" "DevOps / server" "Runner Docker host" \
+            "Could not collect Docker disk usage report." \
+            "python3 ./scripts/cli.py tools docker-clean --mode report" \
+            "warning"
           cd /opt/yuviron-server
           python3 ./scripts/cli.py tools docker-clean --mode report
+          gha_pass_stage "Docker disk report collected."
 
       - name: Preflight check
         run: |
           set -Eeuo pipefail
+          source "${RUNNER_TEMP}/yuviron-gha-observe.sh"
+          gha_begin_stage "Preflight check" "DevOps / server" "Server config / Docker host" \
+            "Preflight rejected deploy. Check generated config, env files, Docker access, storage, disk, compose, and nginx config." \
+            "python3 ./scripts/cli.py stack preflight ${DEPLOY_ENV}"
           cd /opt/yuviron-server
-          python3 ./scripts/cli.py stack preflight "${DEPLOY_ENV}"
+          python3 ./scripts/cli.py stack preflight "${DEPLOY_ENV}" \
+            --skip-connectivity-check \
+            --skip-swagger
+          gha_pass_stage "Host and generated config checks passed."
 
       - name: Install frontend dependencies
         run: |
           set -Eeuo pipefail
+          source "${RUNNER_TEMP}/yuviron-gha-observe.sh"
+          gha_begin_stage "Install frontend dependencies" "CI / pnpm" "pnpm lockfile" \
+            "pnpm install failed. Lockfile may be out of sync or registry unreachable."
           cd /opt/yuviron-server/src/yuviron-frontend
           pnpm install --frozen-lockfile
+          gha_pass_stage "Dependencies installed."
+
+      - name: Ensure backend is running for API generation
+        run: |
+          set -Eeuo pipefail
+          source "${RUNNER_TEMP}/yuviron-gha-observe.sh"
+          gha_begin_stage "Ensure backend is running" "Backend / Docker" "Backend container" \
+            "Backend did not become healthy in time. Check backend container logs." \
+            "docker logs yuviron-${DEPLOY_ENV}-backend --tail 50"
+          cd /opt/yuviron-server
+
+          is_running() {
+            docker inspect "yuviron-${DEPLOY_ENV}-backend" \
+              --format='{{.State.Running}}' 2>/dev/null | grep -q true
+          }
+
+          if ! is_running; then
+            echo "Backend container not running — starting stack without build or migrate"
+            timeout 600 python3 ./scripts/cli.py stack up "${DEPLOY_ENV}" \
+              --skip-migrate --no-build --skip-swagger
+          fi
+
+          echo "Waiting for backend to become healthy..."
+          for i in $(seq 1 60); do
+            status="$(docker inspect "yuviron-${DEPLOY_ENV}-backend" \
+              --format='{{.State.Health.Status}}' 2>/dev/null || echo 'missing')"
+            echo "  attempt $i: ${status}"
+            [ "$status" = "healthy" ] && break
+            [ "$i" -eq 60 ] && { echo "Backend did not become healthy in time" >&2; exit 1; }
+            sleep 5
+          done
+          gha_pass_stage "Backend is healthy and ready."
 
       - name: Generate API types
         run: |
           set -Eeuo pipefail
+          source "${RUNNER_TEMP}/yuviron-gha-observe.sh"
+          gha_begin_stage "Generate API types" "CI / Swagger" "Backend Swagger / pnpm api:gen" \
+            "Failed to fetch Swagger spec or generate API types. Check backend health." \
+            "docker logs yuviron-${DEPLOY_ENV}-backend --tail 50"
           cd /opt/yuviron-server/src/yuviron-frontend
 
           mkdir -p packages/api/openapi
@@ -234,53 +310,85 @@ jobs:
             wget -qO- http://127.0.0.1:5073/swagger/client/swagger.json \
             > packages/api/openapi/client.swagger.json
 
+          docker exec "yuviron-${DEPLOY_ENV}-backend" \
+            wget -qO- http://127.0.0.1:5073/swagger/artist/swagger.json \
+            > packages/api/openapi/artist.swagger.json
+
           pnpm api:gen
+          gha_pass_stage "API types generated from Swagger spec."
 
       - name: Typecheck affected app
         run: |
           set -Eeuo pipefail
+          source "${RUNNER_TEMP}/yuviron-gha-observe.sh"
+          gha_begin_stage "Typecheck ${DEPLOY_APP}" "Frontend / TypeScript" "TypeScript / app code" \
+            "TypeScript typecheck failed for ${DEPLOY_APP}. Fix type errors before deploy."
           cd /opt/yuviron-server/src/yuviron-frontend
-          pnpm --filter "${{ matrix.app }}" run typecheck
+          pnpm --filter "${DEPLOY_APP}" run typecheck
+          gha_pass_stage "Typecheck passed."
 
       # Включи обратно, когда lint станет стабильным.
       # - name: Lint affected app
       #   run: |
       #     set -Eeuo pipefail
       #     cd /opt/yuviron-server/src/yuviron-frontend
-      #     pnpm --filter "${{ matrix.app }}" run lint
+      #     pnpm --filter "${DEPLOY_APP}" run lint
 
       - name: Build affected frontend service
         run: |
           set -Eeuo pipefail
+          source "${RUNNER_TEMP}/yuviron-gha-observe.sh"
+          gha_begin_stage "Build ${DEPLOY_APP}" "Frontend / Docker" "Docker build / Next.js" \
+            "Docker build failed for ${DEPLOY_APP}. Check build logs above." \
+            "docker logs yuviron-${DEPLOY_ENV}-${DEPLOY_APP} --tail 50"
           cd /opt/yuviron-server
-
-          echo "Building frontend service: ${{ matrix.app }}"
-
           docker compose \
             --env-file "./generated/${DEPLOY_ENV}/deploy.env" \
             -p "yuviron-${DEPLOY_ENV}" \
             -f ./infra/compose.yml \
             -f "./generated/${DEPLOY_ENV}/compose.frontends.yml" \
-            build "${{ matrix.app }}"
+            build "${DEPLOY_APP}"
+          gha_pass_stage "${DEPLOY_APP} image built successfully."
 
       - name: Start full stack
         run: |
           set -Eeuo pipefail
+          source "${RUNNER_TEMP}/yuviron-gha-observe.sh"
+          gha_begin_stage "Start full stack" "DevOps / Docker" "Docker Compose / stack" \
+            "Stack startup failed after frontend build." \
+            "docker logs yuviron-${DEPLOY_ENV}-nginx --tail 50"
           cd /opt/yuviron-server
-          timeout 1200 python3 ./scripts/cli.py stack up "${DEPLOY_ENV}"
+          # --no-build: image was just built in the previous step
+          # --skip-swagger: swagger was fetched in Generate API types
+          # --skip-migrate: migrations are owned by the backend workflow
+          timeout 1200 python3 ./scripts/cli.py stack up "${DEPLOY_ENV}" \
+            --no-build \
+            --skip-swagger \
+            --skip-migrate
+          gha_pass_stage "Stack started with updated ${DEPLOY_APP}."
 
       - name: Smoke test
         run: |
           set -Eeuo pipefail
+          source "${RUNNER_TEMP}/yuviron-gha-observe.sh"
+          gha_begin_stage "Smoke test" "Frontend / routing" "Runtime services / nginx" \
+            "Smoke test failed. Check nginx routing and frontend app health." \
+            "python3 ./scripts/cli.py stack smoke ${DEPLOY_ENV}"
           cd /opt/yuviron-server
-          python3 ./scripts/cli.py stack smoke "${DEPLOY_ENV}"
+          timeout 120 python3 ./scripts/cli.py stack smoke "${DEPLOY_ENV}"
+          gha_pass_stage "Smoke checks passed."
 
       - name: Rollback frontend stack
+        id: rollback-frontend
         if: failure() && needs.detect-affected.outputs.previous_sha != ''
         env:
           PREVIOUS_SHA: ${{ needs.detect-affected.outputs.previous_sha }}
         run: |
           set -Eeuo pipefail
+          source "${RUNNER_TEMP}/yuviron-gha-observe.sh"
+          gha_begin_stage "Rollback frontend" "DevOps / server" "Recovery / previous deployment" \
+            "Automatic rollback failed. Manual recovery required." \
+            "docker logs yuviron-${DEPLOY_ENV}-nginx --tail 50"
           cd /opt/yuviron-server/src/yuviron-frontend
 
           echo "Rolling back frontend source to ${PREVIOUS_SHA}"
@@ -295,46 +403,67 @@ jobs:
 
           cd /opt/yuviron-server
           timeout 1200 python3 ./scripts/cli.py stack up "${DEPLOY_ENV}" --no-rollback --skip-migrate --no-build
-          python3 ./scripts/cli.py stack smoke "${DEPLOY_ENV}"
+          timeout 120 python3 ./scripts/cli.py stack smoke "${DEPLOY_ENV}"
+          gha_pass_stage "Rolled back to \`${PREVIOUS_SHA}\` and smoke checks passed."
 
-      - name: Trim Docker build cache
-        if: success()
-        run: |
-          set -Eeuo pipefail
-          cd /opt/yuviron-server
-          python3 ./scripts/cli.py tools docker-clean --mode build-cache --reserved-space 10gb --yes
-
-      - name: Docker disk usage after cleanup
+      - name: Deploy outcome summary
         if: always()
         run: |
           set -Eeuo pipefail
+          source "${RUNNER_TEMP}/yuviron-gha-observe.sh"
+          if [ "${{ job.status }}" = "success" ]; then
+            outcome="**deploy succeeded**"
+          elif [ "${{ steps.rollback-frontend.outcome }}" = "success" ]; then
+            outcome="deploy failed, **rollback succeeded**"
+          elif [ "${{ steps.rollback-frontend.outcome }}" = "failure" ]; then
+            outcome="deploy failed, **rollback failed** — manual recovery may be required"
+          else
+            outcome="deploy failed, rollback not attempted"
+          fi
+          gha_render_summary "${outcome}" "${DEPLOY_ENV}"
+
+      - name: Trim Docker build cache
+        if: "!cancelled()"
+        run: |
+          set -Eeuo pipefail
+          echo "::group::Trim Docker build cache"
+          cd /opt/yuviron-server
+          python3 ./scripts/cli.py tools docker-clean --mode build-cache --reserved-space 10gb --yes
+          echo "::endgroup::"
+
+      - name: Docker disk usage after cleanup
+        if: always()
+        continue-on-error: true
+        run: |
+          set -Eeuo pipefail
+          echo "::group::Docker disk usage after cleanup"
           cd /opt/yuviron-server
           python3 ./scripts/cli.py tools docker-clean --mode report
+          echo "::endgroup::"
 
       - name: Show running services
         if: always()
         run: |
           set -Eeuo pipefail
+          echo "::group::Running services"
           cd /opt/yuviron-server
-
           docker compose \
             --env-file "./generated/${DEPLOY_ENV}/deploy.env" \
             -p "yuviron-${DEPLOY_ENV}" \
             -f ./infra/compose.yml \
             -f "./generated/${DEPLOY_ENV}/compose.frontends.yml" \
             ps
+          echo "::endgroup::"
 
-      - name: Show affected frontend logs
+      - name: Show service logs
         if: always()
         run: |
           set -Eeuo pipefail
-          docker logs --tail=160 "yuviron-${DEPLOY_ENV}-${{ matrix.app }}" || true
-
-      - name: Show nginx logs
-        if: always()
-        run: |
-          set -Eeuo pipefail
-          docker logs --tail=160 "yuviron-${DEPLOY_ENV}-nginx" || true
+          for service in "${DEPLOY_APP}" nginx; do
+            echo "::group::Logs: yuviron-${DEPLOY_ENV}-${service}"
+            docker logs --tail=160 "yuviron-${DEPLOY_ENV}-${service}" 2>&1 || true
+            echo "::endgroup::"
+          done
 
   no-changes:
     needs: detect-affected
@@ -348,3 +477,15 @@ jobs:
           set -Eeuo pipefail
           echo "No affected frontend apps detected. Skipping deploy."
           echo "Reason: ${{ needs.detect-affected.outputs.reason }}"
+          {
+            echo "## Frontend deploy: no changes"
+            echo
+            echo "No affected apps detected — deploy skipped."
+            echo
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Environment | ${{ github.ref_name == 'main' && 'prod' || 'dev' }} |"
+            echo "| Branch | ${{ github.ref_name }} |"
+            echo "| Commit | \`${{ github.sha }}\` |"
+            echo "| Reason | ${{ needs.detect-affected.outputs.reason }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
