@@ -35,23 +35,60 @@ Runner расположен на сервере:
 Актуальные shared workflow:
 
 ```text
-shared/backend/deploy.yml
+shared/backend/.github/workflows/deploy.yml
 shared/frontend/.github/workflows/deploy.yml
 ```
 
-Текущий deploy flow:
+Observe-хелпер, на который опираются оба workflow:
 
-1. синхронизировать source repo в `src/yuviron-backend` или `src/yuviron-frontend`
-2. сгенерировать `appsettings.json` через `./scripts/cli.py appsettings gen <env>` (секреты пробрасываются из CI-переменных)
-3. сгенерировать Swagger-документы через `./scripts/cli.py stack swagger-gen <env>` (поднимает MySQL/Redis/RabbitMQ/backend, скачивает OpenAPI spec, останавливает сервисы)
-4. выполнить preflight через `./scripts/cli.py stack preflight <env> --skip-swagger`
-5. собрать/поднять стек через `./scripts/cli.py stack up <env> --skip-swagger`; команда перед основным `up` явно запускает EF Core migrator через compose profile `migrate`
-6. просканировать собранные образы на CVE через Trivy (после build, до smoke)
-7. выполнить `./scripts/cli.py stack smoke <env>`
-8. показать compose status и хвосты логов
-9. после успешного deploy подрезать Docker build cache через `tools docker-clean`
+```text
+shared/backend/scripts/ci/github_actions_observe.sh
+shared/frontend/scripts/ci/github_actions_observe.sh
+```
 
-`--skip-swagger` в шагах 4 и 5 исключает повторный подъём зависимостей: Swagger уже сгенерирован на шаге 3, а повторный запуск добавлял бы 3+ минут к деплою.
+Хелпер предоставляет `gha_begin_stage` / `gha_pass_stage` / `gha_fail_stage` — они добавляют duration, area, next-action hint к каждой стадии и записывают её в temp-файл. В конце `gha_render_summary` атомарно записывает всю таблицу стадий, health snapshot и итог деплоя в `$GITHUB_STEP_SUMMARY`.
+
+### Текущий backend deploy flow
+
+1. **Initialize** — извлечь `scripts/ci/github_actions_observe.sh` из деплоируемого коммита в `$RUNNER_TEMP`, инициализировать Job Summary
+2. **Capture rollback point** — зафиксировать текущий SHA и appsettings для возможного отката
+3. **Sync source** — `git fetch` + `git reset --hard` на точный триггерный SHA
+4. **Generate appsettings** — `python3 scripts/generate_appsettings.py` из backend-репо; секреты пробрасываются через `env:` в workflow
+5. **Preflight** — `./scripts/cli.py stack preflight <env> --skip-connectivity-check --skip-swagger`
+6. **Run DB migrations** — `./scripts/cli.py stack migrate <env>` (отдельно от сборки, timeout 300 s)
+7. **Build and start services** — `./scripts/cli.py stack up <env> --skip-migrate --skip-swagger --build-services backend media-worker nginx`
+8. **Trivy scan** — сканирование собранных образов на CVE (dev: информационно; prod: блокирующее)
+9. **Smoke test** — `./scripts/cli.py stack smoke <env>`
+10. **Deploy outcome summary** — `gha_render_summary` + health snapshot всех сервисов
+
+`--skip-swagger` на шагах 5 и 7 исключает повторный подъём зависимостей (Swagger для frontend генерируется отдельным шагом в frontend workflow). `--build-services` ограничивает сборку только изменёнными сервисами и не пересобирает инфраструктурные контейнеры.
+
+### Текущий frontend deploy flow
+
+Frontend workflow состоит из двух jobs:
+
+**`detect-affected`** — определяет, какие приложения монорепо затронуты коммитом:
+
+1. Зафиксировать текущий SHA (для отката)
+2. Синхронизировать исходники
+3. `pnpm install --frozen-lockfile`
+4. Запустить `.github/scripts/get-affected-apps.sh` (diff против `BASE_SHA`)
+5. Нормализовать список до разрешённых приложений: `admin`, `backoffice`, `client-app`
+
+**`deploy` (matrix по затронутым приложениям)** — для каждого affected app:
+
+1. Initialize — то же что у backend
+2. Sync source
+3. Preflight
+4. `pnpm install --frozen-lockfile`
+5. Ensure backend is running (если backend упал — поднять без build/migrate)
+6. Скачать Swagger-спеки через `docker exec` (`admin`, `client`, `artist`) — исключает обращение к внешнему URL из runner-а
+7. `pnpm api:gen` — генерация TypeScript-типов через orval
+8. `pnpm --filter <app> run typecheck`
+9. `docker compose build <app>`
+10. `./scripts/cli.py stack up <env> --no-build --skip-swagger --skip-migrate`
+11. Smoke test
+12. Deploy outcome summary + health snapshot
 
 ---
 
