@@ -31,16 +31,13 @@ BACKUP_ENVS=dev,prod
 BACKUP_STORAGE_DEV=./storage/dev
 BACKUP_STORAGE_PROD=./storage/prod
 
+# Offsite: транспорт и адрес (подробнее см. раздел «Offsite-копирование»)
+BACKUP_REMOTE_TRANSPORT=
 BACKUP_REMOTE_PATH=
+BACKUP_SSH_KEY_FILE=
+BACKUP_S3_STORAGE_CLASS=
 
 BACKUP_RETENTION_DAYS=14
-
-BACKUP_PROJECT_NAME=yuviron-server
-
-COMPOSE_FILE=infra/compose.yml
-
-COMPOSE_PROJECT_DEV=yuviron_dev
-COMPOSE_PROJECT_PROD=yuviron_prod
 
 MYSQL_SERVICE_NAME=mysql
 BACKEND_SERVICE_NAME=backend
@@ -156,15 +153,93 @@ BACKUP_RESTORE_TEST_AFTER_CREATE=0
 
 Логи пишутся в `backups/logs/cron-backup.log` и `backups/logs/cron-restore-test.log`. Повторный запуск заменяет предыдущие cron-строки проекта без дублей.
 
-### Off-site copy
+### Offsite-копирование
 
-`BACKUP_REMOTE_PATH` поддерживает только локальный directory path. Для rsync/scp/NFS/S3/rclone-подобных сценариев сначала смонтируй remote storage локально, затем укажи путь к mount directory, например:
+Поддерживаются четыре транспорта. Транспорт автодетектируется по формату `BACKUP_REMOTE_PATH` или задаётся явно через `BACKUP_REMOTE_TRANSPORT`.
+
+#### Вариант 1 — локальный диск / NFS / SSHFS (`local`)
+
+Смонтируй удалённое хранилище локально и укажи путь к точке монтирования:
 
 ```env
-BACKUP_REMOTE_PATH=/mnt/yuviron-backups
+BACKUP_REMOTE_PATH=/mnt/nas/backups
 ```
 
-Значение валидируется до запуска backup: remote specs вроде `user@host:/path`, URL, whitespace и shell metacharacters отклоняются.
+Автодетект: любой путь без `@` и `://` → `local`.
+
+---
+
+#### Вариант 2 — rsync по SSH (`rsync`)
+
+Предпочтительный вариант для удалённых серверов: создаёт целевую директорию автоматически, передаёт только изменения.
+
+```env
+BACKUP_REMOTE_PATH=backup@nas.example.com:/srv/backups/
+# BACKUP_REMOTE_TRANSPORT=rsync  # опционально — автодетект по формату
+```
+
+С явным SSH-ключом:
+
+```env
+BACKUP_REMOTE_PATH=backup@nas.example.com:/srv/backups/
+BACKUP_SSH_KEY_FILE=/home/deploy/.ssh/backup_ed25519
+```
+
+Без `BACKUP_SSH_KEY_FILE` используется системный SSH-агент или `~/.ssh/config`.
+
+Убедись что хост добавлен в `known_hosts`, иначе первый запуск из cron зависнет:
+
+```bash
+ssh-keyscan nas.example.com >> ~/.ssh/known_hosts
+```
+
+---
+
+#### Вариант 3 — scp по SSH (`scp`)
+
+Проще rsync, но **не создаёт целевую директорию** — она должна существовать. Если нужно создание директории — используй rsync.
+
+```env
+BACKUP_REMOTE_PATH=backup@nas.example.com:/srv/backups/
+BACKUP_REMOTE_TRANSPORT=scp
+BACKUP_SSH_KEY_FILE=/home/deploy/.ssh/backup_ed25519
+```
+
+---
+
+#### Вариант 4 — AWS S3 (`s3`)
+
+Требует установленный `aws` CLI и настроенные credentials.
+
+```env
+BACKUP_REMOTE_PATH=s3://my-company-backups/prod/
+```
+
+Credentials задаются любым стандартным способом AWS:
+
+```env
+# Env-переменные (для серверов без IAM-роли):
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=...
+AWS_DEFAULT_REGION=eu-central-1
+```
+
+Или через IAM Instance Role (на EC2 — автоматически, ничего дополнительного не нужно).
+
+**Дешёвое хранение** — для бэкапов которые читаются редко:
+
+```env
+BACKUP_S3_STORAGE_CLASS=GLACIER_IR   # ~$0.004/GB/мес, мгновенный доступ
+# BACKUP_S3_STORAGE_CLASS=DEEP_ARCHIVE  # ~$0.001/GB/мес, доступ через 12ч
+```
+
+---
+
+#### Общие примечания
+
+- Ошибка offsite (нет сети, неверный ключ, нет доступа к бакету) **не прерывает бэкап** — локальный архив сохраняется, ошибка пишется в лог как `[WARN]`.
+- Offsite-копирование выполняется только после успешного restore-test.
+- Адрес валидируется до начала бэкапа — ошибки конфигурации обнаруживаются сразу.
 
 ### Ротация
 

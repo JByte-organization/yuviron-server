@@ -3,25 +3,40 @@
 # scripts/commands/backup/operations.py — Операции создания и восстановления бэкапов.
 #
 # Команды:
-#   backup create          — создать полный бэкап (MySQL + Redis)
-#   backup restore <файл>  — восстановить из архива
-#   backup verify          — проверить целостность последнего бэкапа
-#   backup list            — список доступных архивов
+#   backup create          — создать полный бэкап (MySQL + Docker volumes + storage)
+#   backup restore         — восстановить окружение из архива (деструктивно)
+#   backup verify          — проверить целостность архива + тест-восстановление MySQL
+#   backup restore-test    — тест-восстановление одного окружения без полного restore
 #
-# Что входит в бэкап:
-#   mysql.sql.gz       — дамп базы данных (mysqldump через Docker exec)
-#   redis.tar.gz       — снапшот Redis persistence (AOF/RDB файлы)
-#   backup_<timestamp>.tar.gz — всё вместе в один архив
+# Что входит в бэкап (для каждого окружения из BACKUP_ENVS):
+#   mysql.sql.gz              — логический дамп БД (mysqldump --single-transaction)
+#   storage.tar.gz            — bind-mount storage (загруженные файлы пользователей)
+#   volume_mysql_data.tar.gz  — физический снапшот MySQL volume
+#   volume_redis_data.tar.gz  — снапшот Redis AOF/RDB после BGSAVE
+#   volume_rabbitmq_data.tar.gz — снапшот RabbitMQ volume
+#   deploy.env / routes.env / stack.env — runtime-конфиг на момент бэкапа
+#   metadata.json             — проект, timestamp, компоненты, предупреждения
 #
-# Операция verify:
-#   1. Находит последний архив в backups/archives/
-#   2. Проверяет целостность tar + gzip (gzip -t)
-#   3. Проверяет что redis архив содержит .aof/.rdb файлы
-#   4. Тест-восстановление: распаковывает в temporary директорию
-#      (не применяет к реальным данным — только проверяет что файлы читаемы)
+# Порядок операций в backup create:
+#   1. Остановить backend (для согласованности snapshot хранилища)
+#   2. Сделать BGSAVE в Redis, дождаться завершения
+#   3. Снять все дампы и архивы
+#   4. Запустить backend обратно
+#   5. Упаковать всё в финальный backup_<timestamp>.tar.gz
+#   6. Тест-восстановление MySQL в изолированном контейнере
+#   7. Offsite-копирование (transport из remote.py)
+#   8. Ротация старых архивов
 #
-# Переменные для переопределения путей (из env/):
+# Offsite-транспорты (см. scripts/commands/backup/remote.py):
+#   local  — shutil.copy2 в локальную директорию
+#   rsync  — rsync -az по SSH
+#   scp    — scp по SSH
+#   s3     — aws s3 cp в S3-бакет
+#
+# Переменные для переопределения путей (из env/common.env):
 #   BACKUP_ROOT, BACKUP_TMP, BACKUP_LOG_DIR, BACKUP_ARCHIVE_DIR
+#   BACKUP_REMOTE_PATH, BACKUP_REMOTE_TRANSPORT, BACKUP_SSH_KEY_FILE
+#   BACKUP_S3_STORAGE_CLASS, BACKUP_RETENTION_DAYS
 # =============================================================================
 from __future__ import annotations
 
