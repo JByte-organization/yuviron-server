@@ -487,9 +487,12 @@ def prepare_host_storage_layout(root_dir: Path, env_values: dict[str, str]) -> N
     # Фаза 1: создать все директории пока host-пользователь ещё является владельцем.
     # Важно создать ВСЕ поддиректории ДО chown parent'а — иначе после chown storage_dir
     # в 10001 host-пользователь не сможет создать subdirs внутри него.
+    # Если директория уже принадлежит app_uid (повторный вызов после предыдущего chown),
+    # host-проверку пропускаем — контейнер и так имеет доступ, host уже не должен писать.
     for path in backend_dirs:
         _ensure_storage_directory(path, mode)
-        _check_storage_directory_permissions(path)
+        if not _directory_allows_uid_gid(path, app_uid, app_gid):
+            _check_storage_directory_permissions(path)
 
     # Фаза 2: chown всех директорий через Docker (host-пользователь теряет write-доступ,
     # зато контейнер app_uid получает его — это и есть цель).
