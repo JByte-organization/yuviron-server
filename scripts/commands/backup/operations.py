@@ -58,6 +58,7 @@ from .core import (
     _validate_redis_persistence_archive,
     _validate_tar,
 )
+from .remote import resolve_offsite_config, upload_offsite
 from .docker_utils import (
     _service_exists,
     _service_running,
@@ -106,39 +107,10 @@ def _run_mysqlcheck(
         ]
 
     return problems
-BACKUP_REMOTE_SAFE_PATH_RE = re.compile(r"^[A-Za-z0-9._~+/=-]+$")
-BACKUP_REMOTE_SHELL_META_RE = re.compile(r"[;&|`$(){}<>*?\\\"']")
-BACKUP_REMOTE_SCP_RE = re.compile(r"^[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+:.+")
+
+
 TRUTHY_VALUES = {"1", "true", "yes", "on"}
 FALSEY_VALUES = {"0", "false", "no", "off"}
-
-
-def _validate_backup_remote_path(raw_path: str, root_dir: Path) -> Path | None:
-    value = (raw_path or "").strip()
-    if not value:
-        return None
-
-    if any(ord(char) < 32 or ord(char) == 127 for char in value):
-        fail("Invalid BACKUP_REMOTE_PATH: control characters are not allowed")
-    if BACKUP_REMOTE_SHELL_META_RE.search(value) or any(char.isspace() for char in value):
-        fail("Invalid BACKUP_REMOTE_PATH: shell metacharacters and whitespace are not allowed")
-    if "://" in value or BACKUP_REMOTE_SCP_RE.fullmatch(value):
-        fail(
-            "Invalid BACKUP_REMOTE_PATH: remote rsync/scp destinations are not supported here. "
-            "Mount the remote storage locally and set BACKUP_REMOTE_PATH to that directory."
-        )
-    if not BACKUP_REMOTE_SAFE_PATH_RE.fullmatch(value):
-        fail("Invalid BACKUP_REMOTE_PATH: use only letters, digits, '.', '_', '-', '/', '~', '+', '='")
-
-    destination = Path(value).expanduser()
-    if str(destination).startswith("-"):
-        fail("Invalid BACKUP_REMOTE_PATH: path must not start with '-'")
-    if any(part.startswith("-") for part in destination.parts):
-        fail("Invalid BACKUP_REMOTE_PATH: path components must not start with '-'")
-
-    if not destination.is_absolute():
-        destination = root_dir / destination
-    return destination.resolve()
 
 
 def _read_bool_env(name: str, default: bool) -> bool:
@@ -193,7 +165,11 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
 
     logger = BackupLogger(log_file)
 
-    backup_remote_path = _validate_backup_remote_path(os.getenv("BACKUP_REMOTE_PATH", ""), root_dir)
+    offsite_config = resolve_offsite_config(
+        os.getenv("BACKUP_REMOTE_PATH", ""),
+        os.getenv("BACKUP_REMOTE_TRANSPORT", ""),
+        root_dir,
+    )
     backup_retention_days = int(os.getenv("BACKUP_RETENTION_DAYS", "14"))
     backup_project_name = os.getenv("BACKUP_PROJECT_NAME") or _read_project_name(root_dir)
     backup_envs_raw = os.getenv("BACKUP_ENVS", "dev,prod")
@@ -486,17 +462,15 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
         metadata_file.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
     def copy_offsite(archive_file: Path) -> None:
-        if not backup_remote_path:
+        if not offsite_config:
             logger.info("Off-site disabled: BACKUP_REMOTE_PATH is empty")
             return
 
-        logger.info(f"Copying backup to off-site: {backup_remote_path}")
+        transport, destination = offsite_config
         try:
-            backup_remote_path.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(archive_file, backup_remote_path / archive_file.name)
-            logger.info("Off-site copy completed")
-        except Exception:
-            logger.warn("Off-site copy failed, backup process continues")
+            upload_offsite(archive_file, transport, destination, logger)
+        except (OSError, Exception) as exc:
+            logger.warn(f"Off-site upload failed ({transport}): {exc}; backup process continues")
             mark_warning("offsite-copy-failed")
 
     def cleanup_old_backups() -> None:

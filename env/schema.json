@@ -129,6 +129,16 @@
     "BACKUP_REMOTE_PATH": {
       "type": "string"
     },
+    "BACKUP_REMOTE_TRANSPORT": {
+      "type": "string",
+      "enum": ["", "local", "rsync", "scp", "s3"]
+    },
+    "BACKUP_SSH_KEY_FILE": {
+      "type": "string"
+    },
+    "BACKUP_S3_STORAGE_CLASS": {
+      "type": "string"
+    },
     "BACKUP_RESTORE_TEST_TMP": {
       "type": "string",
       "minLength": 1

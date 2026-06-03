@@ -14,6 +14,13 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from commands.backup import operations
+from commands.backup.remote import (
+    TRANSPORT_LOCAL,
+    TRANSPORT_RSYNC,
+    TRANSPORT_SCP,
+    TRANSPORT_S3,
+    resolve_offsite_config,
+)
 from core.validators import CommandError
 
 
@@ -25,39 +32,109 @@ def _write_tar_gz(path: Path, members: dict[str, bytes]) -> None:
             archive.addfile(info, io.BytesIO(content))
 
 
-class BackupRestoreTestTests(unittest.TestCase):
-    def test_validate_backup_remote_path_accepts_local_directory_path(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
+class OffsiteConfigTests(unittest.TestCase):
+    """Тесты валидации и автодетекта транспорта для offsite-бэкапа."""
 
-            resolved = operations._validate_backup_remote_path("./backups/offsite", root)
+    def test_empty_path_returns_none(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(resolve_offsite_config("", "", Path(tmp)))
 
-        self.assertEqual((root / "backups" / "offsite").resolve(), resolved)
+    # ── Local ──────────────────────────────────────────────────────────────
 
-    def test_validate_backup_remote_path_rejects_shell_metacharacters(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
+    def test_local_relative_path_resolves_to_absolute(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result = resolve_offsite_config("./backups/offsite", "", root)
+        self.assertIsNotNone(result)
+        transport, destination = result
+        self.assertEqual(TRANSPORT_LOCAL, transport)
+        self.assertEqual(str((root / "backups" / "offsite").resolve()), destination)
+
+    def test_local_rejects_shell_metacharacters(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(CommandError) as raised:
-                operations._validate_backup_remote_path("; rm -rf /", Path(temp_dir))
-
+                resolve_offsite_config("; rm -rf /", "", Path(tmp))
         self.assertIn("Invalid BACKUP_REMOTE_PATH", str(raised.exception))
 
-    def test_validate_backup_remote_path_rejects_scp_or_url_destinations(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-
-            for value in ("backup@example.com:/srv/backups", "rsync://example.com/backups"):
-                with self.subTest(value=value):
-                    with self.assertRaises(CommandError) as raised:
-                        operations._validate_backup_remote_path(value, root)
-
-                    self.assertIn("remote rsync/scp destinations are not supported", str(raised.exception))
-
-    def test_validate_backup_remote_path_rejects_option_like_components(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
+    def test_local_rejects_option_like_path_components(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(CommandError) as raised:
-                operations._validate_backup_remote_path("./backups/--delete", Path(temp_dir))
+                resolve_offsite_config("./backups/--delete", "", Path(tmp))
+        self.assertIn("path must not start with '-'", str(raised.exception))
 
-        self.assertIn("path components must not start with '-'", str(raised.exception))
+    def test_explicit_local_transport_accepts_valid_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result = resolve_offsite_config("/absolute/path", "local", root)
+        self.assertIsNotNone(result)
+        self.assertEqual(TRANSPORT_LOCAL, result[0])
+
+    # ── Rsync ──────────────────────────────────────────────────────────────
+
+    def test_autodetects_rsync_for_scp_style_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = resolve_offsite_config("backup@nas.example.com:/srv/backups/", "", Path(tmp))
+        self.assertIsNotNone(result)
+        transport, destination = result
+        self.assertEqual(TRANSPORT_RSYNC, transport)
+        self.assertEqual("backup@nas.example.com:/srv/backups/", destination)
+
+    def test_rsync_without_username_is_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = resolve_offsite_config("nas.example.com:/srv/backups/", "rsync", Path(tmp))
+        self.assertIsNotNone(result)
+        self.assertEqual(TRANSPORT_RSYNC, result[0])
+
+    def test_rsync_rejects_invalid_destination_format(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(CommandError):
+                resolve_offsite_config("not-a-remote-path", "rsync", Path(tmp))
+
+    # ── SCP ────────────────────────────────────────────────────────────────
+
+    def test_scp_transport_accepts_remote_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = resolve_offsite_config("user@host.example.com:/backups/", "scp", Path(tmp))
+        self.assertIsNotNone(result)
+        transport, destination = result
+        self.assertEqual(TRANSPORT_SCP, transport)
+        self.assertEqual("user@host.example.com:/backups/", destination)
+
+    def test_scp_rejects_invalid_destination_format(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(CommandError):
+                resolve_offsite_config("just-a-local-path", "scp", Path(tmp))
+
+    # ── S3 ─────────────────────────────────────────────────────────────────
+
+    def test_autodetects_s3_transport(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = resolve_offsite_config("s3://my-backup-bucket/prod/", "", Path(tmp))
+        self.assertIsNotNone(result)
+        transport, destination = result
+        self.assertEqual(TRANSPORT_S3, transport)
+        self.assertEqual("s3://my-backup-bucket/prod/", destination)
+
+    def test_s3_explicit_transport(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = resolve_offsite_config("s3://my-bucket/backups", "s3", Path(tmp))
+        self.assertIsNotNone(result)
+        self.assertEqual(TRANSPORT_S3, result[0])
+
+    def test_s3_rejects_invalid_uri(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(CommandError):
+                resolve_offsite_config("s3://UPPERCASE-BUCKET/path", "s3", Path(tmp))
+
+    # ── Invalid transport ──────────────────────────────────────────────────
+
+    def test_unknown_transport_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(CommandError):
+                resolve_offsite_config("/some/path", "ftp", Path(tmp))
+
+
+class BackupRestoreTestTests(unittest.TestCase):
 
     def test_resolve_backup_archive_uses_latest_archive_by_name(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
