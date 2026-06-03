@@ -62,7 +62,11 @@ from core.validators import ensure_command, fail
 
 # Поддиректории storage/<env>/ которые backend ожидает найти при старте
 REQUIRED_STORAGE_DIRS = ("avatars", "banners", "covers", "seq", "temp", "tracks")
-DEFAULT_STORAGE_DIR_MODE = "0777"   # широкие права чтобы backend-контейнер мог писать
+
+# 0755: владелец rwx, остальные r-x.
+# После chown к DOTNET_APP_UID:DOTNET_APP_GID только контейнер может писать — правильно.
+# Значение переопределяется через STORAGE_DIR_MODE в env.
+DEFAULT_STORAGE_DIR_MODE = "0755"
 
 
 def _resolve_regeneration_value(ctx: object, key: str, *value_maps: dict[str, str]) -> str:
@@ -406,9 +410,17 @@ def _ensure_seq_storage_directory(path: Path, mode: int, env_values: dict[str, s
 
     seq_uid = _runtime_id(env_values, "SEQ_UID", "1000")
     seq_gid = _runtime_id(env_values, "SEQ_GID", "1000")
+
     if _directory_allows_uid_gid(path, seq_uid, seq_gid):
         return
 
+    # Директория не доступна для записи Seq. Пробуем chown через Docker
+    # (тот же подход что и для backend storage — не требует sudo на хосте).
+    if _chown_storage_dir_via_docker(path, seq_uid, seq_gid):
+        log_ok(f"Seq storage directory chowned to {seq_uid}:{seq_gid}: {path}")
+        return
+
+    # Docker chown не удался — пробуем chmod и проверяем права
     current_mode = path.stat().st_mode & 0o777
     if current_mode != mode:
         log_info(f"Setting Seq storage directory mode {mode:o}: {path}")
@@ -417,10 +429,40 @@ def _ensure_seq_storage_directory(path: Path, mode: int, env_values: dict[str, s
         except OSError as exc:
             fail(
                 f"Could not set Seq storage directory mode for {path}: {exc}. "
-                f"Prepare it on the host, for example: sudo chown -R {seq_uid}:{seq_gid} {path}"
+                f"Prepare it on the host: sudo chown -R {seq_uid}:{seq_gid} {path}"
             )
 
     _check_seq_storage_runtime_permissions(path, env_values)
+
+
+def _chown_storage_dir_via_docker(path: Path, uid: int, gid: int) -> bool:
+    """Сменить владельца директории на uid:gid через временный alpine-контейнер.
+
+    Зачем Docker, а не sudo:
+      - Docker — уже обязательная зависимость проекта.
+      - alpine:3.20 уже используется в backup/operations.py как helper-образ.
+      - Внутри контейнера работаем как root (--user 0:0), что позволяет chown
+        на любой uid без прав на хосте.
+      - Пользователю не нужен sudo для первоначальной настройки storage.
+
+    Возвращает True при успехе, False при любой ошибке (Docker недоступен,
+    образ не скачан, ошибка chown). Вызывающий код сам решает что делать дальше.
+    """
+    try:
+        result = run(
+            [
+                "docker", "run", "--rm",
+                "--user", "0:0",
+                "-v", f"{path}:/target",
+                "alpine:3.20",
+                "chown", f"{uid}:{gid}", "/target",
+            ],
+            check=False,
+            capture_output=True,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
 
 
 def prepare_host_storage_layout(root_dir: Path, env_values: dict[str, str]) -> None:
@@ -435,15 +477,36 @@ def prepare_host_storage_layout(root_dir: Path, env_values: dict[str, str]) -> N
     seq_storage_dir = resolve_runtime_path(root_dir, seq_storage_raw)
     mode = _storage_dir_mode(env_values)
 
-    _ensure_storage_directory(storage_dir, mode)
-    _check_storage_directory_permissions(storage_dir)
+    app_uid = _runtime_id(env_values, "DOTNET_APP_UID", "10001")
+    app_gid = _runtime_id(env_values, "DOTNET_APP_GID", "10001")
+
+    def _setup_backend_dir(path: Path) -> None:
+        _ensure_storage_directory(path, mode)
+
+        if _directory_allows_uid_gid(path, app_uid, app_gid):
+            # Директория уже доступна на запись контейнеру — ничего делать не нужно
+            return
+
+        # Меняем владельца через Docker чтобы контейнер (uid=app_uid) мог писать.
+        # Если chown удался — хост-проверку пропускаем: теперь владелец контейнер,
+        # а не host-пользователь, и это правильно (least privilege).
+        # Если chown не удался — предупреждаем и проверяем что хост хотя бы может писать.
+        if _chown_storage_dir_via_docker(path, app_uid, app_gid):
+            log_ok(f"Storage directory chowned to {app_uid}:{app_gid}: {path}")
+        else:
+            log_warn(
+                f"Could not chown {path} to {app_uid}:{app_gid} via Docker. "
+                f"The backend container may not be able to write to this directory. "
+                f"Fix: sudo chown -R {app_uid}:{app_gid} {path}"
+            )
+            _check_storage_directory_permissions(path)
+
+    _setup_backend_dir(storage_dir)
 
     for dirname in REQUIRED_STORAGE_DIRS:
         if dirname == "seq":
             continue
-        path = storage_dir / dirname
-        _ensure_storage_directory(path, mode)
-        _check_storage_directory_permissions(path)
+        _setup_backend_dir(storage_dir / dirname)
 
     _ensure_seq_storage_directory(seq_storage_dir, mode, env_values)
 

@@ -113,10 +113,18 @@ class PreflightStorageTests(unittest.TestCase):
                 "SEQ_STORAGE_PATH": "observability/seq",
                 "SEQ_UID": "12345",
                 "SEQ_GID": "12345",
-                "STORAGE_DIR_MODE": "0777",
+                # STORAGE_DIR_MODE не задан — используется новый дефолт 0755
             }
 
-            preflight_checks.prepare_host_storage_layout(root, env_values)
+            # Мокируем Docker chown: в unit-тестах Docker не вызываем.
+            # Для backend-директорий: False → fallback на host-проверку (тест-пользователь может писать).
+            # Для Seq-директории: True → притворяемся что chown прошёл (иначе _check_seq_storage
+            # упадёт — директория создана тест-пользователем, а не SEQ_UID=12345).
+            def fake_chown(path: Path, uid: int, gid: int) -> bool:
+                return uid == 12345  # успех только для Seq, fallback для backend
+
+            with patch.object(preflight_checks, "_chown_storage_dir_via_docker", side_effect=fake_chown):
+                preflight_checks.prepare_host_storage_layout(root, env_values)
 
             self.assertTrue((root / "storage" / "dev" / "avatars").is_dir())
             self.assertTrue((root / "storage" / "dev" / "banners").is_dir())
@@ -126,29 +134,53 @@ class PreflightStorageTests(unittest.TestCase):
             self.assertFalse((root / "storage" / "dev" / "seq").exists())
             seq_storage = root / "observability" / "seq"
             self.assertTrue(seq_storage.is_dir())
-            seq_stat = os_stat(seq_storage)
-            seq_mode = seq_stat.st_mode & 0o777
-            if seq_stat.st_uid == 12345:
-                self.assertEqual(0o700, seq_mode & 0o700)
-            elif seq_stat.st_gid == 12345:
-                self.assertEqual(0o070, seq_mode & 0o070)
-            else:
-                self.assertEqual(0o007, seq_mode & 0o007)
+
+    def test_prepare_host_storage_layout_chowns_via_docker_when_uid_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            env_values = {
+                "STORAGE_PATH": "storage/dev",
+                "SEQ_STORAGE_PATH": "storage/dev/seq-data",
+                "SEQ_UID": "12345",
+                "SEQ_GID": "12345",
+                "DOTNET_APP_UID": "10001",
+                "DOTNET_APP_GID": "10001",
+            }
+
+            chown_calls: list[tuple] = []
+
+            def fake_chown(path: Path, uid: int, gid: int) -> bool:
+                chown_calls.append((path, uid, gid))
+                return True
+
+            with patch.object(preflight_checks, "_chown_storage_dir_via_docker", side_effect=fake_chown):
+                preflight_checks.prepare_host_storage_layout(root, env_values)
+
+            # Если текущий процесс не запущен как UID 10001,
+            # chown должен вызываться для backend-директорий с uid=10001
+            import os
+            if os.getuid() != 10001:
+                backend_calls = [(path, uid, gid) for path, uid, gid in chown_calls if uid == 10001]
+                self.assertGreater(len(backend_calls), 0, "Expected chown calls for backend dirs (uid=10001)")
+                for _, uid, gid in backend_calls:
+                    self.assertEqual(10001, uid)
+                    self.assertEqual(10001, gid)
 
     def test_prepare_host_storage_layout_rejects_root_seq_uid(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
 
-            with self.assertRaises(CommandError) as raised:
-                preflight_checks.prepare_host_storage_layout(
-                    root,
-                    {
-                        "STORAGE_PATH": "storage/dev",
-                        "SEQ_STORAGE_PATH": "storage/dev/seq",
-                        "SEQ_UID": "0",
-                        "SEQ_GID": "1000",
-                    },
-                )
+            with patch.object(preflight_checks, "_chown_storage_dir_via_docker", return_value=False):
+                with self.assertRaises(CommandError) as raised:
+                    preflight_checks.prepare_host_storage_layout(
+                        root,
+                        {
+                            "STORAGE_PATH": "storage/dev",
+                            "SEQ_STORAGE_PATH": "storage/dev/seq",
+                            "SEQ_UID": "0",
+                            "SEQ_GID": "1000",
+                        },
+                    )
 
         self.assertIn("SEQ_UID must be a non-root numeric id", str(raised.exception))
 
