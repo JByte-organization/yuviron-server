@@ -144,27 +144,63 @@ ALLOW_PRODUCTION_MIGRATE=<db-name> ./scripts/cli.py stack up prod
 
 ---
 
-### Тестирование Stripe вебхуков (dev)
+### Stripe вебхуки (dev)
 
-`dev-api.yuviron.com` — закрытый Tailscale-домен, серверы Stripe не могут до него достучаться напрямую. Используй `stripe listen` — он создаёт тоннель через CLI и пробрасывает события локально.
+`dev-api.yuviron.com` — закрытый Tailscale-домен, серверы Stripe не могут до него достучаться напрямую. Webhook-туннель поднимается через `stripe listen`, который запущен как systemd-сервис и **автоматически синхронизирует signing secret** с backend при каждом старте и рестарте.
 
-**Терминал 1** (держать открытым):
+**Проверить статус:**
 ```bash
-stripe listen \
-  --forward-to https://dev-api.yuviron.com/api/webhooks/stripe \
-  --skip-verify
-# Скопировать whsec_test_... → Stripe__WebhookSecret в env/dev.env
-# Перезапустить backend если секрет изменился
+systemctl status stripe-listen
+journalctl -u stripe-listen -n 50
 ```
 
-**Терминал 2** (тест):
+**Что делает сервис автоматически:**
+1. Запускает `stripe listen --forward-to https://dev-api.yuviron.com/api/webhooks/stripe`
+2. Читает новый signing secret из вывода
+3. Обновляет `Stripe__WebhookSecret` в `env/dev.env`
+4. Регенерирует конфиг
+5. Перезапускает backend
+
+Скрипт сервиса: `scripts/tools/stripe-listen-dev.sh`
+
+**Ручной тест вебхука:**
 ```bash
 stripe trigger checkout.session.completed
 docker logs yuviron-dev-backend --follow --tail=20
 # Ожидать: [INF] Payment success received for User ...
 ```
 
-Если `dev-api.yuviron.com` не резолвится на самом сервере (DNS lookup error):
+**Рестарт сервиса** (секрет обновится автоматически):
+```bash
+sudo systemctl restart stripe-listen
+```
+
+**Первичная установка сервиса** (один раз при настройке сервера):
+```bash
+sudo tee /etc/systemd/system/stripe-listen.service > /dev/null <<'EOF'
+[Unit]
+Description=Stripe Webhook Listener (dev)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nf
+WorkingDirectory=/opt/yuviron-server
+ExecStart=/opt/yuviron-server/scripts/tools/stripe-listen-dev.sh
+Restart=on-failure
+RestartSec=15
+Environment=HOME=/home/nf
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now stripe-listen
+```
+
+Если `dev-api.yuviron.com` не резолвится на самом сервере:
 ```bash
 echo "127.0.0.1 dev-api.yuviron.com" | sudo tee -a /etc/hosts
 ```

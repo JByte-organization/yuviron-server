@@ -156,6 +156,33 @@ dev-i.yuviron.com          -> backend:5073 через /i/<hash>, cached media ed
 * `/health` обслуживается самим edge nginx для healthcheck и smoke.
 * Route-level rate limiting и upload locations задаются в `config/routes.yml`; routes с `has_auth_endpoints: true` дополнительно получают более строгий limit для `/auth`, `/login`, `/token` и похожих endpoint'ов.
 * каталог `certs/` монтируется в nginx read-only; в `shared` режиме routes используют общий SAN/wildcard cert, а в `per-route` режиме nginx выбирает cert/key по SNI host через сгенерированную map.
+* если `TAILSCALE_FUNNEL_HOST` задан, генерируется дополнительный server block для Tailscale Funnel hostname — только `/api/webhooks/` → backend. Nginx контейнер публикует этот же порт `443` дополнительно как `127.0.0.1:4443` на хосте, чтобы Tailscale Serve форвардил на `localhost:4443` без конфликта с основным `443`.
+
+---
+
+## Stripe вебхуки (dev)
+
+`dev-api.yuviron.com` — закрытый Tailscale-домен. Stripe не может слать вебхуки напрямую.
+
+**Решение: systemd-сервис `stripe-listen`**
+
+```text
+Stripe
+  → stripe listen (systemd, фоновый процесс)
+  → https://dev-api.yuviron.com/api/webhooks/stripe (--skip-verify)
+  → nginx (SNI: dev-api.yuviron.com)
+  → backend:5073/api/webhooks/stripe
+  → FulfillSubscriptionHandler → isPremium: true
+```
+
+Сервис (`scripts/tools/stripe-listen-dev.sh`) при каждом старте:
+1. Парсит signing secret из вывода `stripe listen`
+2. Обновляет `Stripe__WebhookSecret` в `env/dev.env`
+3. Регенерирует конфиг и перезапускает backend
+
+**Почему не Tailscale Funnel:** `tailscale serve --https=443` перехватывает порт `443` на Tailscale-интерфейсе (`100.x.x.x`) — Tailnet-участники, обращающиеся к `dev-api.yuviron.com:443`, попадают на TLS-прокси Tailscale вместо nginx (`ERR_SSL_PROTOCOL_ERROR`). Системный сервис `stripe-listen` не трогает сетевые порты и не конфликтует ни с чем.
+
+**В prod:** `TAILSCALE_FUNNEL_HOST` не задаётся, `stripe-listen` не нужен — Stripe шлёт вебхуки напрямую на публичный `https://api.yuviron.com/api/webhooks/stripe`.
 
 ---
 

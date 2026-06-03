@@ -255,39 +255,29 @@ BACKEND_MEMSWAP_LIMIT=1536m
 
 ### Тестирование вебхуков в dev
 
-Серверы Stripe не могут достучаться до `dev-api.yuviron.com` (закрытый Tailscale-домен). Стандартное решение — Stripe CLI `listen`, который создаёт WebSocket-тоннель от Stripe до локального endpoint:
+Серверы Stripe не могут достучаться до `dev-api.yuviron.com` (закрытый Tailscale-домен). Туннель поднимается через systemd-сервис `stripe-listen`, который запускает `stripe listen` и **автоматически синхронизирует signing secret** с backend.
 
+**Установка Stripe CLI** (один раз):
 ```bash
-# Установка
 curl -s https://packages.stripe.dev/api/security/keypair/stripe-cli-gpg/public \
   | gpg --dearmor | sudo tee /usr/share/keyrings/stripe.gpg > /dev/null
 echo "deb [signed-by=/usr/share/keyrings/stripe.gpg] https://packages.stripe.dev/stripe-cli-debian-local stable main" \
   | sudo tee /etc/apt/sources.list.d/stripe.list
 sudo apt update && sudo apt install -y stripe
-
-# Авторизация
 stripe login
-
-# Добавить dev-api.yuviron.com в /etc/hosts (если не резолвится локально)
-echo "127.0.0.1 dev-api.yuviron.com" | sudo tee -a /etc/hosts
-
-# Запуск туннеля (держать открытым в отдельном терминале)
-stripe listen \
-  --forward-to https://dev-api.yuviron.com/api/webhooks/stripe \
-  --skip-verify
-# Скопировать whsec_test_... из вывода → Stripe__WebhookSecret в env/dev.env → restart backend
-
-# Тест
-stripe trigger checkout.session.completed
 ```
 
-`stripe listen` выдаёт временный `whsec_test_...` — его нужно прописать в `Stripe__WebhookSecret` для dev-окружения. При каждом новом запуске `stripe listen` секрет одинаковый для одного аккаунта.
+Инструкция по настройке и управлению сервисом: [operations.md → Stripe вебхуки](operations.md#stripe-вебхуки-dev)
+
+Скрипт автоматической синхронизации секрета: `scripts/tools/stripe-listen-dev.sh`
 
 ### TAILSCALE_FUNNEL_HOST
 
-Опциональная переменная. Если задана, nginx генерирует дополнительный HTTPS server block для Tailscale Funnel hostname (только `/api/webhooks/` → backend). Используется когда нужен постоянный публичный webhook URL без `stripe listen`.
+Опциональная переменная. Если задана, nginx генерирует server block для Tailscale Funnel hostname (`nf-1.tail668747.ts.net`), проксирующий только `/api/webhooks/` → backend.
 
-**Предупреждение**: `tailscale serve` перехватывает весь HTTPS на Tailscale-интерфейсе и ломает доступ к кастомным доменам (`dev-api.yuviron.com`) из Tailscale-сети. Для dev-тестирования рекомендуется `stripe listen`.
+Этот блок используется когда Tailscale Funnel настроен как постоянный публичный webhook endpoint. Nginx слушает на порту `443` внутри контейнера; хост публикует этот порт дополнительно как `127.0.0.1:4443:443` (`infra/compose.yml`), чтобы Tailscale Serve форвардил на `localhost:4443` без конфликта с основным портом `443` на Tailnet-интерфейсе.
+
+**Важно**: `tailscale serve --https=443` перехватывает порт 443 на Tailscale-интерфейсе (`100.x.x.x`) и ломает прямой доступ к dev-доменам (`dev-api.yuviron.com`) через Tailnet. Для dev-окружения рекомендуется systemd-сервис `stripe-listen` — он не трогает сетевые порты.
 
 ---
 
