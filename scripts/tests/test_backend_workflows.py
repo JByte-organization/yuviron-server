@@ -18,6 +18,10 @@ class BackendWorkflowTests(unittest.TestCase):
         path = ROOT_DIR / "shared" / "backend" / ".github" / "workflows" / "deploy.yml"
         return path.read_text(encoding="utf-8")
 
+    def _observe_sh_content(self) -> str:
+        path = ROOT_DIR / "shared" / "backend" / "scripts" / "ci" / "github_actions_observe.sh"
+        return path.read_text(encoding="utf-8")
+
     def test_deploy_yml_is_valid_yaml(self) -> None:
         content = self._deploy_yml_content()
         parsed = yaml.safe_load(content)
@@ -59,18 +63,28 @@ class BackendWorkflowTests(unittest.TestCase):
                 self.assertIn(f"secrets.{secret}", content)
 
     def test_deploy_yml_writes_job_summary(self) -> None:
-        content = self._deploy_yml_content()
-        self.assertIn("GITHUB_STEP_SUMMARY", content)
-        self.assertIn("## Backend deploy", content)
-        self.assertIn("| Stage | Status | Likely owner | Detail |", content)
+        # Summary rendering is delegated to the observe helper script.
+        yml = self._deploy_yml_content()
+        sh = self._observe_sh_content()
+        # Workflow must call the render function and declare the title.
+        self.assertIn("gha_render_summary", yml)
+        self.assertIn("GHA_DEPLOY_TITLE: Backend deploy", yml)
+        # Observe script must write to GITHUB_STEP_SUMMARY and produce the table.
+        self.assertIn("GITHUB_STEP_SUMMARY", sh)
+        self.assertIn("## ${GHA_DEPLOY_TITLE}", sh)
+        self.assertIn("| Stage | Status | Area | Likely owner | Detail |", sh)
 
     def test_deploy_yml_uses_annotations_and_grouped_logs(self) -> None:
-        content = self._deploy_yml_content()
-        self.assertIn("::error title=", content)
-        self.assertIn("::warning title=", content)
-        self.assertIn("::notice title=Backend deploy::", content)
-        self.assertIn("::group::", content)
-        self.assertIn("::endgroup::", content)
+        yml = self._deploy_yml_content()
+        sh = self._observe_sh_content()
+        # Workflow wraps steps via helper (which emits ::group::) and has inline Trivy warnings.
+        self.assertIn("gha_begin_stage", yml)
+        self.assertIn("::group::", yml)
+        self.assertIn("::endgroup::", yml)
+        self.assertIn("::warning title=", yml)
+        # Observe script emits severity annotations (error/warning via $GHA_FAIL_SEVERITY) and notice.
+        self.assertIn("::${GHA_FAIL_SEVERITY} title=", sh)
+        self.assertIn("::notice title=", sh)
 
 
 if __name__ == "__main__":
