@@ -6,25 +6,62 @@
 
 ## Быстрый запуск
 
+Поддерживаются два test runner-а — **pytest** (рекомендуется) и стандартный **unittest**.
+
+### pytest (рекомендуется)
+
 ```bash
-python3 -m pip install -r requirements.txt
-python3 -m unittest discover -s scripts/tests
+# Первый запуск: установить зависимости в .venv
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt pytest
+
+# Запуск всех тестов
+cd scripts && ../.venv/bin/pytest
+
+# Подробный вывод
+cd scripts && ../.venv/bin/pytest -v
+
+# Остановиться на первой ошибке
+cd scripts && ../.venv/bin/pytest -x
+
+# Фильтр по имени теста или файла
+cd scripts && ../.venv/bin/pytest -k smoke
+cd scripts && ../.venv/bin/pytest -k backup
+cd scripts && ../.venv/bin/pytest -k "render_nginx or appsettings"
+
+# Конкретный файл
+cd scripts && ../.venv/bin/pytest tests/test_render_nginx.py
+
+# Краткий вывод (только провалившиеся)
+cd scripts && ../.venv/bin/pytest -q
 ```
 
-Запуск одного тестового файла:
+Конфигурация pytest задана в `scripts/pytest.ini` (`testpaths = tests`) и `scripts/conftest.py` (добавляет `scripts/` в `sys.path`).
+
+### unittest (альтернатива)
 
 ```bash
-python3 -m unittest scripts/tests/test_render_nginx.py
+python3 -m pip install -r requirements.txt
+cd scripts && python3 -m unittest discover tests
+
+# Один файл
+cd scripts && python3 -m unittest tests/test_render_nginx.py
 ```
 
 ## Интеграционный dry-run e2e
 
 Тест `scripts/tests/test_stack_e2e_dry_run.py` проверяет полный CLI-цикл `init.py -> stack preflight --dry-run -> stack up --dry-run`. По умолчанию он пропускается, чтобы обычный unit-suite не требовал Docker daemon и не создавал временную Docker network.
 
-Для запуска:
+Запуск через pytest:
 
 ```bash
-YUVIRON_RUN_DOCKER_E2E=1 python3 -m unittest scripts/tests/test_stack_e2e_dry_run.py
+cd scripts && YUVIRON_RUN_DOCKER_E2E=1 ../.venv/bin/pytest tests/test_stack_e2e_dry_run.py -v
+```
+
+Запуск через unittest:
+
+```bash
+cd scripts && YUVIRON_RUN_DOCKER_E2E=1 python3 -m unittest tests/test_stack_e2e_dry_run.py
 ```
 
 Тест собирает минимальный временный проект, создаёт fixture `env/dev.env`, запускает `init.py`, добавляет dummy TLS files для preflight-проверки путей, затем выполняет `preflight` и `up` через `docker compose --dry-run`; `up --dry-run` также проверяет migrator profile `migrate`.
