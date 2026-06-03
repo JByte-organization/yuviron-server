@@ -262,8 +262,24 @@
 {% endfor %}
 {% if tailscale_funnel_host %}
     # Tailscale Funnel ingress — public endpoint for Stripe webhooks.
-    # Tailscale Serve terminates the outer TLS and forwards to this HTTPS server.
-    # nginx uses the Tailscale-issued cert; only /api/webhooks/ is exposed.
+    #
+    # Traffic path:
+    #   Internet → Tailscale Funnel ({{ tailscale_funnel_host }}:443)
+    #     → tailscale serve (https+insecure://localhost:4443)
+    #     → Docker host port 127.0.0.1:4443 → nginx container port 443
+    #     → this server block → backend:5073/api/webhooks/
+    #
+    # Port 4443 is published as 127.0.0.1:4443:443 in compose.yml so that
+    # Tailscale Serve reaches nginx without claiming port 443 on the Tailnet
+    # interface, which would break direct Tailnet access to dev domains.
+    #
+    # Setup commands (run once on dev-vm):
+    #   tailscale serve --bg --set-path /api/webhooks/ https+insecure://localhost:4443
+    #   tailscale funnel --bg --set-path /api/webhooks/ 443
+    #
+    # Tailscale Serve strips the --set-path prefix (/api/webhooks/) before
+    # forwarding here, so /api/webhooks/stripe arrives as /stripe.
+    # proxy_pass with a trailing path re-prepends the stripped prefix.
     server {
         listen 443 ssl;
         http2 on;
@@ -275,9 +291,6 @@
         access_log /dev/stdout main;
         error_log  /dev/stderr warn;
 
-        # Tailscale Serve strips the --set-path prefix (/api/webhooks/) before
-        # forwarding here, so /api/webhooks/stripe arrives as /stripe.
-        # proxy_pass with a trailing path re-prepends the stripped prefix.
         location / {
             proxy_request_buffering off;
             proxy_pass http://backend:5073/api/webhooks/;
