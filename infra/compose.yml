@@ -153,7 +153,7 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME}-seq
     profiles:
       - observability
-    user: "${SEQ_UID:-1000}:${SEQ_GID:-1000}"
+    user: "${SEQ_UID:-10002}:${SEQ_GID:-10002}"
     restart: ${RESTART_POLICY}
     cap_drop:
       - ALL

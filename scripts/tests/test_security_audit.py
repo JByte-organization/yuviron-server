@@ -85,7 +85,7 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertNotIn("seq-init", services)
 
         seq = services["seq"]
-        self.assertEqual("${SEQ_UID:-1000}:${SEQ_GID:-1000}", seq["user"])
+        self.assertEqual("${SEQ_UID:-10002}:${SEQ_GID:-10002}", seq["user"])
         self.assertEqual(["ALL"], seq["cap_drop"])
         self.assertEqual(["NET_BIND_SERVICE"], seq["cap_add"])
         self.assertNotIn("depends_on", seq)

@@ -384,8 +384,8 @@ def _directory_allows_uid_gid(path: Path, uid: int, gid: int) -> bool:
 
 
 def _check_seq_storage_runtime_permissions(seq_storage_path: Path, env_values: dict[str, str]) -> None:
-    seq_uid = _runtime_id(env_values, "SEQ_UID", "1000")
-    seq_gid = _runtime_id(env_values, "SEQ_GID", "1000")
+    seq_uid = _runtime_id(env_values, "SEQ_UID", "10002")
+    seq_gid = _runtime_id(env_values, "SEQ_GID", "10002")
 
     if _directory_allows_uid_gid(seq_storage_path, seq_uid, seq_gid):
         return
@@ -408,8 +408,8 @@ def _ensure_seq_storage_directory(path: Path, mode: int, env_values: dict[str, s
     elif not path.is_dir():
         fail(f"SEQ_STORAGE_PATH exists but is not a directory: {path}")
 
-    seq_uid = _runtime_id(env_values, "SEQ_UID", "1000")
-    seq_gid = _runtime_id(env_values, "SEQ_GID", "1000")
+    seq_uid = _runtime_id(env_values, "SEQ_UID", "10002")
+    seq_gid = _runtime_id(env_values, "SEQ_GID", "10002")
 
     if _directory_allows_uid_gid(path, seq_uid, seq_gid):
         return
