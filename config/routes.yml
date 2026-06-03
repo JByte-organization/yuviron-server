@@ -13,14 +13,17 @@ routes:
   client:
     app: client
     client_max_body_size: 5m
+    rate_limit_zone: api_general
     environments: [dev, prod]
 
   admin:
     app: admin
+    rate_limit_zone: api_general
     environments: [dev, prod]
 
   backoffice:
     app: backoffice
+    rate_limit_zone: api_general
     environments: [dev, prod]
 
   seq:
