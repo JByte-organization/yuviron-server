@@ -480,17 +480,22 @@ def prepare_host_storage_layout(root_dir: Path, env_values: dict[str, str]) -> N
     app_uid = _runtime_id(env_values, "DOTNET_APP_UID", "10001")
     app_gid = _runtime_id(env_values, "DOTNET_APP_GID", "10001")
 
-    def _setup_backend_dir(path: Path) -> None:
+    backend_dirs = [storage_dir] + [
+        storage_dir / d for d in REQUIRED_STORAGE_DIRS if d != "seq"
+    ]
+
+    # Фаза 1: создать все директории пока host-пользователь ещё является владельцем.
+    # Важно создать ВСЕ поддиректории ДО chown parent'а — иначе после chown storage_dir
+    # в 10001 host-пользователь не сможет создать subdirs внутри него.
+    for path in backend_dirs:
         _ensure_storage_directory(path, mode)
+        _check_storage_directory_permissions(path)
 
+    # Фаза 2: chown всех директорий через Docker (host-пользователь теряет write-доступ,
+    # зато контейнер app_uid получает его — это и есть цель).
+    for path in backend_dirs:
         if _directory_allows_uid_gid(path, app_uid, app_gid):
-            # Директория уже доступна на запись контейнеру — ничего делать не нужно
-            return
-
-        # Меняем владельца через Docker чтобы контейнер (uid=app_uid) мог писать.
-        # Если chown удался — хост-проверку пропускаем: теперь владелец контейнер,
-        # а не host-пользователь, и это правильно (least privilege).
-        # Если chown не удался — предупреждаем и проверяем что хост хотя бы может писать.
+            continue
         if _chown_storage_dir_via_docker(path, app_uid, app_gid):
             log_ok(f"Storage directory chowned to {app_uid}:{app_gid}: {path}")
         else:
@@ -499,14 +504,6 @@ def prepare_host_storage_layout(root_dir: Path, env_values: dict[str, str]) -> N
                 f"The backend container may not be able to write to this directory. "
                 f"Fix: sudo chown -R {app_uid}:{app_gid} {path}"
             )
-            _check_storage_directory_permissions(path)
-
-    _setup_backend_dir(storage_dir)
-
-    for dirname in REQUIRED_STORAGE_DIRS:
-        if dirname == "seq":
-            continue
-        _setup_backend_dir(storage_dir / dirname)
 
     _ensure_seq_storage_directory(seq_storage_dir, mode, env_values)
 

@@ -108,64 +108,86 @@ class StackE2EDryRunTests(unittest.TestCase):
         project_name = f"yuviron-e2e-{os.getpid()}"
         shared_network = f"{project_name}_shared"
 
-        with tempfile.TemporaryDirectory() as temp_dir:
+        # TemporaryDirectory не используется как context manager намеренно:
+        # нам нужно вызвать Docker-chmod перед cleanup чтобы восстановить права
+        # на директориях которые preflight chown-ит в 10001 (DOTNET_APP_UID).
+        # После chown host-пользователь теряет write, и shutil.rmtree падает.
+        tmpdir_obj = tempfile.TemporaryDirectory()
+        temp_dir = tmpdir_obj.name
+        up = None
+        try:
             root = Path(temp_dir) / "repo"
             _build_e2e_project(root, project_name)
 
-            try:
-                self._run(
-                    root,
-                    [
-                        sys.executable,
-                        str(root / "scripts" / "init.py"),
-                        "--env",
-                        "dev",
-                        "--domain",
-                        "example.com",
-                        "--apps",
-                        "admin,backoffice",
-                        "--routes",
-                        "-1",
-                        "--no-certs",
-                        "--no-preflight",
-                        "--no-up",
-                    ],
-                )
+            self._run(
+                root,
+                [
+                    sys.executable,
+                    str(root / "scripts" / "init.py"),
+                    "--env",
+                    "dev",
+                    "--domain",
+                    "example.com",
+                    "--apps",
+                    "admin,backoffice",
+                    "--routes",
+                    "-1",
+                    "--no-certs",
+                    "--no-preflight",
+                    "--no-up",
+                ],
+            )
 
-                self._write_dummy_tls_files(root)
+            self._write_dummy_tls_files(root)
 
-                self._run(
-                    root,
-                    [
-                        sys.executable,
-                        str(root / "scripts" / "cli.py"),
-                        "stack",
-                        "preflight",
-                        "--dry-run",
-                        "--no-header",
-                        "dev",
-                        str(root),
-                    ],
-                    timeout=180,
-                )
+            self._run(
+                root,
+                [
+                    sys.executable,
+                    str(root / "scripts" / "cli.py"),
+                    "stack",
+                    "preflight",
+                    "--dry-run",
+                    "--no-header",
+                    "dev",
+                    str(root),
+                ],
+                timeout=180,
+            )
 
-                up = self._run(
-                    root,
-                    [
-                        sys.executable,
-                        str(root / "scripts" / "cli.py"),
-                        "stack",
-                        "up",
-                        "--dry-run",
-                        "dev",
-                        str(root),
-                    ],
-                    timeout=180,
-                )
-            finally:
-                subprocess.run(["docker", "network", "rm", shared_network], capture_output=True, check=False)
+            up = self._run(
+                root,
+                [
+                    sys.executable,
+                    str(root / "scripts" / "cli.py"),
+                    "stack",
+                    "up",
+                    "--dry-run",
+                    "dev",
+                    str(root),
+                ],
+                timeout=180,
+            )
+        finally:
+            subprocess.run(["docker", "network", "rm", shared_network], capture_output=True, check=False)
+            # Восстанавливаем права перед удалением temp-директории.
+            # Preflight chown-ит storage/* в DOTNET_APP_UID (10001); после этого
+            # host-пользователь не может удалить эти папки. Запускаем chmod -R 777
+            # изнутри alpine-контейнера (root внутри) чтобы вернуть доступ.
+            subprocess.run(
+                [
+                    "docker", "run", "--rm", "--user", "0:0",
+                    "-v", f"{temp_dir}:/cleanup",
+                    "alpine:3.20",
+                    "chmod", "-R", "777", "/cleanup",
+                ],
+                check=False,
+                capture_output=True,
+            )
+            tmpdir_obj.cleanup()
 
-        self.assertIn("dry-run", (up.stdout + up.stderr).lower())
+        if up is not None:
+            self.assertIn("dry-run", (up.stdout + up.stderr).lower())
 
     def _write_dummy_tls_files(self, root: Path) -> None:
         deploy_env = parse_env_file(root / "generated" / "dev" / "deploy.env")
