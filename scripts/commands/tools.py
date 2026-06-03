@@ -833,6 +833,43 @@ def cmd_rotation_status(args: argparse.Namespace) -> int:
     return 1 if has_warnings else 0
 
 
+def cmd_setup_completion(args: argparse.Namespace) -> int:
+    """Установить completion script в ~/.bashrc или ~/.zshrc."""
+    import shutil
+    from commands.completion import print_completion_script
+
+    root_dir = resolve_root_dir(DEFAULT_ROOT, getattr(args, "project_root", None))
+    cli_path = root_dir / "scripts" / "cli.py"
+
+    # Строка которую добавляем в shell config
+    eval_line = f'eval "$({cli_path} completion)"'
+    marker = "# yuviron-cli-completion"
+    block = f"\n{marker}\n{eval_line}\n"
+
+    # Определяем shell config файл
+    shell = os.environ.get("SHELL", "")
+    if "zsh" in shell:
+        rc_file = Path.home() / ".zshrc"
+    else:
+        rc_file = Path.home() / ".bashrc"
+
+    # Проверяем не добавлено ли уже
+    if rc_file.is_file() and marker in rc_file.read_text(encoding="utf-8"):
+        log_ok(f"Completion already installed in {rc_file}")
+        log_info(f"Run: source {rc_file}")
+        return 0
+
+    log_info(f"Installing completion into {rc_file}")
+    with rc_file.open("a", encoding="utf-8") as f:
+        f.write(block)
+
+    log_ok(f"Completion installed in {rc_file}")
+    print()
+    log_info(f"Activate now:  source {rc_file}")
+    log_info(f"Or open a new terminal.")
+    return 0
+
+
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     tools_parser = subparsers.add_parser("tools", help="Utilities that remain in shell")
     tools_sub = tools_parser.add_subparsers(dest="tools_action", required=True)
@@ -957,3 +994,10 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     rotation_status_parser.add_argument("environment", nargs="?")
     rotation_status_parser.add_argument("--project-root", dest="project_root")
     rotation_status_parser.set_defaults(handler=cmd_rotation_status)
+
+    setup_completion_parser = tools_sub.add_parser(
+        "setup-completion",
+        help="Install bash/zsh tab-completion for cli.py into ~/.bashrc or ~/.zshrc",
+    )
+    setup_completion_parser.add_argument("--project-root", dest="project_root")
+    setup_completion_parser.set_defaults(handler=cmd_setup_completion)

@@ -15,6 +15,7 @@
 #   appsettings— генерация appsettings.json для .NET-бэкенда
 #   tools      — вспомогательные утилиты (очистка, Docker, мониторинг)
 #   test       — запуск тестов через pytest (.venv/bin/pytest)
+#   completion — вывод bash/zsh completion script (eval "$(...)")
 #
 # При запуске без команды выводит справку.
 # При Ctrl+C завершается с кодом 130 (стандарт Unix).
@@ -36,6 +37,7 @@ if __package__ in {None, ""}:
 from commands import appsettings as appsettings_cmd
 from commands import backup as backup_cmd
 from commands import certs as certs_cmd
+from commands import completion as completion_cmd
 from commands import dns as dns_cmd
 from commands import doctor as doctor_cmd
 from commands import security as security_cmd
@@ -63,6 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     security_cmd.register(subparsers)
     tools_cmd.register(subparsers)
     test_cmd.register(subparsers)
+    completion_cmd.register(subparsers)
 
     return parser
 
