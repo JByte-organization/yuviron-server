@@ -1,3 +1,32 @@
+# =============================================================================
+# infra/docker/dotnet/Dockerfile — Multi-stage Dockerfile для .NET-сервисов.
+#
+# Собирает три финальных образа из одного файла:
+#
+#   backend      — Yuviron.Api (.NET 9 ASP.NET API, порт 5073)
+#                  HEALTHCHECK: GET /health/ready
+#
+#   media-worker — Yuviron.MediaWorker (фоновый обработчик медиа, порт 5074)
+#                  HEALTHCHECK: GET /health/ready
+#
+#   migrator     — EF Core migrator (запускается как --rm контейнер)
+#                  CMD: /usr/local/bin/yuviron-migrator (migrator.sh)
+#
+# Стадии сборки:
+#   source       — копирует только .csproj файлы (для кэша NuGet restore)
+#   restore      — dotnet restore + копирует весь исходный код
+#   publish-api  — dotnet publish Yuviron.Api → /app/publish
+#   publish-worker — dotnet publish Yuviron.MediaWorker → /app/publish
+#   migrator     — устанавливает dotnet-ef CLI + собирает для миграций
+#   runtime-base — mcr.microsoft.com/dotnet/aspnet (без SDK) + runtime-packages.txt
+#   backend      — runtime-base + артефакты publish-api
+#   media-worker — runtime-base + артефакты publish-worker
+#
+# Безопасность:
+#   - Все сервисы запускаются от UID/GID 10001 (не root)
+#   - HOME=/tmp (нет доступа к домашней директории)
+#   - NuGet кэш через BuildKit mount (не попадает в слои образа)
+# =============================================================================
 ARG DOTNET_VERSION=9.0
 
 FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS source

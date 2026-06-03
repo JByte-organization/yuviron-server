@@ -1,3 +1,19 @@
+# =============================================================================
+# scripts/core/tls.py — Управление TLS-сертификатами для nginx.
+#
+# Поддерживаются два режима (NGINX_CERT_MODE):
+#
+#   "shared"    — один сертификат на все домены (SAN-сертификат).
+#                 Файл: certs/<env>-<domain>.pem
+#                 Используется в dev (mkcert генерирует один wildcard-сертификат).
+#
+#   "per-route" — отдельный сертификат для каждого маршрута.
+#                 Файлы: certs/<env>/<route-host>.pem
+#                 Используется в prod (Let's Encrypt выдаёт по одному домену).
+#
+# Функции *_container_paths() возвращают пути ВНУТРИ контейнера nginx (/etc/nginx/certs/...),
+# функции *_paths() — пути на хосте (certs/...).
+# =============================================================================
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,13 +22,13 @@ from .models import VALID_ENVIRONMENTS, is_valid_route_host
 from .validators import fail
 
 
-NGINX_CERT_MODE_SHARED = "shared"
-NGINX_CERT_MODE_PER_ROUTE = "per-route"
+NGINX_CERT_MODE_SHARED = "shared"        # один сертификат на все домены
+NGINX_CERT_MODE_PER_ROUTE = "per-route"  # отдельный сертификат для каждого маршрута
 NGINX_CERT_MODES = frozenset({NGINX_CERT_MODE_SHARED, NGINX_CERT_MODE_PER_ROUTE})
-NGINX_CERTS_CONTAINER_DIR = "/etc/nginx/certs"
+NGINX_CERTS_CONTAINER_DIR = "/etc/nginx/certs"   # монтирование certs/ в контейнер nginx
 DEFAULT_CERT_MODE_BY_ENV = {
-    "dev": NGINX_CERT_MODE_SHARED,
-    "prod": NGINX_CERT_MODE_PER_ROUTE,
+    "dev": NGINX_CERT_MODE_SHARED,    # dev: удобнее один общий сертификат
+    "prod": NGINX_CERT_MODE_PER_ROUTE,  # prod: по-сертификату на домен (Let's Encrypt)
 }
 
 

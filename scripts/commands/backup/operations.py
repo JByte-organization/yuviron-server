@@ -1,4 +1,28 @@
 #!/usr/bin/env python3
+# =============================================================================
+# scripts/commands/backup/operations.py — Операции создания и восстановления бэкапов.
+#
+# Команды:
+#   backup create          — создать полный бэкап (MySQL + Redis)
+#   backup restore <файл>  — восстановить из архива
+#   backup verify          — проверить целостность последнего бэкапа
+#   backup list            — список доступных архивов
+#
+# Что входит в бэкап:
+#   mysql.sql.gz       — дамп базы данных (mysqldump через Docker exec)
+#   redis.tar.gz       — снапшот Redis persistence (AOF/RDB файлы)
+#   backup_<timestamp>.tar.gz — всё вместе в один архив
+#
+# Операция verify:
+#   1. Находит последний архив в backups/archives/
+#   2. Проверяет целостность tar + gzip (gzip -t)
+#   3. Проверяет что redis архив содержит .aof/.rdb файлы
+#   4. Тест-восстановление: распаковывает в temporary директорию
+#      (не применяет к реальным данным — только проверяет что файлы читаемы)
+#
+# Переменные для переопределения путей (из env/):
+#   BACKUP_ROOT, BACKUP_TMP, BACKUP_LOG_DIR, BACKUP_ARCHIVE_DIR
+# =============================================================================
 from __future__ import annotations
 
 import argparse

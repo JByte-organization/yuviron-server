@@ -1,3 +1,19 @@
+# =============================================================================
+# scripts/core/htpasswd.py — Генерация htpasswd-файла для nginx Basic Auth.
+#
+# nginx Basic Auth используется для закрытия служебных маршрутов:
+#   seq, aspire, grafana, adminer, rabbitmq и других management-интерфейсов.
+#
+# Формат файла: username:{SSHA}base64(sha1(password + salt))
+# Это стандартный RFC 2307 SSHA, который поддерживается nginx ngx_http_auth_basic_module.
+#
+# При первой генерации конфига:
+#   1. Генерируется случайный пароль (24 байта urlsafe base64)
+#   2. Создаётся htpasswd (права 644)
+#   3. Рядом создаётся htpasswd.credentials (права 600) с логином и паролем
+#
+# Если файл уже существует — пропускается (не перезаписывается).
+# =============================================================================
 from __future__ import annotations
 
 import base64
@@ -12,8 +28,8 @@ from .paths import resolve_runtime_path
 from .validators import fail
 
 
-DEFAULT_BASIC_AUTH_USER = "admin"
-BASIC_AUTH_USER_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+DEFAULT_BASIC_AUTH_USER = "admin"   # имя пользователя по умолчанию если не задано в env
+BASIC_AUTH_USER_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")   # допустимые символы в имени
 
 
 @dataclass(frozen=True)
@@ -49,6 +65,12 @@ def _ssha_password_hash(password: str, salt: bytes | None = None) -> str:
 
 
 def _write_secret_file(path: Path, content: str, mode: int) -> None:
+    """Атомарно записать файл с нужными правами доступа.
+
+    Используем временный файл + os.replace() чтобы избежать ситуации
+    когда файл существует, но ещё не полностью записан (race condition).
+    mode — восьмеричные права доступа, например 0o600 или 0o644.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(f".{path.name}.tmp")
     fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
@@ -60,7 +82,7 @@ def _write_secret_file(path: Path, content: str, mode: int) -> None:
         raise
 
     os.chmod(tmp_path, mode)
-    os.replace(tmp_path, path)
+    os.replace(tmp_path, path)   # атомарная замена
     os.chmod(path, mode)
 
 

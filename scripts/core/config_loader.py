@@ -1,3 +1,20 @@
+# =============================================================================
+# scripts/core/config_loader.py — Загрузка и валидация конфигурационных YAML-файлов.
+#
+# Читает и валидирует:
+#   config/apps.yml    → dict[str, FrontendApp]   через load_frontend_apps()
+#   config/routes.yml  → dict[str, Route]         через load_routes()
+#   config/project.yml → str (project_name)       через load_project_name()
+#
+# Также содержит:
+#   parse_extra_routes()    — разбор строки "log=seq:80,aspire=dash:18888"
+#   resolve_selected_apps() — фильтрация приложений по запросу
+#   render_stack_values()   — вычисление переменных стека (порты, сеть, сертификаты)
+#   load_stack_port()       — чтение HTTP_PORT/HTTPS_PORT из env-файлов
+#   load_nginx_cert_mode()  — чтение NGINX_CERT_MODE из env-файлов
+#
+# Все функции бросают CommandError при неверных данных (через fail()).
+# =============================================================================
 from __future__ import annotations
 
 import os

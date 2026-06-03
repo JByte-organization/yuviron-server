@@ -1,4 +1,25 @@
 #!/usr/bin/env python3
+# =============================================================================
+# scripts/commands/appsettings.py — Генерация appsettings.json для .NET бэкенда.
+#
+# .NET ASP.NET Core читает конфигурацию из appsettings.json.
+# Этот скрипт генерирует его из переменных окружения (deploy.env),
+# чтобы не хранить секреты в appsettings файлах в git.
+#
+# Команды:
+#   appsettings generate [env]      — генерировать appsettings.json
+#   appsettings generate-mediasettings [env] — генерировать для MediaWorker
+#
+# Что происходит:
+#   1. Читает deploy.env для окружения
+#   2. Извлекает нужные ключи (JWT_SECRET, строки подключения, CORS и др.)
+#   3. Генерирует appsettings.json в формате ASP.NET Core
+#   4. Записывает в src/yuviron-backend/src/Yuviron.Api/appsettings.json
+#      (только при --write, иначе выводит в stdout)
+#
+# Используется в CI/CD перед "docker compose build" чтобы встроить секреты
+# в Docker-образ через COPY appsettings.json ./ в Dockerfile.
+# =============================================================================
 from __future__ import annotations
 
 import argparse

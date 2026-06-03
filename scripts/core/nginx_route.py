@@ -1,3 +1,19 @@
+# =============================================================================
+# scripts/core/nginx_route.py — Модель данных для nginx-маршрута.
+#
+# NginxRoute — это «готовая к рендерингу» версия Route.
+# В отличие от Route (из config/routes.yml), NginxRoute содержит
+# уже вычисленный host (полный домен), upstream (service:port)
+# и все nginx-параметры: rate limit, upload locations, max body size.
+#
+# Константы лимитов по умолчанию:
+#   PUBLIC_RATE_LIMIT  — 30 запросов в минуту (обычные страницы)
+#   API_AUTH           — 10 запросов в минуту (login/register)
+#   API_UPLOAD         — 5 запросов в минуту (загрузка файлов)
+#   PUBLIC_RATE_BURST  — допустимый всплеск (20 запросов) без ограничения
+#
+# _validate_nginx_route() — финальная валидация перед рендерингом шаблона.
+# =============================================================================
 from __future__ import annotations
 
 import re
@@ -11,12 +27,13 @@ from .models import (
 )
 from .validators import fail
 
-DEFAULT_NGINX_PUBLIC_RATE_LIMIT = "30r/m"
-DEFAULT_NGINX_PUBLIC_RATE_BURST = "20"
-DEFAULT_NGINX_RATE_API_AUTH = "10r/m"
-DEFAULT_NGINX_RATE_API_UPLOAD = "5r/m"
-DEFAULT_NGINX_WORKER_PROCESSES = "auto"
-DEFAULT_NGINX_WORKER_CONNECTIONS = "1024"
+# Значения nginx rate limit по умолчанию (если не переопределено в env)
+DEFAULT_NGINX_PUBLIC_RATE_LIMIT = "30r/m"   # 30 запросов в минуту для публичных маршрутов
+DEFAULT_NGINX_PUBLIC_RATE_BURST = "20"      # всплеск до 20 запросов без задержки
+DEFAULT_NGINX_RATE_API_AUTH = "10r/m"       # 10 req/min для auth-эндпоинтов (защита от брутфорса)
+DEFAULT_NGINX_RATE_API_UPLOAD = "5r/m"      # 5 req/min для загрузки файлов
+DEFAULT_NGINX_WORKER_PROCESSES = "auto"     # автоматически = число CPU
+DEFAULT_NGINX_WORKER_CONNECTIONS = "1024"   # одновременных соединений на worker
 
 NGINX_RATE_LIMIT_PATTERN = re.compile(r"^[1-9][0-9]*r/[sm]$")
 NGINX_RATE_BURST_PATTERN = re.compile(r"^[1-9][0-9]*$")
@@ -28,6 +45,17 @@ NGINX_UPLOAD_LOCATION_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 @dataclass
 class NginxRoute:
+    """Готовый к рендерингу маршрут для nginx.conf.
+
+    name          — идентификатор маршрута (например "api", "admin")
+    host          — полный домен (например "dev-api.yuviron.com")
+    upstream      — цель проксирования (например "backend:5073")
+    max_body_size — nginx client_max_body_size (по умолчанию 5m)
+    has_auth_endpoints — True если у маршрута есть /login и похожие пути
+    rate_limit_zone    — nginx zone для ограничения частоты запросов
+    upload_locations   — URL-пути с повышенным лимитом (для загрузки файлов)
+    media_proxy        — True для CDN-кэша медиа-файлов
+    """
     name: str
     host: str
     upstream: str

@@ -1,3 +1,9 @@
+# =============================================================================
+# scripts/commands/stack/_common.py — Общие константы и утилиты для stack-команд.
+#
+# Импортируется всеми подмодулями команды stack (up, down, preflight, smoke, migrate).
+# Содержит только «чистые» функции без side-эффектов и константы.
+# =============================================================================
 from __future__ import annotations
 
 import sys
@@ -9,22 +15,33 @@ from core.ui import log_info, log_ok, log_warn
 from core.validators import fail
 
 
-DEFAULT_ROOT = Path(__file__).resolve().parents[3]
-PREFLIGHT_CLEANUP_MOUNT = "/preflight-cleanup"
+DEFAULT_ROOT = Path(__file__).resolve().parents[3]   # корень проекта
+PREFLIGHT_CLEANUP_MOUNT = "/preflight-cleanup"        # точка монтирования при очистке temp-файлов
+
+# Профиль и имя сервиса для запуска EF Core migrator
 MIGRATOR_PROFILE = "migrate"
-NGINX_MEDIA_CACHE_DIR = "/var/cache/nginx/yuviron_media"
-NGINX_MEDIA_ROUTE_NAME = "i"
 MIGRATOR_SERVICE = "migrator"
-BACKEND_SERVICE = "backend"
+
+NGINX_MEDIA_CACHE_DIR = "/var/cache/nginx/yuviron_media"  # кэш CDN-прокси внутри nginx-контейнера
+NGINX_MEDIA_ROUTE_NAME = "i"                              # имя маршрута медиа-прокси
+
+BACKEND_SERVICE = "backend"   # имя сервиса .NET API в docker compose
+
+# Сервисы, которые обязаны присутствовать в compose-конфиге (проверяется в smoke/preflight)
 REQUIRED_STACK_SERVICES = ("mysql", "redis", "rabbitmq", "nginx", BACKEND_SERVICE)
+
 # Matches ASPNETCORE_HTTP_PORTS in infra/compose.yml
-SWAGGER_BACKEND_BASE_URL = "http://127.0.0.1:5073"
-SWAGGER_BACKEND_HEALTH_TIMEOUT = 180
+SWAGGER_BACKEND_BASE_URL = "http://127.0.0.1:5073"   # URL бэкенда для скачивания swagger.json
+SWAGGER_BACKEND_HEALTH_TIMEOUT = 180                  # секунд ждать готовности бэкенда
+
+# Сервисы, которые нужно запустить перед генерацией Swagger-документов
 SWAGGER_PREBUILD_SERVICES = ("mysql", "redis", "rabbitmq", BACKEND_SERVICE)
+
+# Куда сохранять swagger.json (для TypeScript-клиента на фронтенде)
 FRONTEND_SWAGGER_DIR = Path("src") / "yuviron-frontend" / "packages" / "api" / "openapi"
 SWAGGER_DOCUMENTS = {
-    "admin": "/swagger/admin/swagger.json",
-    "client": "/swagger/client/swagger.json",
+    "admin": "/swagger/admin/swagger.json",     # Swagger для Admin API
+    "client": "/swagger/client/swagger.json",   # Swagger для Client API
 }
 
 

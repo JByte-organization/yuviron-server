@@ -1,3 +1,17 @@
+# =============================================================================
+# scripts/commands/stack/_migrate.py — Запуск EF Core database migrations.
+#
+# _run_migrator() — запускает Docker-контейнер "migrator" (профиль "migrate").
+#   Контейнер применяет все pending EF Core миграции к базе данных MySQL.
+#   После успешного завершения контейнер удаляется (--rm).
+#
+# Защита продакшена:
+#   _confirm_production_migrate() требует явного подтверждения перед миграцией prod-БД.
+#   В CI: нужна переменная ALLOW_PRODUCTION_MIGRATE=<имя_базы> в env/prod.env.
+#   Интерактивно: пользователь должен ввести фразу "yes, migrate production".
+#
+# cmd_migrate() — публичная команда "stack migrate [env]".
+# =============================================================================
 from __future__ import annotations
 
 import argparse

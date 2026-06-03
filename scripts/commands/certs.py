@@ -1,4 +1,24 @@
 #!/usr/bin/env python3
+# =============================================================================
+# scripts/commands/certs.py — Управление TLS-сертификатами.
+#
+# Команды:
+#   certs generate --env dev --provider mkcert    — mkcert-сертификат для dev
+#   certs generate --env prod --provider letsencrypt --email ... — Let's Encrypt
+#   certs renew --env prod --domain ...           — обновить Let's Encrypt
+#   certs reload --env prod                       — перечитать сертификаты в nginx
+#
+# Провайдеры:
+#   mkcert       — локальный CA, только для dev. Браузер доверяет через "mkcert -install".
+#   letsencrypt  — публичные сертификаты. Требует запущенный nginx (HTTP-01 challenge).
+#
+# Режимы (NGINX_CERT_MODE):
+#   shared    — один SAN-сертификат на все домены (dev mkcert → общий файл)
+#   per-route — отдельный сертификат на каждый домен (prod Let's Encrypt)
+#
+# После генерации Let's Encrypt файлы из letsencrypt/live/ копируются в certs/.
+# Права: cert 644, key 640 (только root и nginx-группа).
+# =============================================================================
 from __future__ import annotations
 
 import argparse
@@ -33,11 +53,11 @@ from core.ui import confirm, log_info, log_ok, log_warn
 from core.validators import ensure_command, fail, resolve_prompted_environment, resolve_prompted_required
 
 
-DEFAULT_ROOT = Path(__file__).resolve().parents[2]
-CERT_PROVIDERS = ("mkcert", "letsencrypt")
-ACME_CHALLENGE_PREFIX = "/.well-known/acme-challenge/"
-TLS_CERT_FILE_MODE = 0o644
-TLS_KEY_FILE_MODE = 0o640
+DEFAULT_ROOT = Path(__file__).resolve().parents[2]   # корень проекта
+CERT_PROVIDERS = ("mkcert", "letsencrypt")            # поддерживаемые провайдеры
+ACME_CHALLENGE_PREFIX = "/.well-known/acme-challenge/"  # URL-префикс для HTTP-01 проверки
+TLS_CERT_FILE_MODE = 0o644    # права на сертификат: читают все, пишет только владелец
+TLS_KEY_FILE_MODE = 0o640     # права на приватный ключ: читает владелец + группа nginx
 
 
 @dataclass(frozen=True)

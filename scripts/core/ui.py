@@ -1,3 +1,19 @@
+# =============================================================================
+# scripts/core/ui.py — Утилиты для вывода в терминал: цвета, иконки, промпты.
+#
+# Все команды CLI используют эти функции для единообразного форматирования:
+#   log_ok()    — зелёный [OK]
+#   log_err()   — красный [ERROR] в stderr
+#   log_warn()  — жёлтый [WARNING] в stderr
+#   log_info()  — голубой [INFO] (приглушённый)
+#   log_kv()    — пара ключ/значение (для сводок)
+#   log_link()  — URL
+#   confirm()   — интерактивный вопрос Y/n
+#   hr()        — горизонтальная линия на всю ширину терминала
+#   env_badge() — цветной значок DEV или PROD
+#
+# Цвет автоматически отключается если stdout — не TTY или задана переменная NO_COLOR.
+# =============================================================================
 from __future__ import annotations
 
 import os
@@ -11,6 +27,7 @@ except ImportError:  # PyYAML is optional for routes hint rendering.
     yaml = None
 
 
+# Цвет включён только если вывод идёт в терминал и не задан NO_COLOR (стандарт ANSI)
 _USE_COLOR = sys.stdout.isatty() and not os.getenv("NO_COLOR")
 
 # ==== Colors and styles ====================================================
@@ -41,15 +58,16 @@ BG_YELLOW = "\033[43m" if _USE_COLOR else ""
 
 
 # ==== Icons ================================================================
+# Текстовые иконки — используются вместо emoji для совместимости с любыми терминалами
 IC_OK = "[OK]"
 IC_ERR = "[ERROR]"
 IC_WARN = "[WARNING]"
 IC_INFO = "[INFO]"
-IC_ARROW = "->"
-IC_BULLET = "."
-IC_STEP = "::"
-IC_PROMPT = ">"
-IC_LINK = "~"
+IC_ARROW = "->"     # для отображения маршрутов: route → upstream
+IC_BULLET = "."     # элемент списка
+IC_STEP = "::"      # заголовок раздела (как в makefile)
+IC_PROMPT = ">"     # приглашение ввода
+IC_LINK = "~"       # URL-ссылка
 
 
 def term_width() -> int:

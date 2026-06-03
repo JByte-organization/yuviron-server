@@ -1,3 +1,29 @@
+# =============================================================================
+# scripts/checks/preflight_checks.py — Реализация всех preflight-проверок.
+#
+# Функции этого модуля вызываются из commands/stack/_preflight.py (cmd_preflight)
+# и commands/doctor.py (cmd_doctor). Принимают PreflightContext как первый аргумент.
+#
+# Ключевые функции:
+#   check_tools()              — проверить наличие docker, curl, openssl и др.
+#   check_docker_access()      — проверить что docker daemon доступен
+#   check_internet_connectivity() — DNS резолвинг и TCP-соединение
+#   ensure_preflight_generated()  — убедиться что generated/<env>/ создан
+#   check_generated_freshness()   — сравнить SHA-256 хэши в manifest.env с текущими файлами
+#   regenerate_preflight_generated() — перегенерировать если устарел
+#   load_env_file()            — загрузить deploy.env в ctx.runtime_values
+#   check_required_env_vars()  — все обязательные переменные заданы
+#   check_env_policy()         — нет слабых паролей, настройки prod корректны
+#   check_runtime_files()      — сертификаты, htpasswd, routes.env существуют
+#   check_storage_writable()   — storage/ директории создать и проверить права
+#   check_disk_space()         — минимум 2GB свободного места
+#   check_shared_network()     — Docker shared network существует
+#   check_routes_file()        — routes.env не пустой, маршруты валидны
+#   check_compose_config()     — "docker compose config" без ошибок
+#   check_nginx_config()       — "nginx -t" на сгенерированном nginx.conf
+#   check_backend_storage_permissions() — права на папку для загрузки файлов
+#   prepare_host_storage_layout() — создать subdirectories внутри storage/
+# =============================================================================
 from __future__ import annotations
 
 import os
@@ -34,8 +60,9 @@ from core.validators import ensure_command, fail
 # preflight_core — host, env, storage, network checks
 # ---------------------------------------------------------------------------
 
+# Поддиректории storage/<env>/ которые backend ожидает найти при старте
 REQUIRED_STORAGE_DIRS = ("avatars", "banners", "covers", "seq", "temp", "tracks")
-DEFAULT_STORAGE_DIR_MODE = "0777"
+DEFAULT_STORAGE_DIR_MODE = "0777"   # широкие права чтобы backend-контейнер мог писать
 
 
 def _resolve_regeneration_value(ctx: object, key: str, *value_maps: dict[str, str]) -> str:

@@ -1,5 +1,31 @@
+# =============================================================================
+# infra/docker/frontend-next/Dockerfile — Multi-stage Dockerfile для Next.js приложений.
+#
+# Один Dockerfile собирает любое из трёх фронтенд-приложений через ARG APP_NAME:
+#   APP_NAME=admin      → собирает apps/admin/
+#   APP_NAME=backoffice → собирает apps/backoffice/
+#   APP_NAME=client-app → собирает apps/client-app/
+#
+# Стадии:
+#   base    — Node 20 Alpine + corepack + pnpm 9
+#   deps    — устанавливаем зависимости (pnpm install --frozen-lockfile)
+#             BuildKit cache mount для /pnpm/store — пересборка только при изменении lock
+#   build   — генерируем TypeScript API-клиент (pnpm api:gen через Orval)
+#             затем собираем приложение (turbo run build --filter=<APP_NAME>...)
+#   runtime — минимальный образ только с Next.js standalone (без node_modules!)
+#             Standalone output = один server.js + минимальные зависимости
+#
+# Безопасность:
+#   - Запускается от UID/GID 10001 (не root)
+#   - NODE_ENV=production
+#   - HEALTHCHECK: HTTP GET /
+#
+# Сборка задаётся через build args в compose.frontends.yml:
+#   args: { APP_NAME: admin }
+# =============================================================================
 FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS base
 WORKDIR /repo
+# corepack позволяет использовать pnpm нужной версии без глобальной установки
 RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
 
 FROM base AS deps

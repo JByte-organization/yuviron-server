@@ -1,3 +1,18 @@
+# =============================================================================
+# scripts/commands/stack/_smoke.py — Smoke-тесты запущенного окружения.
+#
+# cmd_smoke() выполняет полный набор проверок:
+#   1. Проверка инструментов (docker, curl, awk)
+#   2. Проверка что все required-сервисы есть в compose-конфиге
+#   3. Ожидание healthy-состояния для mysql, redis, rabbitmq, nginx, backend
+#   4. Проверка /health эндпоинта backend внутри контейнера (wget)
+#   5. Для каждого маршрута из routes.env:
+#      a. GET /health → ожидаем HTTP 200 и body "edge-nginx-ok"
+#      b. GET <smoke_path> → ожидаем допустимые HTTP-коды (200/301/302/401/403)
+#
+# Используется curl с --resolve host:port:127.0.0.1 и --skip-verify
+# для тестирования HTTPS без DNS и с самоподписанными сертификатами.
+# =============================================================================
 from __future__ import annotations
 
 import argparse

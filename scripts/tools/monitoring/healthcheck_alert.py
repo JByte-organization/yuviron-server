@@ -1,16 +1,35 @@
 #!/usr/bin/env python3
 """Healthcheck alert cron script.
+=============================================================================
+scripts/tools/monitoring/healthcheck_alert.py — Email-алерты при падении контейнеров.
+
+Запускается из cron каждые 5 минут (или через: cli.py tools healthcheck-alert).
+Проверяет все Docker-контейнеры через "docker ps" и отправляет email
+если какой-то контейнер в состоянии "(unhealthy)".
+
+Умное определение причины:
+  - Если deploy-маркер .tmp/monitoring/deploy-started-<env> создан менее 15 минут назад
+    → ошибка при деплое (stack up завершился с проблемами)
+  - Иначе → runtime crash (контейнер упал сам по себе в продакшене)
+
+Cooldown (ALERT_COOLDOWN = 30 минут): не отправляет повторный алерт для того же
+контейнера пока не пройдёт 30 минут. Cooldown хранится в JSON-файле на диске.
+
+SMTP_PASSWORD передаётся через переменную окружения (не аргумент командной строки).
+
+Настройка через CLI: ./scripts/cli.py tools setup-healthcheck-cron
+=============================================================================
 
 Checks Docker container health every run, sends an email if any container is
 unhealthy.  The message distinguishes between a deploy-time failure (stack up
 ran recently) and a runtime crash (service fell on its own).
 
 Designed to be called from cron every 5 minutes (SMTP_PASSWORD read from env, not CLI):
-    */5 * * * * bash -c 'set -a; source /opt/yuviron-server/generated/prod/deploy.env; set +a; \
-        python3 /opt/yuviron-server/scripts/tools/monitoring/healthcheck_alert.py \
-        --env prod --root /opt/yuviron-server \
-        --alerts-email ops@example.com \
-        --smtp-host smtp.gmail.com --smtp-port 587 --smtp-user alerts@gmail.com' \
+    */5 * * * * bash -c 'set -a; source /opt/yuviron-server/generated/prod/deploy.env; set +a; \\
+        python3 /opt/yuviron-server/scripts/tools/monitoring/healthcheck_alert.py \\
+        --env prod --root /opt/yuviron-server \\
+        --alerts-email ops@example.com \\
+        --smtp-host smtp.gmail.com --smtp-port 587 --smtp-user alerts@gmail.com' \\
         >> /opt/yuviron-server/logs/prod/monitoring/healthcheck-alert.log 2>&1
 """
 from __future__ import annotations
@@ -27,8 +46,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 
-DEPLOY_MARKER_MAX_AGE = 900   # 15 min — marker written by `stack up`
-ALERT_COOLDOWN = 1800         # 30 min — don't re-alert for the same container
+DEPLOY_MARKER_MAX_AGE = 900   # 15 минут — маркер деплоя считается активным
+ALERT_COOLDOWN = 1800         # 30 минут — не отправлять повторный алерт для того же контейнера
 
 
 # ─── Docker state ─────────────────────────────────────────────────────────────

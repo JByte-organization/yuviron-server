@@ -1,3 +1,23 @@
+# =============================================================================
+# scripts/core/render_nginx.py — Рендеринг nginx.conf из Jinja2-шаблонов.
+#
+# render_nginx_conf_modular() читает все *.j2 файлы из scripts/templates/
+# в алфавитном порядке, рендерит каждый через Jinja2 и объединяет результат
+# в один nginx.conf.
+#
+# Что происходит при рендеринге:
+#   1. Читаются и валидируются env-переменные (ENVIRONMENT, BASE_DOMAIN,
+#      NGINX_PUBLIC_RATE_LIMIT, NGINX_ADMIN_ALLOWLIST и др.)
+#   2. Для каждого маршрута вычисляются параметры:
+#      - basic_auth (служебные маршруты)
+#      - ssl_certificate (общий или per-route)
+#      - rate_limit_zone, upload_locations
+#      - cors_origin, api_cors_preflight (только для backend/api)
+#   3. TLS-политика (intermediate/modern) добавляется в контекст
+#   4. Security headers (CSP, X-Frame-Options и др.) добавляются в контекст
+#
+# NginxRenderer — stateful-обёртка для повторного рендеринга с теми же параметрами.
+# =============================================================================
 from __future__ import annotations
 
 import ipaddress
@@ -43,6 +63,7 @@ from .tls import (
 )
 from .validators import fail
 
+# IP-адреса, которым разрешён доступ к служебным маршрутам по умолчанию (только localhost)
 NGINX_ADMIN_ALLOWLIST_DEFAULT = "127.0.0.1/32"
 
 # Alias kept for any external callers; source of truth is models.OPTIONAL_NGINX_ROUTE_NAMES.

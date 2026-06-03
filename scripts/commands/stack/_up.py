@@ -1,3 +1,23 @@
+# =============================================================================
+# scripts/commands/stack/_up.py — Команды "stack up" и "stack down".
+#
+# cmd_up() — запуск всего окружения:
+#   1. Создать папки storage (для mysql, seq и др.)
+#   2. Опционально: запустить EF Core migrator (--skip-migrate чтобы пропустить)
+#   3. Опционально: сгенерировать swagger.json для фронтенда (--skip-swagger)
+#   4. Сделать snapshot текущих образов для возможного rollback
+#   5. Собрать образы (docker compose build) и поднять стек (up -d)
+#   6. При ошибке: откатиться к предыдущим образам (если snapshot есть)
+#
+# cmd_down() — остановить стек (docker compose down --remove-orphans)
+#
+# Флаги:
+#   --dry-run      — только проверить compose-план без реального запуска
+#   --no-build     — не пересобирать образы (использовать уже собранные)
+#   --no-rollback  — не делать snapshot для отката
+#   --observability— включить профиль "observability" (Seq, Aspire Dashboard)
+#   --build-services <service1> <service2> — собрать только указанные сервисы
+# =============================================================================
 from __future__ import annotations
 
 import argparse
@@ -50,6 +70,8 @@ def cmd_up(args: argparse.Namespace) -> int:
         else:
             log_info("No existing built images found — rollback not available for this run")
 
+    # Файл-маркер деплоя: сигнализирует healthcheck_alert.py что идёт деплой
+    # (чтобы не отправлять ложные алерты во время пересборки контейнеров)
     deploy_marker = root_dir / ".tmp" / "monitoring" / f"deploy-started-{environment}"
     deploy_marker.parent.mkdir(parents=True, exist_ok=True)
     deploy_marker.touch()

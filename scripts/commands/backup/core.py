@@ -1,4 +1,20 @@
 #!/usr/bin/env python3
+# =============================================================================
+# scripts/commands/backup/core.py — Ядро системы резервного копирования.
+#
+# BackupPaths  — датакласс с путями к папкам бэкапа:
+#   backup_root     — backups/ (корень, переопределяется BACKUP_ROOT)
+#   backup_tmp      — backups/tmp/ (временные файлы во время бэкапа)
+#   backup_log_dir  — backups/logs/ (лог-файлы операций)
+#   backup_archive_dir — backups/archives/ (готовые .tar.gz архивы)
+#
+# BackupLogger — логгер с временными метками UTC, пишет в файл и в stdout.
+#
+# Вспомогательные функции:
+#   _stream_command_stdout_to_gzip() — трубит stdout команды (mysqldump) в gzip-файл
+#   _stream_gzip_to_stdin()          — трубит gzip-файл в stdin команды (mysql restore)
+#   _validate_redis_persistence_archive() — проверяет что архив Redis содержит .rdb/.aof
+# =============================================================================
 from __future__ import annotations
 
 import gzip
@@ -14,7 +30,7 @@ from pathlib import Path
 
 from core.validators import CommandError
 
-DEFAULT_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_ROOT = Path(__file__).resolve().parents[3]   # корень проекта
 
 
 @dataclass

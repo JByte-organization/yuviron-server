@@ -1,4 +1,21 @@
 #!/usr/bin/env bash
+# =============================================================================
+# shared/frontend/scripts/deploy-frontend-service.sh — Деплой одного фронтенд-сервиса.
+#
+# Использование:
+#   ./deploy-frontend-service.sh <admin|backoffice|client-app> [dev|prod]
+#
+# Что делает:
+#   1. Проверяет аргументы и существование требуемых файлов
+#   2. Читает COMPOSE_PROJECT_NAME из deploy.env
+#   3. Проверяет что указанный сервис присутствует в compose-конфиге
+#   4. Запускает: docker compose up -d --build --force-recreate <service>
+#
+# Используется CI/CD для независимого деплоя отдельных фронтенд-приложений
+# из матричных jobs (каждый app → отдельный job с deploy-frontend-service.sh).
+#
+# Требует: generated/<env>/ уже сгенерирован (scripts/init.py или generate-config.py)
+# =============================================================================
 set -Eeuo pipefail
 
 SERVICE_NAME="${1:-}"

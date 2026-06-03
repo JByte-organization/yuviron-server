@@ -1,3 +1,19 @@
+# =============================================================================
+# scripts/core/nginx_csp.py — Генерация Content-Security-Policy для nginx.
+#
+# Content-Security-Policy (CSP) — HTTP-заголовок защиты от XSS-атак.
+# Указывает браузеру из каких источников разрешена загрузка ресурсов.
+#
+# В проекте два режима:
+#   DEFAULT (dev)  — включает 'unsafe-inline' и 'unsafe-eval' для hot-reload
+#   STRICT (prod)  — только 'self', строгий CSP без unsafe-*
+#
+# Итоговый CSP можно переопределить через переменную NGINX_CONTENT_SECURITY_POLICY
+# в env/prod.env, но в prod присутствие unsafe-токенов блокирует запуск.
+#
+# _security_headers() возвращает все security headers разом:
+#   X-Frame-Options, X-Content-Type-Options, Referrer-Policy и др.
+# =============================================================================
 from __future__ import annotations
 
 import re
@@ -5,6 +21,7 @@ from typing import Mapping
 
 from .validators import fail
 
+# Символы, запрещённые в значениях nginx-заголовков (инъекция заголовка)
 NGINX_HEADER_VALUE_FORBIDDEN_PATTERN = re.compile(r'[\r\n"\\]')
 
 CONTENT_SECURITY_POLICY_BASE_DIRECTIVES = (

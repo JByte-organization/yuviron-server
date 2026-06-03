@@ -1,3 +1,16 @@
+# =============================================================================
+# scripts/core/docker.py — Утилиты для запуска Docker и Docker Compose.
+#
+# ComposeContext — датакласс с параметрами одного запуска docker compose.
+#   Хранит: путь к compose.yml, env-файл, имя проекта, профили.
+#   Метод build_compose_cmd() строит полную команду с --env-file, -f, -p.
+#
+# run()          — обёртка над subprocess.run() с единообразной обработкой ошибок.
+# run_compose()  — запустить команду внутри compose-контекста.
+#
+# ensure_docker_network() — создать Docker network если не существует.
+#   Используется для shared-сети между backend и frontend (compose_project_shared).
+# =============================================================================
 from __future__ import annotations
 
 import subprocess
@@ -11,6 +24,16 @@ from .validators import fail, require_file
 
 @dataclass
 class ComposeContext:
+    """Параметры одного запуска docker compose.
+
+    root_dir           — корень проекта (рабочая директория для команды)
+    environment        — "dev" или "prod"
+    runtime_env        — путь к deploy.env (передаётся как --env-file)
+    compose_file       — infra/compose.yml (основной файл)
+    frontends_compose  — generated/<env>/compose.frontends.yml (overlay с фронтендами)
+    compose_project_name — имя проекта (-p, задаёт префикс контейнеров)
+    profiles           — активные docker compose профили (например "observability")
+    """
     root_dir: Path
     environment: str
     runtime_env: Path

@@ -1,4 +1,24 @@
 #!/usr/bin/env python3
+# =============================================================================
+# scripts/cli.py — Единая точка входа для всех команд проекта Yuviron.
+#
+# Это главный CLI-файл. Запускается так:
+#   ./scripts/cli.py <команда> [подкоманда] [аргументы]
+#
+# Доступные группы команд:
+#   stack      — запуск/остановка окружения, миграции, smoke-тесты, preflight
+#   certs      — генерация и обновление TLS-сертификатов
+#   backup     — создание и проверка резервных копий
+#   security   — аудит безопасности
+#   doctor     — диагностика хоста (Docker, DNS, порты, сертификаты)
+#   dns        — генерация Corefile для CoreDNS
+#   appsettings— генерация appsettings.json для .NET-бэкенда
+#   tools      — вспомогательные утилиты (очистка, Docker, мониторинг)
+#
+# При запуске без команды выводит справку.
+# При Ctrl+C завершается с кодом 130 (стандарт Unix).
+# При CommandError — выводит сообщение и завершается с кодом ошибки.
+# =============================================================================
 from __future__ import annotations
 
 import argparse
@@ -7,6 +27,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Добавляем папку scripts/ в путь поиска модулей, если запускаем напрямую
+# (не как пакет). Это нужно, чтобы работали импорты вида "from core.ui import ..."
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -23,6 +45,7 @@ from core.validators import CommandError
 
 
 def build_parser() -> argparse.ArgumentParser:
+    # Создаём корневой парсер аргументов и регистрируем в нём все группы команд
     parser = argparse.ArgumentParser(
         prog="./scripts/cli.py",
         description="Yuviron scripts unified CLI",
@@ -57,14 +80,17 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except KeyboardInterrupt:
+        # YUVIRON_SUPPRESS_INTERRUPT_MSG=1 подавляет сообщение при вложенном вызове
         if os.getenv("YUVIRON_SUPPRESS_INTERRUPT_MSG") != "1":
             print(file=sys.stderr)
             log_err("Operation interrupted by user")
         raise SystemExit(130)
     except CommandError as exc:
+        # Ожидаемая ошибка со своим кодом завершения (например, ошибка валидации)
         log_err(str(exc))
         raise SystemExit(exc.exit_code)
     except subprocess.CalledProcessError as exc:
+        # Внешняя программа (docker, certbot и т.д.) завершилась с ненулевым кодом
         cmd = " ".join(map(str, exc.cmd)) if exc.cmd else "<unknown>"
         log_err(f"Command failed: {cmd}")
         raise SystemExit(exc.returncode)

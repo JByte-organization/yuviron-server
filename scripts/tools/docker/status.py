@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
+# =============================================================================
+# scripts/tools/docker/status.py — Статус Docker-контейнеров по проектам.
+#
+# Запускается через: ./scripts/cli.py tools docker-status
+#
+# Показывает таблицу запущенных контейнеров, сгруппированных по compose-проектам.
+# Для каждого контейнера отображает: имя, статус healthcheck, uptime.
+#
+# Использует "docker ps --format {{json .}}" для получения данных.
+# =============================================================================
 
 import subprocess
 import json
 from collections import defaultdict
 
-# ANSI colors
+# ANSI цвета для статусов контейнеров
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
 RED = "\033[91m"
@@ -13,7 +23,7 @@ CYAN = "\033[96m"
 GRAY = "\033[90m"
 RESET = "\033[0m"
 
-# Icons
+# Иконки для состояния healthcheck
 ICONS = {
     "healthy": "✔",
     "starting": "◔",

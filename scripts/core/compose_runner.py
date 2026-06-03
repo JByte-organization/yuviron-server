@@ -1,3 +1,13 @@
+# =============================================================================
+# scripts/core/compose_runner.py — Фабрика ComposeContext и валидация compose.
+#
+# create_compose_context() — главная точка входа: принимает (root_dir, env_name)
+# и возвращает готовый ComposeContext со всеми путями и именем проекта.
+# Если ensure_generated=True — гарантирует что generated/<env>/ существует.
+#
+# validate_compose_config() — запускает "docker compose config" и проверяет
+# что все переменные раскрываются без ошибок.
+# =============================================================================
 from __future__ import annotations
 
 from pathlib import Path
@@ -15,7 +25,11 @@ from .validators import ensure_command, fail
 
 
 def validate_compose_config(context: ComposeContext) -> None:
-    """Run 'docker compose config' to validate the compose file and env substitution."""
+    """Проверить синтаксис compose-файлов и раскрытие переменных.
+
+    Запускает "docker compose config" — если есть ошибки в YAML или
+    переменные без значений, команда упадёт с ошибкой.
+    """
     log_info("Validating compose config")
     run_compose(context, "config", capture_output=True)
     log_ok("Compose config is valid")

@@ -1,4 +1,30 @@
 #!/usr/bin/env bash
+# =============================================================================
+# shared/backend/scripts/ci/github_actions_observe.sh — Хелперы для GitHub Actions.
+#
+# Этот скрипт подключается через "source" в workflow YAML деплоя.
+# Предоставляет функции для:
+#   - Структурированного вывода в GitHub Actions (groups, annotations)
+#   - Создания Job Summary с таблицей этапов и результатов
+#   - Снапшота здоровья контейнеров после деплоя
+#
+# Функции:
+#   gha_init_summary()       — создать заголовок Summary с мета-информацией
+#   gha_begin_stage(stage, area, owner, detail, [cmd], [severity])
+#                            — начать этап (::group::), установить ERR-trap
+#   gha_pass_stage(detail)   — успешно завершить этап (::endgroup::)
+#   gha_fail_stage(code)     — неудачный этап: аннотация + запись в таблицу + exit
+#   gha_render_summary([outcome], [env]) — записать итоговую таблицу в GITHUB_STEP_SUMMARY
+#   gha_health_snapshot(env) — добавить таблицу Docker healthcheck статусов
+#   gha_begin_group(name)    — открыть collapsible group в логах
+#   gha_end_group()          — закрыть group
+#   gha_warn(title, msg)     — warning-аннотация (появляется в PR)
+#
+# Env vars consumed (set before sourcing):
+#   GHA_DEPLOY_TITLE  — summary heading, e.g. "Backend deploy" or "Frontend deploy: admin"
+#   ASPNET_ENV        — optional; shown in metadata table when set
+#   DEPLOY_APP        — optional; shown in metadata table when set (e.g. matrix app name)
+# =============================================================================
 
 # Helpers for GitHub Actions logs, annotations, and job summaries.
 # Keep workflow YAML readable: GitHub prints every `run:` block when a step is opened.

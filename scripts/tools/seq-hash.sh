@@ -1,9 +1,25 @@
 #!/usr/bin/env bash
+# =============================================================================
+# scripts/tools/seq-hash.sh — Генерация хэша пароля для Seq.
+#
+# Seq (структурированный логгер) хранит пароль администратора в формате
+# собственного хэша, который отличается от bcrypt/MD5/SHA.
+#
+# Этот хэш нужно:
+#   1. Сгенерировать этим скриптом (или tools seq-hash через CLI)
+#   2. Записать в SEQ_FIRSTRUN_ADMINPASSWORDHASH в env/prod.env
+#
+# ВАЖНО: хэш применяется только при первом запуске (первоначальной инициализации).
+# Если Seq уже запущен — менять пароль нужно через его Web UI.
+#
+# Запуск: ./scripts/tools/seq-hash.sh
+# Альтернатива: ./scripts/cli.py tools seq-hash
+# =============================================================================
 
 set -e
 
 echo "Enter password:"
-read -rs PASSWORD
+read -rs PASSWORD  # -s не выводит символы (секретный ввод)
 
 echo
 echo "Repeat password:"
@@ -23,6 +39,8 @@ fi
 
 echo "🔐 Generating hash..."
 
+# Запускаем утилиту хэширования внутри официального Seq-контейнера.
+# printf используется вместо echo чтобы не добавлять лишний \n в конце.
 HASH=$(printf '%s' "$PASSWORD" | docker run --rm -i datalust/seq:latest config hash)
 
 echo

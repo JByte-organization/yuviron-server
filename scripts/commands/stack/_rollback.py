@@ -1,3 +1,15 @@
+# =============================================================================
+# scripts/commands/stack/_rollback.py — Снапшот образов и откат при ошибке.
+#
+# Механизм rollback:
+#   1. До "docker compose build" делаем snapshot: все текущие :latest образы
+#      тегируются как :rollback.
+#   2. При ошибке сборки или запуска — стек останавливается, :rollback теги
+#      возвращаются на :latest, стек поднимается заново без пересборки.
+#
+# Rollback работает только для сервисов с секцией "build" в compose.yml.
+# Пре-билд сервисы (те что "image:") и бесстатусные контейнеры не затрагиваются.
+# =============================================================================
 from __future__ import annotations
 
 import json
@@ -10,7 +22,11 @@ from ._common import _built_service_image_name
 
 
 def _snapshot_rollback_images(context: ComposeContext) -> dict[str, str]:
-    """Tag current images of built services as :rollback. Returns {service: image_name} for found images."""
+    """Пометить текущие образы тегом :rollback для возможного отката.
+
+    Возвращает словарь {имя_сервиса: имя_образа} для сервисов у которых
+    был найден существующий :latest образ.
+    """
     result = run_compose(context, "config", "--format", "json", capture_output=True, check=False)
     if result.returncode != 0:
         return {}

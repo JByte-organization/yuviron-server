@@ -1,3 +1,19 @@
+# =============================================================================
+# scripts/core/env.py — Работа с env-файлами и runtime-окружением.
+#
+# Ключевые функции:
+#   parse_env_file()       — чтение KEY=VALUE файла в словарь
+#   merge_env_maps()       — слияние common.env + <env>.env + stack_values
+#   _expand_vars()         — раскрытие ${VAR} переменных с проверкой циклов
+#   ensure_generated_env() — убедиться что generated/<env>/ существует и актуален
+#   resolve_runtime_env()  — найти файл с env для docker compose --env-file
+#   parse_routes_file()    — прочитать routes.env в список (name, host, upstream)
+#   hash_file()            — SHA-256 хэш файла (для manifest.env)
+#
+# Алгоритм merge:
+#   common.env → dev.env → stack_values (последнее перекрывает предыдущее),
+#   затем ${VAR} раскрываются с поддержкой самоссылок.
+# =============================================================================
 from __future__ import annotations
 
 import hashlib
@@ -12,6 +28,11 @@ from .validators import fail, require_file
 
 
 def parse_env_file(path: Path) -> dict[str, str]:
+    """Прочитать KEY=VALUE файл и вернуть словарь.
+
+    Пропускает пустые строки, комментарии (#) и строки без знака равенства.
+    Файл может не существовать — тогда возвращается пустой словарь.
+    """
     values: dict[str, str] = {}
     if not path.is_file():
         return values
@@ -219,6 +240,12 @@ def resolve_config_value(root_dir: Path, env_name: str, key: str, default: str =
 
 
 def ensure_generated_env(root_dir: Path, env_name: str) -> None:
+    """Убедиться что generated/<env>/ существует.
+
+    Если файлов нет:
+    - для dev или при ALLOW_REGENERATE=1 — автоматически регенерирует
+    - для prod без флага — падает с ошибкой
+    """
     ensure_generated_basic_auth_file(root_dir, env_name)
     if generated_exists(root_dir, env_name):
         return

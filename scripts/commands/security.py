@@ -1,4 +1,27 @@
 #!/usr/bin/env python3
+# =============================================================================
+# scripts/commands/security.py — Аудит безопасности окружения.
+#
+# Команды:
+#   security audit [env]        — полный аудит окружения
+#   security audit-staged       — проверка staged-файлов на секреты (pre-commit hook)
+#
+# Проверки аудита (cmd_audit):
+#   container-hardening   — read_only, cap_drop ALL, no-new-privileges, non-root user
+#   published-ports       — только nginx может публиковать порты (80/443)
+#   env-policy            — валидация env через env_validation.py
+#   default-secrets       — слабые пароли в SENSITIVE_SECRET_KEYS
+#   tls-files             — наличие и права сертификатов
+#   storage-permissions   — права на storage/ и seq/
+#   management-endpoints  — служебные маршруты в prod = ошибка
+#   git-secrets           — поиск секретов в git-tracked файлах
+#
+# Проверки pre-commit (cmd_audit_staged):
+#   staged-secrets        — поиск паролей/токенов в staged изменениях
+#   sensitive files       — .pem, .env, appsettings.json в staging = блокировка
+#
+# --strict: предупреждения тоже считаются ошибками
+# =============================================================================
 from __future__ import annotations
 
 import argparse
@@ -43,9 +66,11 @@ from core.validators import fail, resolve_prompted_environment
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[2]
 
+# Stateful сервисы — для них предупреждения read_only снижены до WARN (данные на томах)
 STATEFUL_SERVICES = {"mysql", "redis", "rabbitmq", "seq"}
+# Только nginx разрешено публиковать порты на хост (80/443)
 ALLOWED_PUBLISHED_PORT_SERVICES = {"nginx"}
-ALLOWED_NGINX_CONTAINER_PORTS = {"80", "443"}
+ALLOWED_NGINX_CONTAINER_PORTS = {"80", "443"}   # допустимые порты nginx контейнера
 
 SENSITIVE_ENV_KEYS = SENSITIVE_SECRET_KEYS
 

@@ -1,4 +1,29 @@
 #!/usr/bin/env python3
+# =============================================================================
+# scripts/commands/doctor.py — Комплексная диагностика хоста и окружения.
+#
+# Команда: doctor [env] [--isolated] [--strict]
+#
+# Выполняет проверки в следующем порядке:
+#   1. Docker CLI — установлен и работает
+#   2. Docker daemon — доступен текущему пользователю
+#   3. Docker Compose plugin — работает "docker compose version"
+#   4. Runtime env — все обязательные переменные заданы
+#   5. Generated files — все файлы в generated/<env>/ присутствуют
+#   6. TLS-сертификаты — файлы существуют, не просрочены, содержат нужные SAN
+#   7. DNS — все домены из routes.env резолвятся
+#   8. Ports — HTTP_PORT и HTTPS_PORT не заняты (кроме nginx)
+#   9. Storage — STORAGE_PATH и SEQ_STORAGE_PATH существуют и доступны
+#   10. Disk — достаточно свободного места (MIN_DISK_KB)
+#   11. Tailscale — демон запущен, есть IPv4-адрес, MagicDNS не перехватывает DNS
+#   12. Firewall — ufw/firewalld открывает нужные порты
+#   13. Docker network — SHARED_NETWORK существует
+#   14. Compose config — "docker compose config" без ошибок
+#   15. Nginx config — "nginx -t" на сгенерированном конфиге
+#
+# --isolated: compose/nginx проверяются в изолированном compose-проекте
+# --strict: предупреждения считаются ошибками
+# =============================================================================
 from __future__ import annotations
 
 import argparse
@@ -34,11 +59,11 @@ from core.ui import log_err, log_info, log_ok, log_warn
 from core.validators import CommandError, fail, resolve_prompted_environment
 
 
-DNS_PORT = 53
-HTTP_PORT = 80
-HTTPS_PORT = 443
-CERT_EXPIRY_WARN_DAYS = 30
-CERT_EXPIRY_WARN_SECONDS = CERT_EXPIRY_WARN_DAYS * 24 * 60 * 60
+DNS_PORT = 53       # порт DNS — нужен для резолвинга имён Docker-контейнерами
+HTTP_PORT = 80      # стандартный HTTP (нужен для Let's Encrypt HTTP-01)
+HTTPS_PORT = 443    # стандартный HTTPS
+CERT_EXPIRY_WARN_DAYS = 30                                    # предупреждать за 30 дней до истечения
+CERT_EXPIRY_WARN_SECONDS = CERT_EXPIRY_WARN_DAYS * 24 * 60 * 60  # то же в секундах для openssl
 
 ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 UFW_DEFAULT_RE = re.compile(r"Default:\s*(?P<incoming>[^,\n]+)\s*\(incoming\)", re.IGNORECASE)
@@ -194,10 +219,12 @@ def _check_compose_plugin() -> str:
     return (result.stdout or "Docker Compose plugin is available").strip()
 
 
+# Tailscale MagicDNS резолвер — если он появился в resolv.conf,
+# значит Tailscale перехватывает DNS, что ломает резолвинг внешних имён
 _MAGICDNS_RESOLVER = "100.100.100.100"
 _RESOLV_CONF_PATHS = (
-    Path("/run/systemd/resolve/resolv.conf"),
-    Path("/etc/resolv.conf"),
+    Path("/run/systemd/resolve/resolv.conf"),   # systemd-resolved (Ubuntu 20.04+)
+    Path("/etc/resolv.conf"),                   # классический resolv.conf
 )
 
 

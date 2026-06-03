@@ -1,3 +1,25 @@
+# =============================================================================
+# scripts/core/env_validation.py — Валидация переменных окружения.
+#
+# Выполняет несколько уровней проверок:
+#
+# 1. JSON Schema (env/schema.json) — проверяет типы, форматы и обязательные поля.
+#    Дополнительные форматы: boolean, cidr-list, docker-memory, nginx-rate, url и др.
+#
+# 2. Бизнес-правила:
+#    - MYSQL_ROOT_PASSWORD != "root" в prod
+#    - Swagger__Enabled != true в prod
+#    - ASPNETCORE_ENVIRONMENT != Development в prod
+#    - NGINX_CONTENT_SECURITY_POLICY должен быть задан в prod
+#
+# 3. Проверка токенов/секретов:
+#    - Минимальная длина (16 chars в dev, 32 в prod)
+#    - Минимальная уникальность символов (5 в dev, 8 в prod)
+#
+# 4. Слабые пароли (опционально, при check_weak_secrets=True):
+#    - Список SENSITIVE_SECRET_KEYS проверяется на известные шаблоны
+#    - "admin", "password", "changeme", пустые значения — ERROR в prod, WARN в dev
+# =============================================================================
 from __future__ import annotations
 
 import ipaddress
@@ -21,6 +43,7 @@ NON_PROD_MIN_UNIQUE_CHARS = 5
 SENSITIVE_MIN_UNIQUE_CHARS = 5
 DEFAULT_ENV_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "env" / "schema.json"
 
+# Ключи, которые считаются секретными — проверяются на слабость значений
 SENSITIVE_SECRET_KEYS = (
     "MYSQL_ROOT_PASSWORD",
     "MYSQL_PASSWORD",
@@ -37,6 +60,7 @@ _KNOWN_DEV_SEQ_HASHES: frozenset[str] = frozenset({
     "QBvEDvdDLmk3RDekQTL/fWzAv4jXC4HqTqCvOBRzJ0DrZ4rSotnS+AsFCAjTgz+RfDtvFS5tMvbaWbF+nBQ/rEsp+U1G9UyjIXOnX0OlrxTy",
 })
 
+# Заведомо слабые и популярные пароли — будут отклонены как дефолтные значения
 WEAK_SECRET_VALUES = {
     "admin",
     "admin123",

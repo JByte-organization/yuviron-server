@@ -1,4 +1,27 @@
 #!/usr/bin/env python3
+# =============================================================================
+# scripts/commands/tools.py — Вспомогательные инструменты и утилиты.
+#
+# Команды (все доступны через: ./scripts/cli.py tools <команда>):
+#
+#   cleanup              — запустить scripts/tools/cleanup.sh
+#   docker-clean         — показать использование диска Docker или очистить
+#   check-frontend-fast  — typecheck TypeScript приложений (без сборки)
+#   seq-hash             — сгенерировать хэш пароля для Seq
+#   setup-cron           — настроить cron для ежедневных бэкапов
+#   setup-certs-cron     — настроить cron для обновления Let's Encrypt сертификатов
+#   setup-logrotate      — установить конфиг logrotate для nginx логов
+#   docker-install       — установить Docker CE на Ubuntu
+#   setup-monitoring     — создать мониторы в UptimeRobot для всех HTTPS эндпоинтов
+#   healthcheck-alert    — разово проверить здоровье контейнеров и отправить email
+#   setup-healthcheck-cron — настроить cron для healthcheck-alert каждые 5 минут
+#   send-test-alert      — отправить тестовый email для проверки SMTP
+#   docker-status        — показать запущенные контейнеры по проектам
+#   docker-dashboard     — живой дашборд контейнеров (CPU, RAM, health) 3s refresh
+#   rotate-htpasswd      — сменить пароль Basic Auth (Seq, Aspire, Backoffice)
+#   rotate-aspire-tokens — сменить токены Aspire Dashboard и перезапустить сервис
+#   rotation-status      — когда последний раз ротировались секреты
+# =============================================================================
 from __future__ import annotations
 
 import argparse
@@ -24,11 +47,11 @@ from core.ui import log_info, log_ok, log_warn
 from core.validators import CommandError, fail, resolve_prompted_environment
 
 
-DEFAULT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_ROOT = Path(__file__).resolve().parents[2]   # корень проекта
 DOCKER_CLEAN_MODES = ("report", "safe", "build-cache", "deep")
-DEFAULT_RESERVED_BUILD_CACHE = "10gb"
-ROTATION_LOG_FILENAME = "rotation.json"
-ROTATION_WARN_DAYS = 90
+DEFAULT_RESERVED_BUILD_CACHE = "10gb"    # оставлять минимум 10GB кэша builder
+ROTATION_LOG_FILENAME = "rotation.json"  # файл с датами последней ротации секретов
+ROTATION_WARN_DAYS = 90                  # предупреждать если секрет старше 90 дней
 
 
 def _rotation_log_path(root_dir: Path, environment: str) -> Path:
@@ -271,6 +294,7 @@ def _uptimerobot_post(api_key: str, endpoint: str, **params) -> dict:
         return json.loads(resp.read())
 
 
+# Маршруты которые не мониторятся в UptimeRobot (служебные и внутренние)
 _SKIP_MONITORING_ROUTES = frozenset({
     "seq", "aspire", "prometheus", "grafana", "alertmanager",
     "adminer", "phpmyadmin", "rabbitmq", "cadvisor", "i",

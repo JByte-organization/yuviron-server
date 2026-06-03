@@ -1,11 +1,34 @@
 #!/bin/sh
+# =============================================================================
+# infra/docker/dotnet/migrator.sh — Запуск EF Core миграций внутри контейнера.
+#
+# Этот скрипт является ENTRYPOINT контейнера "migrator" (docker compose профиль "migrate").
+# Запускается после "docker compose run --rm migrator" из команды "stack up" или "stack migrate".
+#
+# Что делает:
+#   1. В prod проверяет fingerprint: ALLOW_PRODUCTION_MIGRATE должна == MYSQL_DATABASE
+#      (защита от случайного запуска prod-миграций)
+#   2. Копирует obj/ папку в /tmp/ef-obj/ чтобы EF CLI не пересобирал проект
+#      (--no-build: образ уже скомпилирован во время "docker compose build")
+#   3. Запускает "dotnet ef database update" для применения pending миграций
+#   4. Запускает "dotnet ef migrations list" для проверки что все миграции применены
+#   5. Если остались pending миграции — выходит с ошибкой
+#
+# Переменные окружения:
+#   ASPNETCORE_ENVIRONMENT    — "Production" блокирует без fingerprint
+#   MYSQL_DATABASE            — имя базы (используется как fingerprint для prod)
+#   ALLOW_PRODUCTION_MIGRATE  — должна == MYSQL_DATABASE для разрешения prod-миграций
+#   MIGRATOR_STARTUP_PROJECT  — .csproj файл startup-проекта (по умолчанию Yuviron.Api)
+#   MIGRATOR_CONFIGURATION    — Debug/Release (по умолчанию Release)
+# =============================================================================
 set -eu
 
 EF_PROJECT="src/Yuviron.Infrastructure/Yuviron.Infrastructure.csproj"
 EF_STARTUP_PROJECT="${MIGRATOR_STARTUP_PROJECT:-src/Yuviron.Api/Yuviron.Api.csproj}"
 EF_CONFIGURATION="${MIGRATOR_CONFIGURATION:-Release}"
-EF_OBJ_DIR="/tmp/ef-obj"
+EF_OBJ_DIR="/tmp/ef-obj"   # временная папка для EF obj файлов
 
+# Защита production: проверяем fingerprint перед применением миграций
 case "${ASPNETCORE_ENVIRONMENT:-}" in
     [Pp][Rr][Oo][Dd][Uu][Cc][Tt][Ii][Oo][Nn])
         db_name="${MYSQL_DATABASE:-}"
@@ -25,6 +48,7 @@ case "${ASPNETCORE_ENVIRONMENT:-}" in
         ;;
 esac
 
+# Копируем obj/ в /tmp/ чтобы не изменять read-only образ
 mkdir -p "${EF_OBJ_DIR}"
 rm -rf "${EF_OBJ_DIR:?}"/* "${EF_OBJ_DIR}"/.[!.]* "${EF_OBJ_DIR}"/..?* 2>/dev/null || true
 cp -R /src/src/Yuviron.Infrastructure/obj/. "${EF_OBJ_DIR}/"
@@ -32,6 +56,7 @@ cp -R /src/src/Yuviron.Infrastructure/obj/. "${EF_OBJ_DIR}/"
 export MSBuildProjectExtensionsPath="${EF_OBJ_DIR}/"
 
 run_ef() {
+    # Обёртка для вызова dotnet ef с общими аргументами
     dotnet ef "$@" \
         --project "${EF_PROJECT}" \
         --startup-project "${EF_STARTUP_PROJECT}" \
@@ -43,6 +68,7 @@ run_ef() {
 echo "Applying EF Core migrations"
 run_ef database update
 
+# Проверяем что не осталось pending миграций
 echo "Verifying EF Core migration state"
 migrations_output="$(run_ef migrations list)"
 printf '%s\n' "${migrations_output}"

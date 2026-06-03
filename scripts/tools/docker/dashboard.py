@@ -1,4 +1,20 @@
 #!/usr/bin/env python3
+# =============================================================================
+# scripts/tools/docker/dashboard.py — Живой дашборд контейнеров.
+#
+# Запускается через: ./scripts/cli.py tools docker-dashboard
+# Обновляется каждые 3 секунды. Остановка: Ctrl+C.
+#
+# Показывает для каждого контейнера:
+#   - Имя контейнера и compose-проект
+#   - Состояние healthcheck (healthy/starting/unhealthy)
+#   - Использование CPU (%)
+#   - Использование памяти (MB/ограничение)
+#   - Uptime
+#
+# Использует "docker stats --no-stream" + "docker ps" для получения данных.
+# Очищает терминал перед каждым обновлением (ANSI escape \033[H\033[J).
+# =============================================================================
 
 import subprocess
 import json
@@ -9,7 +25,7 @@ from collections import defaultdict
 # CONFIG
 # =========================
 
-REFRESH_INTERVAL = 3
+REFRESH_INTERVAL = 3   # секунды между обновлениями дашборда
 
 # =========================
 # COLORS

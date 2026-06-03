@@ -1,3 +1,17 @@
+# =============================================================================
+# scripts/commands/stack/_health.py — Проверка здоровья сервисов после старта.
+#
+# _wait_for_service_health() — ждёт пока сервис станет running + healthy.
+#   Опрашивает "docker inspect" каждые 2 секунды, timeout по умолчанию 60с.
+#   Если сервис не стал healthy в timeout — выводит последние 30 строк логов.
+#
+# _check_service_healths() — вызывает _wait_for_service_health для каждого
+#   из REQUIRED_STACK_SERVICES с таймаутом 120с.
+#
+# _check_backend_readiness() — выполняет wget внутри backend-контейнера
+#   к /health/ready чтобы проверить что .NET API полностью инициализировался.
+#   Используется в smoke-тестах.
+# =============================================================================
 from __future__ import annotations
 
 import time

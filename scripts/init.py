@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# =============================================================================
+# scripts/init.py — Интерактивный мастер первоначального развёртывания.
+#
+# Запускается один раз при первом запуске окружения. Проводит через шаги:
+#   1. Ввод параметров (окружение dev/prod, домен, список фронтенд-приложений,
+#      дополнительные маршруты).
+#   2. Генерация всей конфигурации (nginx, compose, env-файлы, htpasswd).
+#   3. Опционально: генерация TLS-сертификатов → preflight → запуск стека.
+#
+# Пример ручного запуска:
+#   ./scripts/init.py --env dev --domain yuviron.com --apps admin,backoffice
+#
+# После успешного выполнения в generated/<env>/ появятся:
+#   deploy.env, stack.env, nginx.conf, compose.frontends.yml, routes.env и др.
+# =============================================================================
 from __future__ import annotations
 
 import argparse
@@ -7,6 +22,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Добавляем директорию scripts/ в путь, чтобы работали импорты core.*
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -44,19 +60,24 @@ from core.ui import (
 from core.validators import CommandError, require_command, require_file
 
 
+# Корневая директория проекта (на два уровня выше scripts/init.py)
 ROOT_DIR = Path(__file__).resolve().parent.parent
-GENERATED_DIR = ROOT_DIR / "generated"
-CERTS_DIR = ROOT_DIR / "certs"
-STORAGE_DIR = ROOT_DIR / "storage"
+GENERATED_DIR = ROOT_DIR / "generated"   # generated/<env>/ — сгенерированные файлы
+CERTS_DIR = ROOT_DIR / "certs"           # certs/ — TLS-сертификаты
+STORAGE_DIR = ROOT_DIR / "storage"       # storage/<env>/ — данные сервисов (Seq и др.)
 
 
 def _cli_env() -> dict[str, str]:
+    # Окружение для вложенных вызовов cli.py: подавляем дублирующее сообщение о Ctrl+C
     env = dict(os.environ)
     env["YUVIRON_SUPPRESS_INTERRUPT_MSG"] = "1"
     return env
 
 
 def ensure_dirs(env: str) -> None:
+    # Создаём все нужные директории, если их ещё нет.
+    # acme-challenge нужен Let's Encrypt для HTTP-01 валидации.
+    # seq/ — хранилище данных Seq (структурированные логи).
     (GENERATED_DIR / env).mkdir(parents=True, exist_ok=True)
     CERTS_DIR.mkdir(parents=True, exist_ok=True)
     (CERTS_DIR / "acme-challenge").mkdir(parents=True, exist_ok=True)

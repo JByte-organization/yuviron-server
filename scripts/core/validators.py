@@ -1,3 +1,14 @@
+# =============================================================================
+# scripts/core/validators.py — Функции валидации и вспомогательные ассерты.
+#
+# Базовый паттерн всех проверок: если условие не выполнено — вызвать fail(),
+# который бросает CommandError. Верхний обработчик (cli.py) поймает его,
+# выведет сообщение об ошибке и завершится с соответствующим кодом.
+#
+# Также содержит функции интерактивного ввода с повтором:
+#   resolve_prompted_environment() — ввод "dev" или "prod"
+#   resolve_prompted_required()    — ввод обязательного поля
+# =============================================================================
 from __future__ import annotations
 
 import re
@@ -9,18 +20,25 @@ from typing import Any
 from .ui import log_err, log_warn
 
 
+# Паттерн для проверки доменных имён (без протокола и слэшей)
 DOMAIN_PATTERN = re.compile(
     r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}"
 )
 
 
 class CommandError(RuntimeError):
+    """Ожидаемая ошибка команды с кодом завершения.
+
+    Используется вместо sys.exit() чтобы обработчик в cli.py мог
+    поймать ошибку, вывести сообщение и завершиться с нужным кодом.
+    """
     def __init__(self, message: str, exit_code: int = 1):
         super().__init__(message)
         self.exit_code = exit_code
 
 
 def fail(message: str, exit_code: int = 1) -> None:
+    """Бросить CommandError — стандартный способ сигнализировать об ошибке."""
     raise CommandError(message, exit_code=exit_code)
 
 

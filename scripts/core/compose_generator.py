@@ -1,3 +1,21 @@
+# =============================================================================
+# scripts/core/compose_generator.py — Генерация файлов для Docker Compose.
+#
+# Функции рендеринга (все возвращают строку для записи в файл):
+#
+#   render_env_file()         → deploy.env    (полный набор переменных)
+#   render_apps_env()         → apps.env      (список фронтенд-сервисов)
+#   render_routes_env()       → routes.env    (маршруты: name|host|upstream)
+#   render_stack_env()        → stack.env     (переменные стека: порты, сеть, пути)
+#   render_frontends_compose()→ compose.frontends.yml (overlay с фронтенд-сервисами)
+#   render_manifest_env()     → manifest.env  (SHA-256 хэши источников и результатов)
+#
+# compose.frontends.yml — это динамически генерируемый overlay-файл.
+# В нём описываются сервисы выбранных фронтенд-приложений (admin, backoffice и др.)
+# и патчатся depends_on для nginx (чтобы nginx ждал фронтенды перед стартом).
+#
+# Healthcheck для фронтенда: TCP-коннект к порту 3000 через Node.js net.connect().
+# =============================================================================
 from __future__ import annotations
 
 import re

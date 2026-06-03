@@ -1,4 +1,26 @@
 #!/usr/bin/env python3
+# =============================================================================
+# scripts/commands/dns.py — Генерация Corefile для CoreDNS.
+#
+# В dev-окружении для работы HTTPS нужно чтобы браузер резолвил dev-домены
+# (dev.yuviron.com, dev-api.yuviron.com) на localhost.
+# Вместо правки /etc/hosts используется CoreDNS — легковесный DNS-сервер
+# который запускается в Docker рядом с остальными сервисами.
+#
+# Команда:
+#   dns generate --env dev --domain yuviron.com --ip 127.0.0.1
+#
+# Что делает:
+#   1. Читает routes.env чтобы получить список всех доменов
+#   2. Генерирует Corefile с записями A для каждого домена
+#   3. Записывает в generated/<env>/Corefile
+#
+# Corefile указывает CoreDNS отвечать заданным IP для всех доменов проекта,
+# остальные запросы форвардить в Cloudflare (1.1.1.1) или Google (8.8.8.8).
+#
+# DEFAULT_ACL_NETS = "100.64.0.0/10" — Tailscale CGNAT диапазон:
+# CoreDNS принимает запросы только с localhost и Tailscale-адресов.
+# =============================================================================
 from __future__ import annotations
 
 import argparse
