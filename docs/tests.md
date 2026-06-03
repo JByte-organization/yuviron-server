@@ -8,7 +8,7 @@
 
 Поддерживаются два test runner-а — **pytest** (рекомендуется) и стандартный **unittest**.
 
-### pytest (рекомендуется)
+### pytest через CLI (рекомендуется)
 
 ```bash
 # Первый запуск: установить зависимости в .venv
@@ -16,27 +16,39 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt pytest
 
 # Запуск всех тестов
-cd scripts && ../.venv/bin/pytest
+./scripts/cli.py test
 
 # Подробный вывод
-cd scripts && ../.venv/bin/pytest -v
+./scripts/cli.py test -v
 
 # Остановиться на первой ошибке
-cd scripts && ../.venv/bin/pytest -x
+./scripts/cli.py test -x
 
 # Фильтр по имени теста или файла
-cd scripts && ../.venv/bin/pytest -k smoke
-cd scripts && ../.venv/bin/pytest -k backup
-cd scripts && ../.venv/bin/pytest -k "render_nginx or appsettings"
+./scripts/cli.py test -k smoke
+./scripts/cli.py test -k backup
+./scripts/cli.py test -k "render_nginx or appsettings"
 
 # Конкретный файл
-cd scripts && ../.venv/bin/pytest tests/test_render_nginx.py
+./scripts/cli.py test tests/test_render_nginx.py
 
-# Краткий вывод (только провалившиеся)
-cd scripts && ../.venv/bin/pytest -q
+# Краткий вывод
+./scripts/cli.py test -q
+```
+
+Все аргументы после `test` передаются напрямую в pytest. Справка:
+
+```bash
+./scripts/cli.py test --help
 ```
 
 Конфигурация pytest задана в `scripts/pytest.ini` (`testpaths = tests`) и `scripts/conftest.py` (добавляет `scripts/` в `sys.path`).
+
+### pytest напрямую (альтернатива)
+
+```bash
+cd scripts && ../.venv/bin/pytest -v
+```
 
 ### unittest (альтернатива)
 
@@ -52,16 +64,8 @@ cd scripts && python3 -m unittest tests/test_render_nginx.py
 
 Тест `scripts/tests/test_stack_e2e_dry_run.py` проверяет полный CLI-цикл `init.py -> stack preflight --dry-run -> stack up --dry-run`. По умолчанию он пропускается, чтобы обычный unit-suite не требовал Docker daemon и не создавал временную Docker network.
 
-Запуск через pytest:
-
 ```bash
-cd scripts && YUVIRON_RUN_DOCKER_E2E=1 ../.venv/bin/pytest tests/test_stack_e2e_dry_run.py -v
-```
-
-Запуск через unittest:
-
-```bash
-cd scripts && YUVIRON_RUN_DOCKER_E2E=1 python3 -m unittest tests/test_stack_e2e_dry_run.py
+YUVIRON_RUN_DOCKER_E2E=1 ./scripts/cli.py test tests/test_stack_e2e_dry_run.py -v
 ```
 
 Тест собирает минимальный временный проект, создаёт fixture `env/dev.env`, запускает `init.py`, добавляет dummy TLS files для preflight-проверки путей, затем выполняет `preflight` и `up` через `docker compose --dry-run`; `up --dry-run` также проверяет migrator profile `migrate`.

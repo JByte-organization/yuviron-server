@@ -14,6 +14,7 @@
 #   dns        — генерация Corefile для CoreDNS
 #   appsettings— генерация appsettings.json для .NET-бэкенда
 #   tools      — вспомогательные утилиты (очистка, Docker, мониторинг)
+#   test       — запуск тестов через pytest (.venv/bin/pytest)
 #
 # При запуске без команды выводит справку.
 # При Ctrl+C завершается с кодом 130 (стандарт Unix).
@@ -39,6 +40,7 @@ from commands import dns as dns_cmd
 from commands import doctor as doctor_cmd
 from commands import security as security_cmd
 from commands import stack as stack_cmd
+from commands import test_runner as test_cmd
 from commands import tools as tools_cmd
 from core.ui import log_err
 from core.validators import CommandError
@@ -60,13 +62,26 @@ def build_parser() -> argparse.ArgumentParser:
     certs_cmd.register(subparsers)
     security_cmd.register(subparsers)
     tools_cmd.register(subparsers)
+    test_cmd.register(subparsers)
 
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    effective_argv = sys.argv[1:] if argv is None else argv
+
+    # Команда "test" перехватывается до argparse: все аргументы после "test"
+    # передаются в pytest напрямую, без интерпретации флагов (-v, -k и т.д.)
+    # как опций нашего CLI.
+    if effective_argv and effective_argv[0] == "test":
+        rest = effective_argv[1:]
+        if rest and rest[0] in ("-h", "--help"):
+            test_cmd.print_help()
+            return 0
+        return test_cmd.run(rest)
+
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(effective_argv)
 
     handler = getattr(args, "handler", None)
     if handler is None:
