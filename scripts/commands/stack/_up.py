@@ -1,5 +1,5 @@
 # =============================================================================
-# scripts/commands/stack/_up.py — Команды "stack up" и "stack down".
+# scripts/commands/stack/_up.py — Команды "stack up", "stack down", "stack restart".
 #
 # cmd_up() — запуск всего окружения:
 #   1. Создать папки storage (для mysql, seq и др.)
@@ -11,12 +11,16 @@
 #
 # cmd_down() — остановить стек (docker compose down --remove-orphans)
 #
-# Флаги:
-#   --dry-run      — только проверить compose-план без реального запуска
-#   --no-build     — не пересобирать образы (использовать уже собранные)
-#   --no-rollback  — не делать snapshot для отката
-#   --observability— включить профиль "observability" (Seq, Aspire Dashboard)
-#   --build-services <service1> <service2> — собрать только указанные сервисы
+# cmd_restart() — перезапустить один или несколько сервисов без затрагивания остальных.
+#   Эквивалент: docker compose up -d --no-deps [--build] <service...>
+#   Флаги:
+#     --rebuild  — пересобрать образ перед перезапуском
+#
+# Примеры:
+#   ./scripts/cli.py stack restart nginx
+#   ./scripts/cli.py stack restart nginx dev
+#   ./scripts/cli.py stack restart backend --rebuild
+#   ./scripts/cli.py stack restart backend media-worker
 # =============================================================================
 from __future__ import annotations
 
@@ -32,6 +36,7 @@ from core.ui import log_info, log_ok
 from core.validators import CommandError, resolve_prompted_environment
 
 from ._common import DEFAULT_ROOT
+from ._health import _wait_for_service_health
 from ._migrate import _run_migrator
 from ._rollback import _restore_rollback_images, _snapshot_rollback_images
 from ._swagger import _prepare_frontend_swagger
@@ -103,4 +108,27 @@ def cmd_down(args: argparse.Namespace) -> int:
 
     context = create_compose_context(root_dir, environment, ensure_generated=False)
     run_compose(context, "down", "--remove-orphans")
+    return 0
+
+
+def cmd_restart(args: argparse.Namespace) -> int:
+    environment = resolve_prompted_environment(args.environment)
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+    services: list[str] = list(args.services)
+    rebuild: bool = getattr(args, "rebuild", False)
+
+    context = create_compose_context(root_dir, environment, ensure_generated=False)
+
+    if rebuild:
+        log_info(f"Rebuilding: {' '.join(services)}")
+        run_compose(context, "build", "--pull=false", *services)
+
+    log_info(f"Restarting: {' '.join(services)}")
+    # --no-deps — не трогать зависимые сервисы (mysql, redis и др.)
+    run_compose(context, "up", "-d", "--no-deps", *services)
+
+    for service in services:
+        _wait_for_service_health(context, service, timeout=60)
+
+    log_ok(f"{'Rebuilt and restarted' if rebuild else 'Restarted'}: {' '.join(services)}")
     return 0

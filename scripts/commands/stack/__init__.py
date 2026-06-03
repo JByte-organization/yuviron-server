@@ -67,7 +67,7 @@ from ._swagger import (
     _write_swagger_document,
     cmd_swagger_gen,
 )
-from ._up import cmd_down, cmd_up
+from ._up import cmd_down, cmd_restart, cmd_up
 
 # Third-party symbols that tests patch directly on the `stack` module object
 from checks import preflight_checks  # noqa: F401
@@ -136,6 +136,34 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     smoke_parser.add_argument("project_root", nargs="?")
     smoke_parser.add_argument("--no-header", action="store_true", help=argparse.SUPPRESS)
     smoke_parser.set_defaults(handler=cmd_smoke)
+
+    restart_parser = stack_sub.add_parser(
+        "restart",
+        help="Restart one or more services without touching the rest of the stack",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Примеры:\n"
+            "  ./scripts/cli.py stack restart nginx\n"
+            "  ./scripts/cli.py stack restart nginx --env dev\n"
+            "  ./scripts/cli.py stack restart backend --rebuild\n"
+            "  ./scripts/cli.py stack restart backend media-worker\n"
+            "  ./scripts/cli.py stack restart nginx --rebuild --env dev"
+        ),
+    )
+    restart_parser.add_argument(
+        "services",
+        nargs="+",
+        metavar="SERVICE",
+        help="Имена сервисов для перезапуска (один или несколько)",
+    )
+    restart_parser.add_argument(
+        "--rebuild",
+        action="store_true",
+        help="Пересобрать образ(ы) перед перезапуском (docker compose build)",
+    )
+    restart_parser.add_argument("--env", dest="environment", help="Окружение: dev|prod")
+    restart_parser.add_argument("--project-root", dest="project_root")
+    restart_parser.set_defaults(handler=cmd_restart)
 
     cache_purge_parser = stack_sub.add_parser("cache-purge", help="Purge nginx media CDN cache entries")
     cache_purge_parser.add_argument("environment", nargs="?")
