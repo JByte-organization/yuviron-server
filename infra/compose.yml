@@ -36,7 +36,7 @@ x-dotnet-hardening: &dotnet-hardening
 x-dotnet-service-defaults: &dotnet-service-defaults
   restart: ${RESTART_POLICY}
   volumes:
-    - ${STORAGE_PATH}:/var/yuviron-server/storage
+    - ${STORAGE_PATH}:/app/storage
   depends_on:
     mysql:
       condition: service_healthy
@@ -326,7 +326,7 @@ services:
       - ../certs/acme-challenge:/var/www/certbot:ro
       - ../certs:/etc/nginx/certs:ro
       - ${NGINX_BASIC_AUTH_FILE}:/etc/nginx/htpasswd:ro
-      - nginx_media_cache:/var/cache/nginx/yuviron_media
+      - nginx_media_cache:/var/cache/nginx/media
     command: ["nginx", "-g", "daemon off;"]
     networks:
       - default

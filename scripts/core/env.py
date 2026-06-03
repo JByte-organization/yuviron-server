@@ -22,6 +22,26 @@ import re
 import subprocess
 from pathlib import Path
 
+
+def _read_project_name(root_dir: Path) -> str:
+    """Прочитать project_name из config/project.yml без импорта config_loader.
+
+    Используется как fallback когда COMPOSE_PROJECT_NAME ещё не сгенерирован.
+    Парсим регуляркой чтобы не создавать циклический импорт (config_loader
+    сам импортирует env.py).
+    """
+    path = root_dir / "config" / "project.yml"
+    if not path.is_file():
+        return "project"
+    try:
+        text = path.read_text(encoding="utf-8")
+        match = re.search(r"^project_name:\s*([a-z0-9-]+)\s*$", text, re.MULTILINE)
+        if match:
+            return match.group(1)
+    except OSError:
+        pass
+    return "project"
+
 from .ui import log_warn
 from .paths import compose_relative_path
 from .validators import fail, require_file
@@ -193,7 +213,7 @@ def build_fallback_runtime_env(root_dir: Path, env_name: str, out_file: Path) ->
     merged = parse_env_file(common_env)
     merged.update(parse_env_file(env_file))
 
-    merged.setdefault("COMPOSE_PROJECT_NAME", f"yuviron-{env_name}")
+    merged.setdefault("COMPOSE_PROJECT_NAME", f"{_read_project_name(root_dir)}-{env_name}")
     merged.setdefault("STORAGE_PATH", compose_relative_path(root_dir, root_dir / "storage" / env_name))
     merged.setdefault("SEQ_STORAGE_PATH", compose_relative_path(root_dir, root_dir / "storage" / env_name / "seq"))
 

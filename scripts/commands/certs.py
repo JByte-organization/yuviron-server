@@ -382,7 +382,7 @@ def _public_challenge_url(domain: str, token: str) -> str:
 
 
 def _check_public_http_challenge(domains: list[str], challenge_dir: Path, timeout: int = 10) -> None:
-    token = f"yuviron-certbot-check-{uuid.uuid4().hex}"
+    token = f"certbot-check-{uuid.uuid4().hex}"
     expected = f"{token}\n"
     probe_path = _write_acme_http_probe(challenge_dir, token, expected)
 

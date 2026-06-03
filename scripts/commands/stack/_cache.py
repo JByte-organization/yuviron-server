@@ -2,7 +2,7 @@
 # scripts/commands/stack/_cache.py — Очистка nginx CDN-кэша медиа-файлов.
 #
 # nginx кэширует медиа-файлы (изображения треков, аватары и т.д.) в
-# /var/cache/nginx/yuviron_media/ внутри контейнера.
+# /var/cache/nginx/media/ внутри контейнера.
 #
 # Команда "stack cache-purge":
 #   --path /abc123def456  — удалить конкретный файл из кэша

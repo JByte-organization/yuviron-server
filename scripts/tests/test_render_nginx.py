@@ -248,7 +248,7 @@ class RenderNginxTests(unittest.TestCase):
         )
 
         self.assertIn("server_name dev-i.example.com;", rendered)
-        self.assertIn("proxy_cache_path /var/cache/nginx/yuviron_media", rendered)
+        self.assertIn("proxy_cache_path /var/cache/nginx/media", rendered)
         self.assertIn("location = / {", rendered)
         self.assertIn("location ^~ /i/ {", rendered)
         self.assertIn("rewrite ^/(?!health$)(.+)$ /i/$1 break;", rendered)

@@ -35,6 +35,7 @@ if __package__ in {None, ""}:
     cli_path = scripts_dir / "cli.py"
     raise SystemExit(subprocess.call([str(cli_path), "appsettings", *sys.argv[1:]]))
 
+from core.env import resolve_config_value
 from core.paths import resolve_root_dir
 from core.ui import log_ok
 from core.validators import CommandError, resolve_prompted_environment
@@ -59,27 +60,36 @@ _REQUIRED_SECRETS = (
     "STREAM_SECRET",
 )
 
-_PROD_CORS_ORIGINS = [
-    "https://yuviron.com",
-    "https://backoffice.yuviron.com",
-    "https://admin.yuviron.com",
-]
-_DEV_CORS_ORIGINS = [
-    "https://dev.yuviron.com",
-    "https://dev-backoffice.yuviron.com",
-    "https://dev-admin.yuviron.com",
-    "http://localhost:3000",
-]
+def _cors_origins(deploy_env: str, domain: str) -> list[str]:
+    """Вычислить список CORS origin-ов из домена и окружения.
+
+    Паттерны совпадают с host_strategy в config/apps.yml:
+      client     → root    (dev.domain  /  domain)
+      admin      → subdomain (dev-admin.domain  /  admin.domain)
+      backoffice → subdomain (dev-backoffice.domain  /  backoffice.domain)
+    """
+    if not domain:
+        return []
+    if deploy_env == "prod":
+        return [
+            f"https://{domain}",
+            f"https://admin.{domain}",
+            f"https://backoffice.{domain}",
+        ]
+    return [
+        f"https://dev.{domain}",
+        f"https://dev-admin.{domain}",
+        f"https://dev-backoffice.{domain}",
+        "http://localhost:3000",
+    ]
 
 
 def aspnet_env(deploy_env: str) -> str:
     return "Production" if deploy_env == "prod" else "Development"
 
 
-def generate_api_config(deploy_env: str, secrets: dict[str, str]) -> dict:
-    cors_origins = list(_PROD_CORS_ORIGINS)
-    if deploy_env != "prod":
-        cors_origins += _DEV_CORS_ORIGINS
+def generate_api_config(deploy_env: str, secrets: dict[str, str], domain: str = "") -> dict:
+    cors_origins = _cors_origins(deploy_env, domain)
     return {
         "CorsSettings": {"AllowedOrigins": cors_origins},
         "JwtSettings": {
@@ -159,7 +169,8 @@ def cmd_gen(args: argparse.Namespace) -> int:
     worker_path = root_dir / BACKEND_SRC_ROOT / "Yuviron.MediaWorker" / f"appsettings.{env_name}.json"
 
     secrets = _load_secrets()
-    write_config_atomic(generate_api_config(deploy_env, secrets), api_path)
+    domain = resolve_config_value(root_dir, deploy_env, "BASE_DOMAIN", "")
+    write_config_atomic(generate_api_config(deploy_env, secrets, domain), api_path)
     write_config_atomic(generate_worker_config(secrets), worker_path)
 
     log_ok(f"appsettings generated for: {deploy_env} ({env_name})")

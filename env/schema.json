@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://yuviron.local/schemas/runtime-env.schema.json",
-  "title": "Yuviron runtime environment",
+  "$id": "https://schemas.local/runtime-env.schema.json",
+  "title": "Runtime environment",
   "type": "object",
   "additionalProperties": false,
   "required": [

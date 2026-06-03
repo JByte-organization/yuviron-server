@@ -293,7 +293,7 @@ class SecurityAuditTests(unittest.TestCase):
         from core.env_validation import _KNOWN_DEV_SEQ_HASHES
         values = {
             "MYSQL_ROOT_PASSWORD": "root",
-            "MYSQL_PASSWORD": "yuviron",
+            "MYSQL_PASSWORD": "admin",
             "RABBITMQ_DEFAULT_PASS": "yv_dev_strong_password_1234_rabbit_!",
             "REDIS_PASSWORD": "yv_test_strong_redis_2026_!",
             "ASPIRE_FRONTEND_BROWSER_TOKEN": "short",

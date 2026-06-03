@@ -73,7 +73,6 @@ WEAK_SECRET_VALUES = {
     "root",
     "secret",
     "test",
-    "yuviron",
 }
 
 _TOKEN_KEY_RE = re.compile(r"(?:^|[_\-.])(?:TOKEN|API[_\-.]?KEY|SECRET)(?:$|[_\-.])", re.IGNORECASE)

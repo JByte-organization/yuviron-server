@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .docker import ComposeContext, run_compose
 from .env import (
+    _read_project_name,
     ensure_generated_basic_auth_file,
     ensure_generated_env,
     resolve_config_value,
@@ -52,7 +53,7 @@ def create_compose_context(root_dir: Path, env_name: str, *, ensure_generated: b
 
     runtime_env = resolve_runtime_env(root_dir, env_name, tmp_dir)
     frontends_compose = resolve_frontends_compose(root_dir, env_name)
-    compose_project_name = resolve_config_value(root_dir, env_name, "COMPOSE_PROJECT_NAME", f"yuviron-{env_name}")
+    compose_project_name = resolve_config_value(root_dir, env_name, "COMPOSE_PROJECT_NAME", f"{_read_project_name(root_dir)}-{env_name}")
 
     if not compose_project_name:
         fail(f"COMPOSE_PROJECT_NAME is empty for {env_name}")

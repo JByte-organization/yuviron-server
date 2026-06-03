@@ -31,7 +31,7 @@ REDIS_PASSWORD=e2e-redis-password-1234567890
 ConnectionStrings__Redis=redis:6379,password=e2e-redis-password-1234567890
 Swagger__Enabled=true
 
-FILE_STORAGE_ROOT=/var/yuviron-server/storage
+FILE_STORAGE_ROOT=/app/storage
 
 SEQ_FIRSTRUN_ADMINUSERNAME=admin
 SEQ_FIRSTRUN_ADMINPASSWORDHASH=e2e-seq-password-hash-placeholder

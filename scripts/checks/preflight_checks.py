@@ -477,7 +477,8 @@ def check_backend_storage_permissions(ctx: object) -> None:
         fail("COMPOSE_PROJECT_NAME is missing from runtime env")
 
     backend_container = f"{compose_project_name}-backend"
-    test_dir = "/var/yuviron-server/storage/temp/test-dir"
+    storage_root = ctx.runtime_values.get("FILE_STORAGE_ROOT", "/app/storage").rstrip("/")
+    test_dir = f"{storage_root}/temp/test-dir"
 
     log_info(f"Checking storage permissions inside backend container: {backend_container}")
 

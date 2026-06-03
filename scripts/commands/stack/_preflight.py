@@ -34,7 +34,7 @@ from pathlib import Path
 from checks import preflight_checks
 from core.compose_runner import create_compose_context, validate_compose_config
 from core.docker import ComposeContext, run, run_compose
-from core.env import parse_env_file, parse_routes_file, resolve_runtime_env
+from core.env import _read_project_name, parse_env_file, parse_routes_file, resolve_runtime_env
 from core.paths import resolve_root_dir
 from core.ui import log_info, log_ok, log_warn
 from core.validators import CommandError, fail, resolve_prompted_environment
@@ -151,7 +151,7 @@ class PreflightContext:
         self.assert_file(self.frontends_compose_file)
 
         values = parse_env_file(self.env_file)
-        base_project_name = values.get("COMPOSE_PROJECT_NAME") or f"yuviron-{self.environment}"
+        base_project_name = values.get("COMPOSE_PROJECT_NAME") or f"{_read_project_name(self.root_dir)}-{self.environment}"
         isolated_project_name = f"{base_project_name}-preflight-{os.getpid()}"
 
         values["COMPOSE_PROJECT_NAME"] = isolated_project_name

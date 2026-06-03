@@ -22,7 +22,7 @@ PREFLIGHT_CLEANUP_MOUNT = "/preflight-cleanup"        # точка монтир�
 MIGRATOR_PROFILE = "migrate"
 MIGRATOR_SERVICE = "migrator"
 
-NGINX_MEDIA_CACHE_DIR = "/var/cache/nginx/yuviron_media"  # кэш CDN-прокси внутри nginx-контейнера
+NGINX_MEDIA_CACHE_DIR = "/var/cache/nginx/media"  # кэш CDN-прокси внутри nginx-контейнера
 NGINX_MEDIA_ROUTE_NAME = "i"                              # имя маршрута медиа-прокси
 
 BACKEND_SERVICE = "backend"   # имя сервиса .NET API в docker compose

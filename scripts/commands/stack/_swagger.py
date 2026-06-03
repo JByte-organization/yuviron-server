@@ -22,6 +22,7 @@ import argparse
 import json
 
 from core.compose_runner import create_compose_context
+from core.env import _read_project_name
 from core.docker import ComposeContext, run, run_compose
 from core.env import parse_env_file
 from core.paths import resolve_root_dir
@@ -93,7 +94,7 @@ def _ensure_swagger_backend_image(swagger_context: ComposeContext, environment: 
     if run(["docker", "image", "inspect", target], check=False, capture_output=True).returncode == 0:
         return True
 
-    candidate = f"yuviron-{environment}-backend:latest"
+    candidate = f"{_read_project_name(swagger_context.root_dir)}-{environment}-backend:latest"
     if run(["docker", "image", "inspect", candidate], check=False, capture_output=True).returncode == 0:
         log_info(f"Reusing existing backend image for swagger prebuild: {candidate}")
         run(["docker", "tag", candidate, target])

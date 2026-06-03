@@ -37,6 +37,7 @@ from pathlib import Path
 from core.compose_runner import create_compose_context
 from core.docker import run, run_compose
 from core.env import (
+    _read_project_name,
     generated_exists,
     load_dotenv_if_exists,
     parse_env_file,
@@ -194,7 +195,7 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
 
     backup_remote_path = _validate_backup_remote_path(os.getenv("BACKUP_REMOTE_PATH", ""), root_dir)
     backup_retention_days = int(os.getenv("BACKUP_RETENTION_DAYS", "14"))
-    backup_project_name = os.getenv("BACKUP_PROJECT_NAME", "yuviron-server")
+    backup_project_name = os.getenv("BACKUP_PROJECT_NAME") or _read_project_name(root_dir)
     backup_envs_raw = os.getenv("BACKUP_ENVS", "dev,prod")
     mysql_service_name = os.getenv("MYSQL_SERVICE_NAME", "mysql")
     redis_service_name = os.getenv("REDIS_SERVICE_NAME", "redis")
@@ -544,7 +545,7 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
         archive_storage(env_name, env_dir / "storage.tar.gz")
 
         context = get_context(env_name)
-        project_name = read_env_value(context.runtime_env, "COMPOSE_PROJECT_NAME") or f"yuviron-{env_name}"
+        project_name = read_env_value(context.runtime_env, "COMPOSE_PROJECT_NAME") or f"{_read_project_name(root_dir)}-{env_name}"
         if project_name:
             archive_named_volume(env_name, "mysql", f"{project_name}_mysql_data", env_dir / "volume_mysql_data.tar.gz")
 

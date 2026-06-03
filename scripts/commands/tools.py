@@ -738,7 +738,6 @@ def cmd_setup_certs_cron(args: argparse.Namespace) -> int:
 
 
 LOGROTATE_DEST = Path("/etc/logrotate.d")
-LOGROTATE_FILENAME = "yuviron"
 
 
 def _logrotate_config(root_dir: Path) -> str:
@@ -758,8 +757,10 @@ def _logrotate_config(root_dir: Path) -> str:
 
 
 def cmd_setup_logrotate(args: argparse.Namespace) -> int:
+    from core.env import _read_project_name
     root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
-    dest = LOGROTATE_DEST / LOGROTATE_FILENAME
+    logrotate_filename = _read_project_name(root_dir)
+    dest = LOGROTATE_DEST / logrotate_filename
     config = _logrotate_config(root_dir)
 
     print()
@@ -776,7 +777,7 @@ def cmd_setup_logrotate(args: argparse.Namespace) -> int:
     if confirm_str != "y":
         raise CommandError("Aborted.")
 
-    tmp_path = root_dir / ".tmp" / LOGROTATE_FILENAME
+    tmp_path = root_dir / ".tmp" / logrotate_filename
     tmp_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path.write_text(config, encoding="utf-8")
 
@@ -874,7 +875,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
 
     logrotate_parser = tools_sub.add_parser(
         "setup-logrotate",
-        help="Install /etc/logrotate.d/yuviron to rotate nginx and letsencrypt log files",
+        help="Install /etc/logrotate.d/<project_name> to rotate nginx and letsencrypt log files",
     )
     logrotate_parser.add_argument("--project-root", dest="project_root")
     logrotate_parser.set_defaults(handler=cmd_setup_logrotate)

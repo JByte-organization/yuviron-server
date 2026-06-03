@@ -49,20 +49,25 @@ class AspnetEnvTests(unittest.TestCase):
 
 class GenerateApiConfigTests(unittest.TestCase):
     def test_prod_has_only_prod_cors_origins(self) -> None:
-        config = generate_api_config("prod", _FULL_SECRETS)
+        config = generate_api_config("prod", _FULL_SECRETS, "example.com")
         origins = config["CorsSettings"]["AllowedOrigins"]
-        self.assertIn("https://yuviron.com", origins)
-        self.assertIn("https://backoffice.yuviron.com", origins)
-        self.assertIn("https://admin.yuviron.com", origins)
-        self.assertNotIn("https://dev.yuviron.com", origins)
+        self.assertIn("https://example.com", origins)
+        self.assertIn("https://backoffice.example.com", origins)
+        self.assertIn("https://admin.example.com", origins)
+        self.assertNotIn("https://dev.example.com", origins)
         self.assertNotIn("http://localhost:3000", origins)
 
     def test_dev_includes_dev_cors_origins(self) -> None:
-        config = generate_api_config("dev", _FULL_SECRETS)
+        config = generate_api_config("dev", _FULL_SECRETS, "example.com")
         origins = config["CorsSettings"]["AllowedOrigins"]
-        self.assertIn("https://yuviron.com", origins)
-        self.assertIn("https://dev.yuviron.com", origins)
+        self.assertIn("https://dev.example.com", origins)
+        self.assertIn("https://dev-admin.example.com", origins)
         self.assertIn("http://localhost:3000", origins)
+        self.assertNotIn("https://example.com", origins)
+
+    def test_cors_origins_empty_when_no_domain(self) -> None:
+        config = generate_api_config("prod", _FULL_SECRETS)
+        self.assertEqual([], config["CorsSettings"]["AllowedOrigins"])
 
     def test_jwt_settings_populated_from_secrets(self) -> None:
         config = generate_api_config("prod", _FULL_SECRETS)

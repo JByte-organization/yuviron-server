@@ -519,7 +519,7 @@ class CachePurgeTests(unittest.TestCase):
         cache_key = f"httpsdev-i.yuviron.com{file_path}"
         expected_md5 = hashlib.md5(cache_key.encode()).hexdigest()
 
-        mock_result = MagicMock(returncode=0, stdout=f"/var/cache/nginx/yuviron_media/x/xx/{expected_md5}", stderr="")
+        mock_result = MagicMock(returncode=0, stdout=f"/var/cache/nginx/media/x/xx/{expected_md5}", stderr="")
 
         with (
             patch("commands.stack._cache.create_compose_context", return_value=self.context),
