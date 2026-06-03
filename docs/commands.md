@@ -180,12 +180,33 @@ ALLOW_PRODUCTION_MIGRATE=<db-name> ./scripts/cli.py stack migrate prod
 
 ---
 
-### Перезапуск
+### Перезапуск всего стека
 
 ```bash
 ./scripts/cli.py stack down dev
 ./scripts/cli.py stack up dev
 ```
+
+---
+
+### Перезапуск конкретного сервиса
+
+```bash
+./scripts/cli.py stack restart nginx
+./scripts/cli.py stack restart nginx --env dev
+./scripts/cli.py stack restart backend --rebuild
+./scripts/cli.py stack restart backend media-worker
+./scripts/cli.py stack restart nginx --rebuild --env dev
+```
+
+Перезапускает один или несколько сервисов без остановки остального стека. После перезапуска ждёт healthcheck (до 60 секунд) и сообщает статус.
+
+Флаги:
+
+* `--rebuild` — пересобрать Docker-образ из текущего Dockerfile перед перезапуском (`docker compose build --pull=false`); нужно после изменений в Dockerfile или исходниках сервиса
+* `--env dev|prod` — явное указание окружения; если не задан, спрашивает интерактивно
+
+Без `--rebuild` сервис перезапускается на уже собранном образе — эквивалент `docker compose up -d --no-deps <service>` с автоматически подставленными `--env-file`, `-f` и `-p`.
 
 ---
 
@@ -216,7 +237,7 @@ ALLOW_PRODUCTION_MIGRATE=<db-name> ./scripts/cli.py stack migrate prod
 ./scripts/cli.py stack cache-purge prod --yes
 ```
 
-Управляет nginx media cache (`/var/cache/nginx/yuviron_media`) для route `i` (media CDN).
+Управляет nginx media cache (`/var/cache/nginx/media`) для route `i` (media CDN).
 
 Без `--path` удаляет все кэшированные файлы целиком. В интерактивном режиме запрашивает подтверждение; `--yes` пропускает его для CI/скриптов.
 
@@ -574,40 +595,26 @@ docker compose \
 docker exec -it <nginx-container> nginx -t
 ```
 
-Перезапуск dev:
+Перезапуск одного сервиса (быстро, без остановки стека):
+
+```bash
+./scripts/cli.py stack restart nginx
+./scripts/cli.py stack restart nginx --rebuild   # + пересборка образа
+./scripts/cli.py stack restart backend media-worker
+```
+
+Перезапуск dev целиком:
 
 ```bash
 ./scripts/cli.py stack down dev
 ./scripts/cli.py stack up dev
 ```
 
-Перезапуск prod:
+Перезапуск prod целиком:
 
 ```bash
 ./scripts/cli.py stack down prod
 ALLOW_PRODUCTION_MIGRATE=<db-name> ./scripts/cli.py stack up prod
-```
-
-Ручная остановка dev-стека:
-
-```bash
-docker compose \
-  --env-file ./generated/dev/deploy.env \
-  -f ./infra/compose.yml \
-  -f ./generated/dev/compose.frontends.yml \
-  -p yuviron-dev \
-  down
-```
-
-Ручная остановка prod-стека:
-
-```bash
-docker compose \
-  --env-file ./generated/prod/deploy.env \
-  -f ./infra/compose.yml \
-  -f ./generated/prod/compose.frontends.yml \
-  -p yuviron-prod \
-  down
 ```
 
 ---
