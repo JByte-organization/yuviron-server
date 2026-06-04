@@ -25,8 +25,8 @@ class PythonRequirementsTests(unittest.TestCase):
 
         # pip-audit must be installed in CI so the tool is available
         self.assertIn("pip-audit", ci_yml)
-        # the audit step must target requirements.txt explicitly
-        self.assertIn("pip-audit -r requirements.txt", ci_yml)
+        # the audit step must target the lock file (all transitive deps pinned)
+        self.assertIn("pip-audit -r requirements.lock", ci_yml)
 
 
 if __name__ == "__main__":

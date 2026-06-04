@@ -175,7 +175,10 @@ def cmd_restart(args: argparse.Namespace) -> int:
     run_compose(context, "up", "-d", "--no-deps", *services)
 
     for service in services:
-        _wait_for_service_health(context, service, timeout=60)
+        # 180s — достаточно для backend/media-worker которые имеют start_period=60s.
+        # При timeout=60 (прежнее значение) проверка истекала в тот момент когда Docker
+        # только начинал первую проверку, и сервис всегда был в состоянии "starting".
+        _wait_for_service_health(context, service, timeout=180)
 
     log_ok(f"{'Rebuilt and restarted' if rebuild else 'Restarted'}: {' '.join(services)}")
     return 0
