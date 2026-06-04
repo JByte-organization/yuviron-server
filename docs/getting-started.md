@@ -176,6 +176,22 @@ grep -E '^(ASPNETCORE_ENVIRONMENT|DOTNET_ENVIRONMENT)=' generated/prod/deploy.en
 
 ---
 
+## Опционально: tab-completion
+
+Чтобы `Tab` автодополнял команды, подкоманды и флаги CLI:
+
+```bash
+# Установить навсегда (добавляет строку в ~/.bashrc или ~/.zshrc)
+./scripts/cli.py tools setup-completion
+
+# Активировать в текущей сессии без перезапуска терминала
+eval "$(./scripts/cli.py completion)"
+```
+
+Подробнее: [commands.md → Tab-completion](commands.md#tab-completion-автодополнение).
+
+---
+
 ## Что дальше
 
 * [Частые операции](operations.md) - deploy, restart, migrate, cache-purge

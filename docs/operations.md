@@ -121,6 +121,25 @@ git pull
 
 ---
 
+### Перезапуск одного сервиса
+
+Когда нужно обновить конкретный сервис без остановки всего стека:
+
+```bash
+# Перезапустить без пересборки образа (например после изменения nginx.conf)
+./scripts/cli.py stack restart nginx
+
+# Пересобрать образ и перезапустить
+./scripts/cli.py stack restart backend --rebuild
+
+# Несколько сервисов сразу
+./scripts/cli.py stack restart backend media-worker
+```
+
+После перезапуска команда ждёт healthcheck и выводит статус.
+
+---
+
 ### Восстановление после сбоя
 
 ```bash
@@ -215,7 +234,9 @@ echo "127.0.0.1 dev-api.yuviron.com" | sudo tee -a /etc/hosts
 * `backup create` запускает restore-test MySQL-дампов; для полного сценария дополнительно использовать `backup verify --full`
 * Не запускать CLI от root без необходимости
 
-Seq запускается non-root под `${SEQ_UID:-1000}:${SEQ_GID:-1000}`. Права для bind-mounted `${SEQ_STORAGE_PATH}` готовятся командами `stack up` и `preflight`. Если запускаешь Docker Compose напрямую в обход CLI, подготовь каталог заранее: `sudo chown -R ${SEQ_UID:-1000}:${SEQ_GID:-1000} <SEQ_STORAGE_PATH>`. У живого Seq включён `cap_drop: ALL`; оставлен только `NET_BIND_SERVICE`, чтобы non-root процесс мог слушать порт `80` внутри контейнера.
+Seq запускается non-root под `SEQ_UID=10002:SEQ_GID=10002` (выделенный UID, не конфликтует с системными пользователями). Права для bind-mounted `${SEQ_STORAGE_PATH}` готовятся автоматически при `stack up` и `preflight` через alpine-контейнер (Docker chown без sudo). Если запускаешь Docker Compose напрямую в обход CLI, подготовь каталог заранее: `sudo chown -R 10002:10002 <SEQ_STORAGE_PATH>`. У живого Seq включён `cap_drop: ALL`; оставлен только `NET_BIND_SERVICE`, чтобы non-root процесс мог слушать порт `80` внутри контейнера.
+
+Аналогично, поддиректории `STORAGE_PATH` (`avatars`, `banners`, `tracks` и др.) автоматически chown-ятся к `DOTNET_APP_UID=10001` при `stack up` / `preflight`. Ручное действие не нужно. При прямом запуске compose без CLI: `sudo chown -R 10001:10001 <STORAGE_PATH>`.
 
 ---
 
@@ -249,12 +270,12 @@ docker compose \
 
 ## Compose project names
 
-Для развёртывания используются отдельные project names:
+Для развёртывания используются отдельные project names — они выводятся автоматически из `project_name` в `config/project.yml`:
 
-* `yuviron-dev`
-* `yuviron-prod`
+* `<project_name>-dev`   — например `yuviron-dev`
+* `<project_name>-prod`  — например `yuviron-prod`
 
-Это изолирует dev и prod, исключает конфликты имён контейнеров/сетей/volumes и позволяет независимо управлять окружениями.
+Это изолирует dev и prod, исключает конфликты имён контейнеров/сетей/volumes и позволяет независимо управлять окружениями. Значение хранится в `COMPOSE_PROJECT_NAME` в `generated/<env>/deploy.env`.
 
 ---
 

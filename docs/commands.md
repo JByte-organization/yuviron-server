@@ -61,6 +61,31 @@ CLI является единым интерфейсом для работы с�
 
 ---
 
+## Test
+
+### Запуск тестов
+
+```bash
+./scripts/cli.py test              # все тесты
+./scripts/cli.py test -v           # verbose
+./scripts/cli.py test -x           # остановиться на первой ошибке
+./scripts/cli.py test -k smoke     # фильтр по имени теста
+./scripts/cli.py test -q           # краткий вывод
+./scripts/cli.py test tests/test_render_nginx.py  # конкретный файл
+```
+
+Все аргументы после `test` передаются напрямую в pytest. Требует установленного `.venv` с pytest (см. [tests.md](tests.md)).
+
+E2e тест (требует Docker):
+
+```bash
+YUVIRON_RUN_DOCKER_E2E=1 ./scripts/cli.py test tests/test_stack_e2e_dry_run.py -v
+```
+
+Подробнее о тестах и setup pytest: [tests.md](tests.md).
+
+---
+
 ## Appsettings
 
 ### Генерация appsettings.json
