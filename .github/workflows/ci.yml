@@ -65,6 +65,8 @@ jobs:
             tests.test_certs_reload \
             tests.test_backup_restore_test \
             tests.test_backup_docker_utils \
+            tests.test_backup_operations \
+            tests.test_rotation \
             tests.test_tools_docker_clean \
             tests.test_backend_workflows \
             tests.test_python_requirements \
@@ -74,6 +76,7 @@ jobs:
   e2e-dry-run:
     name: E2E dry-run (Docker)
     runs-on: [self-hosted, yuviron]
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v5
@@ -125,6 +128,7 @@ jobs:
   image-scan-built:
     name: Scan built application images
     runs-on: [self-hosted, yuviron]
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v5
@@ -182,3 +186,40 @@ jobs:
       - name: Clean up CI images
         if: always()
         run: docker rmi yuviron-backend:ci yuviron-media-worker:ci 2>/dev/null || true
+
+  ci-summary:
+    name: CI gate — warn on skipped self-hosted jobs
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [unit-tests, e2e-dry-run, image-scan, image-scan-built]
+
+    steps:
+      - name: Check self-hosted job outcomes
+        env:
+          E2E_RESULT: ${{ needs.e2e-dry-run.result }}
+          SCAN_BUILT_RESULT: ${{ needs.image-scan-built.result }}
+        run: |
+          skipped=()
+          [[ "$E2E_RESULT"      == "skipped" ]] && skipped+=("e2e-dry-run")
+          [[ "$SCAN_BUILT_RESULT" == "skipped" ]] && skipped+=("image-scan-built")
+
+          if [[ ${#skipped[@]} -gt 0 ]]; then
+            echo "::warning::Self-hosted jobs skipped: ${skipped[*]}. Ensure [self-hosted, yuviron] runner is online."
+            {
+              echo "## ⚠️ Self-hosted jobs were skipped"
+              echo ""
+              echo "The following jobs require a \`[self-hosted, yuviron]\` runner that was not available:"
+              echo ""
+              for job in "${skipped[@]}"; do
+                echo "- \`$job\`"
+              done
+              echo ""
+              echo "These jobs cover:"
+              echo "- **e2e-dry-run**: full stack init → preflight → up dry-run cycle with real Docker"
+              echo "- **image-scan-built**: Trivy CVE scan of built backend and media-worker images"
+              echo ""
+              echo "Start the self-hosted runner on the server to include these checks."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "All self-hosted jobs ran (or failed explicitly)."
+          fi
