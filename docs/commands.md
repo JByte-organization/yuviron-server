@@ -480,6 +480,47 @@ Email-тело указывает причину: **deploy error** (если `st
 
 ---
 
+### Tab-completion (автодополнение)
+
+Позволяет нажимать `Tab` для автодополнения команд, подкоманд, флагов и имён сервисов в bash и zsh.
+
+**Установка (один раз):**
+
+```bash
+./scripts/cli.py tools setup-completion
+```
+
+Команда добавляет строку в `~/.bashrc` (или `~/.zshrc`) и выводит команду для немедленной активации в текущей сессии.
+
+**Активация в текущей сессии** (без перезапуска терминала):
+
+```bash
+eval "$(./scripts/cli.py completion)"
+```
+
+**Явный выбор shell:**
+
+```bash
+./scripts/cli.py tools setup-completion --shell bash
+./scripts/cli.py tools setup-completion --shell zsh
+```
+
+**Что подставляется:**
+
+```bash
+./scripts/cli.py [Tab]                       # stack backup certs security ...
+./scripts/cli.py stack [Tab]                 # up down restart preflight migrate ...
+./scripts/cli.py stack restart [Tab]         # nginx backend redis mysql ... (из docker ps)
+./scripts/cli.py stack up [Tab]              # dev prod
+./scripts/cli.py certs generate --provider [Tab]   # mkcert letsencrypt
+./scripts/cli.py tools docker-clean --mode [Tab]   # report safe build-cache deep
+./scripts/cli.py --env [Tab]                 # dev prod
+```
+
+Completion script не требует дополнительных зависимостей — это чистый bash без Python. При вводе имени сервиса для `stack restart` список берётся из `docker ps` в реальном времени; если Docker недоступен — используется статический список.
+
+---
+
 ### Остальные tools
 
 ```bash

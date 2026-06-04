@@ -834,39 +834,44 @@ def cmd_rotation_status(args: argparse.Namespace) -> int:
 
 
 def cmd_setup_completion(args: argparse.Namespace) -> int:
-    """Установить completion script в ~/.bashrc или ~/.zshrc."""
-    import shutil
-    from commands.completion import print_completion_script
+    """Установить tab-completion в ~/.bashrc или ~/.zshrc.
 
+    После установки completion работает в каждом новом терминале автоматически.
+    Чтобы включить в текущей сессии без перезапуска терминала — запусти
+    команду которая выводится в конце.
+    """
     root_dir = resolve_root_dir(DEFAULT_ROOT, getattr(args, "project_root", None))
     cli_path = root_dir / "scripts" / "cli.py"
 
-    # Строка которую добавляем в shell config
+    # --shell override или автодетект по $SHELL
+    shell_arg = getattr(args, "shell", None)
+    if shell_arg:
+        rc_file = Path.home() / (f".{shell_arg}rc")
+    else:
+        shell_env = os.environ.get("SHELL", "")
+        rc_file = Path.home() / (".zshrc" if "zsh" in shell_env else ".bashrc")
+
     eval_line = f'eval "$({cli_path} completion)"'
     marker = "# yuviron-cli-completion"
     block = f"\n{marker}\n{eval_line}\n"
 
-    # Определяем shell config файл
-    shell = os.environ.get("SHELL", "")
-    if "zsh" in shell:
-        rc_file = Path.home() / ".zshrc"
+    already_installed = rc_file.is_file() and marker in rc_file.read_text(encoding="utf-8")
+
+    if already_installed:
+        log_ok(f"Completion already in {rc_file}")
     else:
-        rc_file = Path.home() / ".bashrc"
+        log_info(f"Adding completion to {rc_file}")
+        with rc_file.open("a", encoding="utf-8") as f:
+            f.write(block)
+        log_ok(f"Completion installed → {rc_file}")
 
-    # Проверяем не добавлено ли уже
-    if rc_file.is_file() and marker in rc_file.read_text(encoding="utf-8"):
-        log_ok(f"Completion already installed in {rc_file}")
-        log_info(f"Run: source {rc_file}")
-        return 0
-
-    log_info(f"Installing completion into {rc_file}")
-    with rc_file.open("a", encoding="utf-8") as f:
-        f.write(block)
-
-    log_ok(f"Completion installed in {rc_file}")
+    # Подсказка для активации в текущей сессии.
+    # Subprocess не может source родительский shell — пользователь делает это сам.
     print()
-    log_info(f"Activate now:  source {rc_file}")
-    log_info(f"Or open a new terminal.")
+    print(f"  To activate in the current session run:")
+    print(f"  eval \"$({cli_path} completion)\"")
+    print()
+    log_info("New terminals will have completion automatically.")
     return 0
 
 
@@ -998,6 +1003,12 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     setup_completion_parser = tools_sub.add_parser(
         "setup-completion",
         help="Install bash/zsh tab-completion for cli.py into ~/.bashrc or ~/.zshrc",
+    )
+    setup_completion_parser.add_argument(
+        "--shell",
+        choices=["bash", "zsh"],
+        default=None,
+        help="Shell to configure (default: auto-detect from $SHELL)",
     )
     setup_completion_parser.add_argument("--project-root", dest="project_root")
     setup_completion_parser.set_defaults(handler=cmd_setup_completion)
