@@ -310,10 +310,6 @@ jobs:
             wget -qO- http://127.0.0.1:5073/swagger/client/swagger.json \
             > packages/api/openapi/client.swagger.json
 
-          docker exec "yuviron-${DEPLOY_ENV}-backend" \
-            wget -qO- http://127.0.0.1:5073/swagger/artist/swagger.json \
-            > packages/api/openapi/artist.swagger.json
-
           pnpm api:gen
           gha_pass_stage "API types generated from Swagger spec."
 
@@ -367,12 +363,31 @@ jobs:
             --skip-migrate
           gha_pass_stage "Stack started with updated ${DEPLOY_APP}."
 
+      - name: Check frontend app health
+        run: |
+          set -Eeuo pipefail
+          source "${RUNNER_TEMP}/yuviron-gha-observe.sh"
+          gha_begin_stage "Frontend app health" "Frontend / app" "Frontend container / Next.js" \
+            "${DEPLOY_APP} container is unhealthy. Next.js server may have crashed, failed to bind its port, or hit a startup error. Check app logs." \
+            "docker logs yuviron-${DEPLOY_ENV}-${DEPLOY_APP} --tail 80"
+
+          status="$(docker inspect "yuviron-${DEPLOY_ENV}-${DEPLOY_APP}" \
+            --format='{{.State.Health.Status}}' 2>/dev/null || echo 'missing')"
+
+          if [ "$status" != "healthy" ]; then
+            echo "ERROR: ${DEPLOY_APP} is not healthy (status: ${status})" >&2
+            docker logs --tail=40 "yuviron-${DEPLOY_ENV}-${DEPLOY_APP}" 2>&1 || true
+            exit 1
+          fi
+
+          gha_pass_stage "${DEPLOY_APP} container is healthy."
+
       - name: Smoke test
         run: |
           set -Eeuo pipefail
           source "${RUNNER_TEMP}/yuviron-gha-observe.sh"
-          gha_begin_stage "Smoke test" "Frontend / routing" "Runtime services / nginx" \
-            "Smoke test failed. Check nginx routing and frontend app health." \
+          gha_begin_stage "Smoke test" "Frontend / routing" "nginx / frontend app" \
+            "Smoke test failed. nginx routing or the frontend app returned an unexpected response. Check nginx and ${DEPLOY_APP} logs." \
             "python3 ./scripts/cli.py stack smoke ${DEPLOY_ENV}"
           cd /opt/yuviron-server
           timeout 120 python3 ./scripts/cli.py stack smoke "${DEPLOY_ENV}"
