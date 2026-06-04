@@ -237,18 +237,19 @@ jobs:
           python3 ./scripts/cli.py tools docker-clean --mode report
           gha_pass_stage "Docker disk report collected."
 
-      - name: Clean Docker build cache before preflight
+      - name: Aggressive Docker cleanup before preflight
         continue-on-error: true
         run: |
           set -Eeuo pipefail
           source "${RUNNER_TEMP}/yuviron-gha-observe.sh"
-          gha_begin_stage "Clean Docker build cache" "DevOps / server" "Runner Docker host" \
-            "Could not clean Docker build cache — deploy may fail the disk-space preflight check." \
-            "python3 ./scripts/cli.py tools docker-clean --mode build-cache --yes" \
+          gha_begin_stage "Aggressive Docker cleanup" "DevOps / server" "Runner Docker host" \
+            "Could not clean Docker resources — deploy may fail the disk-space preflight check." \
+            "docker builder prune -a -f" \
             "warning"
-          cd /opt/yuviron-server
-          python3 ./scripts/cli.py tools docker-clean --mode build-cache --yes
-          gha_pass_stage "Docker build cache cleaned."
+          docker builder prune -a -f
+          docker image prune -f
+          docker container prune -f
+          gha_pass_stage "Docker build cache and dangling resources cleaned."
 
       - name: Preflight check
         run: |
