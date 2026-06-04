@@ -173,12 +173,19 @@ _yuviron_cli_completion() {
                 tools)
                     case "${words[2]}" in
                         docker-clean)
-                            COMPREPLY=($(compgen -W "--mode --reserved-space --max-used-space --min-free-space --volumes --yes" -- "$cur")) ;;
+                            COMPREPLY=($(compgen -W "--mode --reserved-space --max-used-space --min-free-space --volumes --yes --verbose" -- "$cur")) ;;
                         cleanup)
                             COMPREPLY=($(compgen -W "-y --yes" -- "$cur")) ;;
                         setup-completion)
                             COMPREPLY=($(compgen -W "--shell" -- "$cur")) ;;
-                        rotate-htpasswd|rotate-aspire-tokens|rotation-status|setup-monitoring|setup-certs-cron|setup-healthcheck-cron|healthcheck-alert|send-test-alert)
+                        setup-monitoring)
+                            if [[ "$cur" == -* ]]; then
+                                COMPREPLY=($(compgen -W "--api-key --dry-run" -- "$cur"))
+                            else
+                                COMPREPLY=($(compgen -W "$envs" -- "$cur"))
+                            fi
+                            ;;
+                        rotate-htpasswd|rotate-aspire-tokens|rotation-status|setup-certs-cron|setup-healthcheck-cron|healthcheck-alert|send-test-alert)
                             COMPREPLY=($(compgen -W "$envs" -- "$cur")) ;;
                     esac
                     ;;
