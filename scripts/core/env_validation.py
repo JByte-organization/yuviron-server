@@ -52,7 +52,21 @@ SENSITIVE_SECRET_KEYS = (
     "ASPIRE_FRONTEND_BROWSER_TOKEN",
     "ASPIRE_OTLP_API_KEY",
     "SEQ_FIRSTRUN_ADMINPASSWORDHASH",
+    # Stripe: компрометация SecretKey даёт полный доступ к Stripe API
+    "Stripe__SecretKey",
+    "Stripe__WebhookSecret",
+    # SMTP: компрометация даёт доступ к email-аккаунту alerting-системы
+    "SMTP_PASSWORD",
 )
+
+# Ключи которые проверяются на слабость ТОЛЬКО если присутствуют в env —
+# отсутствие не является ошибкой (опциональные интеграции).
+# Основные ключи (MySQL, Redis и др.) обязательны и варнят при отсутствии.
+OPTIONAL_SENSITIVE_SECRET_KEYS: frozenset[str] = frozenset({
+    "Stripe__SecretKey",
+    "Stripe__WebhookSecret",
+    "SMTP_PASSWORD",
+})
 
 # Seq password hashes that were generated for dev/example environments.
 # Using one of these hashes in prod means prod and dev share the same Seq password.

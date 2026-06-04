@@ -76,7 +76,10 @@ services:
     networks:
       - default
     healthcheck:
-      test: ["CMD-SHELL", "mysql -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD -e 'SELECT 1' >/dev/null 2>&1 || exit 1"]
+      # MYSQL_PWD=$$MYSQL_ROOT_PASSWORD задаёт пароль через env var перед вызовом mysql.
+      # $$ в Docker Compose — это экранированный $, внутри контейнера превращается в $MYSQL_ROOT_PASSWORD.
+      # Такой подход убирает пароль из аргументов командной строки (ps aux внутри контейнера).
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysql -h 127.0.0.1 -uroot -e 'SELECT 1' >/dev/null 2>&1 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -103,7 +106,9 @@ services:
     networks:
       - default
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a $$REDIS_PASSWORD ping"]
+      # REDISCLI_AUTH уже задан в environment секции выше — redis-cli читает его автоматически.
+      # Убран флаг -a $$REDIS_PASSWORD: он дублировал env var и делал пароль видимым в ps aux внутри контейнера.
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 3s
       retries: 20

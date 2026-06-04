@@ -52,7 +52,7 @@ _yuviron_cli_completion() {
     local security_cmds="audit audit-staged"
     local appsettings_cmds="gen"
     local dns_cmds="generate"
-    local tools_cmds="cleanup docker-clean docker-install docker-status docker-dashboard check-frontend-fast seq-hash setup-cron setup-certs-cron setup-logrotate setup-monitoring healthcheck-alert setup-healthcheck-cron send-test-alert rotate-htpasswd rotate-aspire-tokens rotation-status setup-completion"
+    local tools_cmds="cleanup docker-clean docker-install docker-status docker-dashboard check-frontend-fast seq-hash setup-cron setup-certs-cron setup-logrotate setup-monitoring healthcheck-alert setup-healthcheck-cron send-test-alert rotate-htpasswd rotate-aspire-tokens rotate-smtp rotate-stripe rotation-status setup-completion"
 
     # ── Имена сервисов для stack restart ──────────────────────────────────
     local _known_services="nginx backend media-worker redis mysql rabbitmq seq aspire-dashboard client-app admin backoffice"

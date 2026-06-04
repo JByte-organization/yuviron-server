@@ -44,6 +44,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import tempfile
 import time
@@ -97,16 +98,14 @@ def _run_mysqlcheck(
     any stdout is reported as a single generic problem entry so callers
     always get actionable output when something is wrong.
     """
+    # Пароль передаётся через MYSQL_PWD внутри контейнера ($MYSQL_ROOT_PASSWORD
+    # уже задан в environment mysql-сервиса), а не как аргумент -p.
+    # Это предотвращает появление пароля в ps aux на хосте.
     check_cmd = context.build_compose_cmd(
-        "exec",
-        "-T",
-        mysql_service_name,
-        "mysqlcheck",
-        "-uroot",
-        f"-p{mysql_root_password}",
-        "--all-databases",
-        "--check",
-        "--silent",
+        "exec", "-T", mysql_service_name,
+        "sh", "-c",
+        "MYSQL_PWD=\"$MYSQL_ROOT_PASSWORD\" mysqlcheck -uroot "
+        "--all-databases --check --silent",
     )
     result = run(check_cmd, check=False, capture_output=True)
     stdout = (result.stdout or "").strip()
@@ -321,18 +320,15 @@ def cmd_backup_create(args: argparse.Namespace) -> int:
 
         logger.info(f"Dumping MySQL for {env_name}")
 
+        # MYSQL_PWD читается mysqldump из env, а не из аргумента командной строки.
+        # $MYSQL_ROOT_PASSWORD уже задан внутри mysql-контейнера (см. compose.yml).
+        # На хосте ps aux видит только «sh -c ...» без раскрытого значения пароля.
         dump_cmd = context.build_compose_cmd(
-            "exec",
-            "-T",
-            mysql_service_name,
-            "mysqldump",
-            "-uroot",
-            f"-p{mysql_root_password}",
-            "--single-transaction",
-            "--routines",
-            "--triggers",
-            "--events",
-            mysql_database,
+            "exec", "-T", mysql_service_name,
+            "sh", "-c",
+            f"MYSQL_PWD=\"$MYSQL_ROOT_PASSWORD\" mysqldump -uroot "
+            f"--single-transaction --routines --triggers --events "
+            f"{mysql_database}",
         )
 
         code, stderr = _stream_command_stdout_to_gzip(dump_cmd, out_file)
@@ -729,26 +725,17 @@ def cmd_backup_restore(args: argparse.Namespace) -> int:
 
             logger.info(f"Recreating database {mysql_database}")
             run_compose(
-                context,
-                "exec",
-                "-T",
-                "mysql",
-                "mysql",
-                "-uroot",
-                f"-p{mysql_root_password}",
-                "-e",
-                f"DROP DATABASE IF EXISTS `{mysql_database}`; CREATE DATABASE `{mysql_database}`;",
+                context, "exec", "-T", "mysql",
+                "sh", "-c",
+                f"MYSQL_PWD=\"$MYSQL_ROOT_PASSWORD\" mysql -uroot -e "
+                f"'DROP DATABASE IF EXISTS `{mysql_database}`; CREATE DATABASE `{mysql_database}`;'",
             )
 
             logger.info("Importing MySQL dump")
             import_cmd = context.build_compose_cmd(
-                "exec",
-                "-T",
-                "mysql",
-                "mysql",
-                "-uroot",
-                f"-p{mysql_root_password}",
-                mysql_database,
+                "exec", "-T", "mysql",
+                "sh", "-c",
+                f"MYSQL_PWD=\"$MYSQL_ROOT_PASSWORD\" mysql -uroot {mysql_database}",
             )
             rc, stderr = _stream_gzip_to_stdin(mysql_dump, import_cmd)
             if rc != 0:
@@ -822,18 +809,13 @@ def _wait_for_standalone_mysql(container_name: str, logger: BackupLogger, timeou
     start_ts = time.time()
 
     while True:
+        # MYSQL_PWD берётся из контейнерной переменной $MYSQL_ROOT_PASSWORD
+        # (задана через -e при docker run). В ps aux на хосте пароль не виден.
         ping = run(
             [
-                "docker",
-                "exec",
-                container_name,
-                "mysqladmin",
-                "ping",
-                "-h",
-                "127.0.0.1",
-                "-uroot",
-                "-prestoretest",
-                "--silent",
+                "docker", "exec", container_name,
+                "sh", "-c",
+                "MYSQL_PWD=\"$MYSQL_ROOT_PASSWORD\" mysqladmin ping -h 127.0.0.1 -uroot --silent",
             ],
             check=False,
             capture_output=True,
@@ -850,16 +832,9 @@ def _wait_for_standalone_mysql(container_name: str, logger: BackupLogger, timeou
 def _query_standalone_mysql(container_name: str, query: str) -> str:
     result = run(
         [
-            "docker",
-            "exec",
-            container_name,
-            "mysql",
-            "-uroot",
-            "-prestoretest",
-            "-N",
-            "-B",
-            "-e",
-            query,
+            "docker", "exec", container_name,
+            "sh", "-c",
+            f"MYSQL_PWD=\"$MYSQL_ROOT_PASSWORD\" mysql -uroot -N -B -e {shlex.quote(query)}",
         ],
         capture_output=True,
         check=False,
@@ -945,27 +920,17 @@ def _restore_mysql_dump_into_standalone_container(
     logger.info(f"Creating temporary database: {database_name}")
     run(
         [
-            "docker",
-            "exec",
-            container_name,
-            "mysql",
-            "-uroot",
-            "-prestoretest",
-            "-e",
-            f"CREATE DATABASE {quoted_database_name};",
+            "docker", "exec", container_name,
+            "sh", "-c",
+            f"MYSQL_PWD=\"$MYSQL_ROOT_PASSWORD\" mysql -uroot -e 'CREATE DATABASE {quoted_database_name};'",
         ]
     )
 
     logger.info(f"Importing MySQL dump: {mysql_dump}")
     import_cmd = [
-        "docker",
-        "exec",
-        "-i",
-        container_name,
-        "mysql",
-        "-uroot",
-        "-prestoretest",
-        database_name,
+        "docker", "exec", "-i", container_name,
+        "sh", "-c",
+        f"MYSQL_PWD=\"$MYSQL_ROOT_PASSWORD\" mysql -uroot {database_name}",
     ]
     rc, stderr = _stream_gzip_to_stdin(mysql_dump, import_cmd)
     if rc != 0:

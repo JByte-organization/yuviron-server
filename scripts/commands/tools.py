@@ -796,6 +796,118 @@ def cmd_setup_logrotate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_rotate_smtp(args: argparse.Namespace) -> int:
+    """Ротация SMTP_PASSWORD: интерактивный ввод нового пароля и запись в env-файл.
+
+    Перед ротацией: сгенерируй новый app-password в настройках email-провайдера
+    (Gmail -> Google Account -> Security -> App passwords).
+    """
+    import getpass
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+    environment = resolve_prompted_environment(getattr(args, "environment", None))
+    env_file = root_dir / "env" / f"{environment}.env"
+    if not env_file.is_file():
+        fail(f"Env file not found: {env_file}")
+
+    print()
+    log_warn("Before rotating: generate a new app-password in your email provider settings.")
+    print()
+    try:
+        new_password = getpass.getpass("  New SMTP_PASSWORD: ").strip()
+        if not new_password:
+            fail("Password cannot be empty")
+        confirm = getpass.getpass("  Confirm SMTP_PASSWORD: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        raise CommandError("Rotation cancelled")
+
+    if new_password != confirm:
+        fail("Passwords do not match")
+
+    if not _update_env_file_key(env_file, "SMTP_PASSWORD", new_password):
+        fail("SMTP_PASSWORD not found in env file. Add it before rotating.")
+
+    log_ok(f"SMTP_PASSWORD updated in {env_file}")
+    log_info("No service restart needed — monitoring script reads SMTP_PASSWORD at each run.")
+
+    log_path = _rotation_log_path(root_dir, environment)
+    _write_rotation_log(log_path, {"smtp_password": _now_iso()})
+    log_ok("Rotation recorded in rotation log.")
+    return 0
+
+
+def cmd_rotate_stripe(args: argparse.Namespace) -> int:
+    """Ротация Stripe__SecretKey и/или Stripe__WebhookSecret.
+
+    Перед ротацией:
+      1. В Stripe Dashboard → Developers → API keys → сгенерируй новый ключ.
+      2. Для WebhookSecret: в Stripe Dashboard → Developers → Webhooks → покажи signing secret.
+    После ротации backend перезапускается с новыми значениями.
+    """
+    import getpass
+    root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
+    environment = resolve_prompted_environment(getattr(args, "environment", None))
+    env_file = root_dir / "env" / f"{environment}.env"
+    if not env_file.is_file():
+        fail(f"Env file not found: {env_file}")
+
+    rotate_key = not getattr(args, "webhook_only", False)
+    rotate_webhook = not getattr(args, "key_only", False)
+
+    print()
+    log_warn("Have the new Stripe credentials ready before proceeding.")
+    print()
+    rotated: dict[str, str] = {}
+
+    try:
+        if rotate_key:
+            new_key = getpass.getpass("  New Stripe__SecretKey (sk_live_... / sk_test_... / leave empty to skip): ").strip()
+            if new_key:
+                if not _update_env_file_key(env_file, "Stripe__SecretKey", new_key):
+                    fail("Stripe__SecretKey not found in env file. Add it before rotating.")
+                rotated["stripe_secret_key"] = _now_iso()
+                log_ok("Stripe__SecretKey updated.")
+
+        if rotate_webhook:
+            new_secret = getpass.getpass("  New Stripe__WebhookSecret (whsec_... / leave empty to skip): ").strip()
+            if new_secret:
+                if not _update_env_file_key(env_file, "Stripe__WebhookSecret", new_secret):
+                    fail("Stripe__WebhookSecret not found in env file. Add it before rotating.")
+                rotated["stripe_webhook_secret"] = _now_iso()
+                log_ok("Stripe__WebhookSecret updated.")
+    except (EOFError, KeyboardInterrupt):
+        print()
+        raise CommandError("Rotation cancelled")
+
+    if not rotated:
+        log_info("No Stripe secrets rotated (all skipped).")
+        return 0
+
+    # Перегенерируем конфиг и перезапускаем backend
+    domain = _read_generation_domain(root_dir, environment)
+    if domain:
+        log_info("Regenerating runtime config...")
+        if _run_generate_config(root_dir, environment, domain):
+            log_ok("Runtime config regenerated.")
+        else:
+            log_warn("generate-config.py failed. Run manually before restarting backend.")
+    else:
+        log_warn("manifest.env not found — run generate-config.py manually before restarting backend.")
+
+    try:
+        context = create_compose_context(root_dir, environment)
+        run_compose(context, "restart", "backend")
+        log_ok("backend restarted with new Stripe credentials.")
+    except CommandError as exc:
+        log_warn(f"Could not restart backend: {exc}")
+        log_warn("Restart manually: ./scripts/cli.py stack restart backend")
+
+    log_path = _rotation_log_path(root_dir, environment)
+    _write_rotation_log(log_path, rotated)
+    log_ok("Rotation recorded in rotation log.")
+    return 0
+
+
 def cmd_rotation_status(args: argparse.Namespace) -> int:
     root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
     environment = resolve_prompted_environment(getattr(args, "environment", None))
@@ -999,6 +1111,26 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     rotation_status_parser.add_argument("environment", nargs="?")
     rotation_status_parser.add_argument("--project-root", dest="project_root")
     rotation_status_parser.set_defaults(handler=cmd_rotation_status)
+
+    rotate_smtp_parser = tools_sub.add_parser(
+        "rotate-smtp",
+        help="Update SMTP_PASSWORD in env/<env>.env (prompts for new password)",
+    )
+    rotate_smtp_parser.add_argument("environment", nargs="?")
+    rotate_smtp_parser.add_argument("--project-root", dest="project_root")
+    rotate_smtp_parser.set_defaults(handler=cmd_rotate_smtp)
+
+    rotate_stripe_parser = tools_sub.add_parser(
+        "rotate-stripe",
+        help="Update Stripe__SecretKey and/or Stripe__WebhookSecret, then restart backend",
+    )
+    rotate_stripe_parser.add_argument("environment", nargs="?")
+    rotate_stripe_parser.add_argument("--key-only", action="store_true", dest="key_only",
+                                      help="Rotate only Stripe__SecretKey")
+    rotate_stripe_parser.add_argument("--webhook-only", action="store_true", dest="webhook_only",
+                                      help="Rotate only Stripe__WebhookSecret")
+    rotate_stripe_parser.add_argument("--project-root", dest="project_root")
+    rotate_stripe_parser.set_defaults(handler=cmd_rotate_stripe)
 
     setup_completion_parser = tools_sub.add_parser(
         "setup-completion",

@@ -97,21 +97,19 @@ def _trigger_redis_bgsave(
 
 
 def _wait_for_mysql_ready(context: object, mysql_root_password: str, timeout_seconds: int, logger) -> None:
+    # mysql_root_password принимается для обратной совместимости, но больше
+    # не передаётся как аргумент -p в командную строку.
+    # Пароль читается внутри контейнера из $MYSQL_ROOT_PASSWORD, который
+    # уже задан в environment секции mysql-сервиса в compose.yml.
+    del mysql_root_password  # не используется в команде, только для совместимости сигнатуры
     start_ts = time.time()
 
     while True:
         ping = run_compose(
             context,
-            "exec",
-            "-T",
-            "mysql",
-            "mysqladmin",
-            "ping",
-            "-h",
-            "127.0.0.1",
-            "-uroot",
-            f"-p{mysql_root_password}",
-            "--silent",
+            "exec", "-T", "mysql",
+            "sh", "-c",
+            "MYSQL_PWD=\"$MYSQL_ROOT_PASSWORD\" mysqladmin ping -h 127.0.0.1 -uroot --silent",
             check=False,
             capture_output=True,
         )

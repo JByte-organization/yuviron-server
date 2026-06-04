@@ -244,7 +244,11 @@ class SecurityAuditTests(unittest.TestCase):
         healthcheck = compose["services"]["mysql"]["healthcheck"]["test"]
 
         self.assertEqual("CMD-SHELL", healthcheck[0])
-        self.assertIn("mysql -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD", healthcheck[1])
+        # Пароль передаётся через MYSQL_PWD env var, а не через аргумент -p,
+        # чтобы избежать появления пароля в ps aux внутри контейнера.
+        self.assertIn("MYSQL_PWD=$$MYSQL_ROOT_PASSWORD", healthcheck[1])
+        self.assertNotIn("-p$$MYSQL_ROOT_PASSWORD", healthcheck[1])
+        self.assertIn("mysql -h 127.0.0.1 -uroot", healthcheck[1])
         self.assertIn("-e 'SELECT 1'", healthcheck[1])
         self.assertIn(">/dev/null 2>&1", healthcheck[1])
         self.assertNotIn("mysqladmin ping", healthcheck[1])

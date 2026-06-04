@@ -46,6 +46,7 @@ if __package__ in {None, ""}:
 from core.env import parse_env_file, parse_routes_file, resolve_runtime_env
 from core.env_validation import ERROR as ENV_ERROR
 from core.env_validation import (
+    OPTIONAL_SENSITIVE_SECRET_KEYS,
     SENSITIVE_SECRET_KEYS,
     WEAK_SECRET_VALUES,
     validate_runtime_env,
@@ -269,7 +270,10 @@ def _weak_secret_reason(key: str, value: str, environment: str) -> str:
 def _audit_default_passwords(env_values: dict[str, str], environment: str, report: AuditReport) -> None:
     for key in SENSITIVE_ENV_KEYS:
         if key not in env_values:
-            report.warn("default-secrets", f"{key}: missing from runtime env")
+            # Опциональные интеграции (Stripe, SMTP) не варнят при отсутствии —
+            # они могут быть намеренно не настроены.
+            if key not in OPTIONAL_SENSITIVE_SECRET_KEYS:
+                report.warn("default-secrets", f"{key}: missing from runtime env")
             continue
 
         reason = _weak_secret_reason(key, env_values.get(key, ""), environment)
