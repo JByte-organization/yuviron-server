@@ -100,7 +100,13 @@ services:
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDISCLI_AUTH: ${REDIS_PASSWORD}
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    command: [
+      "redis-server",
+      "--appendonly", "yes",
+      "--requirepass", "${REDIS_PASSWORD}",
+      "--maxmemory", "${REDIS_MAXMEMORY:-200m}",
+      "--maxmemory-policy", "${REDIS_MAXMEMORY_POLICY:-allkeys-lru}"
+    ]
     volumes:
       - redis_data:/data
     networks:

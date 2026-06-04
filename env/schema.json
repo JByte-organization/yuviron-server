@@ -331,6 +331,16 @@
       "type": "string",
       "minLength": 1
     },
+    "REDIS_MAXMEMORY": {
+      "type": "string",
+      "format": "docker-memory",
+      "description": "Redis maxmemory limit (e.g. 200m). Should be less than REDIS_MEM_LIMIT."
+    },
+    "REDIS_MAXMEMORY_POLICY": {
+      "type": "string",
+      "enum": ["noeviction", "allkeys-lru", "allkeys-lfu", "allkeys-random", "volatile-lru", "volatile-lfu", "volatile-random", "volatile-ttl"],
+      "description": "Redis eviction policy when maxmemory is reached."
+    },
     "RESTART_POLICY": {
       "type": "string",
       "enum": ["always", "no", "on-failure", "unless-stopped"]

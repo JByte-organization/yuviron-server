@@ -24,7 +24,7 @@ from core.paths import resolve_root_dir
 from core.ui import log_info, log_ok, log_warn
 from core.validators import CommandError, fail, resolve_prompted_environment
 
-from ._common import DEFAULT_ROOT, MIGRATOR_PROFILE, MIGRATOR_SERVICE, BACKEND_SERVICE
+from ._common import DEFAULT_ROOT, MIGRATOR_PROFILE, MIGRATOR_SERVICE, MIGRATOR_TIMEOUT_SECONDS, BACKEND_SERVICE
 
 
 def _confirm_production_migrate(context: ComposeContext) -> None:
@@ -100,6 +100,7 @@ def _run_migrator(context: ComposeContext, *, dry_run: bool = False) -> None:
         "-T",
         "--remove-orphans",
         MIGRATOR_SERVICE,
+        timeout=MIGRATOR_TIMEOUT_SECONDS,
     )
     log_ok("EF Core migrations completed")
 

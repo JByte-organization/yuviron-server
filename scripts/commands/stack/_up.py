@@ -26,6 +26,9 @@ from __future__ import annotations
 
 import argparse
 import os
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Iterator
 
 from checks import preflight_checks
 from core.compose_runner import create_compose_context
@@ -41,11 +44,55 @@ from ._migrate import _run_migrator
 from ._rollback import _restore_rollback_images, _snapshot_rollback_images
 from ._swagger import _prepare_frontend_swagger
 
+try:
+    import fcntl
+    _FCNTL_AVAILABLE = True
+except ImportError:
+    _FCNTL_AVAILABLE = False  # Windows — блокировка не используется
+
+
+@contextmanager
+def _deploy_lock(root_dir: Path, environment: str) -> Iterator[None]:
+    """Исключительная блокировка deploy для данного окружения.
+
+    Предотвращает параллельный запуск двух stack up для одного окружения
+    (например, два GitHub Actions job на одном self-hosted runner).
+    При конкуренции второй процесс получает CommandError сразу же, не ждёт.
+
+    Блокировка снимается автоматически при выходе из контекста (в том числе
+    при исключении) — fcntl.flock освобождается при закрытии файлового дескриптора.
+    """
+    if not _FCNTL_AVAILABLE:
+        # На Windows/средах без fcntl блокировка недоступна — продолжаем без неё
+        yield
+        return
+
+    lock_path = root_dir / ".tmp" / f"stack-{environment}.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(lock_path, "w", encoding="utf-8") as lock_fd:
+        try:
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock_fd.write(f"{os.getpid()}\n")
+            lock_fd.flush()
+        except (IOError, OSError):
+            raise CommandError(
+                f"Another 'stack up' is already running for '{environment}'. "
+                f"If no other deploy is active, remove the lock: {lock_path}"
+            )
+        yield
+
 
 def cmd_up(args: argparse.Namespace) -> int:
     environment = resolve_prompted_environment(args.environment)
     root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
 
+    with _deploy_lock(root_dir, environment):
+        return _cmd_up_locked(args, environment, root_dir)
+
+
+def _cmd_up_locked(args: argparse.Namespace, environment: str, root_dir: Path) -> int:
+    """Тело cmd_up — выполняется внутри исключительной блокировки deploy."""
     context = create_compose_context(root_dir, environment, ensure_generated=True)
     if getattr(args, "observability", False):
         context.profiles = ("observability",)

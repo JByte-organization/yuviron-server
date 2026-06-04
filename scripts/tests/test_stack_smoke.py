@@ -124,6 +124,7 @@ class StackSmokeTests(unittest.TestCase):
                     "-T",
                     "--remove-orphans",
                     "migrator",
+                    timeout=600,
                 ),
                 call(self.context, "pull", "--ignore-buildable", check=False),
                 call(self.context, "build", "--pull=false"),

@@ -70,6 +70,7 @@ def run(
     capture_output: bool = False,
     check: bool = True,
     text: bool = True,
+    timeout: int | None = None,
 ) -> subprocess.CompletedProcess:
     result = subprocess.run(
         cmd,
@@ -78,6 +79,7 @@ def run(
         capture_output=capture_output,
         text=text,
         check=False,
+        timeout=timeout,
     )
 
     if check and result.returncode != 0:
@@ -97,6 +99,7 @@ def run_compose(
     capture_output: bool = False,
     check: bool = True,
     text: bool = True,
+    timeout: int | None = None,
 ) -> subprocess.CompletedProcess:
     return run(
         context.build_compose_cmd(*args),
@@ -104,6 +107,7 @@ def run_compose(
         capture_output=capture_output,
         check=check,
         text=text,
+        timeout=timeout,
     )
 
 

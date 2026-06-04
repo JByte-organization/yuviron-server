@@ -21,6 +21,9 @@ PREFLIGHT_CLEANUP_MOUNT = "/preflight-cleanup"        # точка монтир�
 # Профиль и имя сервиса для запуска EF Core migrator
 MIGRATOR_PROFILE = "migrate"
 MIGRATOR_SERVICE = "migrator"
+# Максимальное время выполнения миграций в секундах.
+# При зависании (дедлок в MySQL, недоступная БД) deploy не будет ждать вечно.
+MIGRATOR_TIMEOUT_SECONDS = 600  # 10 минут
 
 NGINX_MEDIA_CACHE_DIR = "/var/cache/nginx/media"  # кэш CDN-прокси внутри nginx-контейнера
 NGINX_MEDIA_ROUTE_NAME = "i"                              # имя маршрута медиа-прокси
