@@ -43,7 +43,7 @@ _yuviron_cli_completion() {
     }
 
     # ── Уровень 1: группы команд ──────────────────────────────────────────
-    local top_cmds="stack backup certs security doctor dns appsettings tools test"
+    local top_cmds="stack backup certs security doctor dns appsettings tools test completion"
 
     # ── Уровень 2: подкоманды ─────────────────────────────────────────────
     local stack_cmds="up down restart preflight migrate smoke swagger-gen cache-purge"
@@ -51,7 +51,8 @@ _yuviron_cli_completion() {
     local certs_cmds="generate renew reload"
     local security_cmds="audit audit-staged"
     local appsettings_cmds="gen"
-    local tools_cmds="cleanup docker-clean docker-install docker-status docker-dashboard check-frontend-fast seq-hash setup-cron setup-certs-cron setup-logrotate setup-monitoring healthcheck-alert setup-healthcheck-cron send-test-alert rotate-htpasswd rotate-aspire-tokens rotation-status"
+    local dns_cmds="generate"
+    local tools_cmds="cleanup docker-clean docker-install docker-status docker-dashboard check-frontend-fast seq-hash setup-cron setup-certs-cron setup-logrotate setup-monitoring healthcheck-alert setup-healthcheck-cron send-test-alert rotate-htpasswd rotate-aspire-tokens rotation-status setup-completion"
 
     # ── Имена сервисов для stack restart ──────────────────────────────────
     local _known_services="nginx backend media-worker redis mysql rabbitmq seq aspire-dashboard client-app admin backoffice"
@@ -63,7 +64,7 @@ _yuviron_cli_completion() {
 
     local envs="dev prod"
 
-    # ── Флаги с аргументами ───────────────────────────────────────────────
+    # ── Флаги с аргументами (prev = имя флага, cur = его значение) ────────
     case "$prev" in
         --env|-e)
             COMPREPLY=($(compgen -W "$envs" -- "$cur"))
@@ -73,6 +74,9 @@ _yuviron_cli_completion() {
             return ;;
         --mode)
             COMPREPLY=($(compgen -W "report safe build-cache deep" -- "$cur"))
+            return ;;
+        --shell)
+            COMPREPLY=($(compgen -W "bash zsh" -- "$cur"))
             return ;;
     esac
 
@@ -88,6 +92,7 @@ _yuviron_cli_completion() {
                 certs)       COMPREPLY=($(compgen -W "$certs_cmds" -- "$cur")) ;;
                 security)    COMPREPLY=($(compgen -W "$security_cmds" -- "$cur")) ;;
                 appsettings) COMPREPLY=($(compgen -W "$appsettings_cmds" -- "$cur")) ;;
+                dns)         COMPREPLY=($(compgen -W "$dns_cmds" -- "$cur")) ;;
                 tools)       COMPREPLY=($(compgen -W "$tools_cmds" -- "$cur")) ;;
                 doctor|test) COMPREPLY=($(compgen -W "$envs" -- "$cur")) ;;
             esac
@@ -97,7 +102,6 @@ _yuviron_cli_completion() {
                 stack)
                     case "${words[2]}" in
                         restart)
-                            # Если не флаг — предлагаем имена сервисов
                             if [[ "$cur" != -* ]]; then
                                 COMPREPLY=($(compgen -W "$services" -- "$cur"))
                             else
@@ -120,9 +124,18 @@ _yuviron_cli_completion() {
                                 COMPREPLY=($(compgen -W "$envs" -- "$cur"))
                             fi
                             ;;
-                        migrate|smoke|swagger-gen|cache-purge)
+                        migrate|swagger-gen)
                             if [[ "$cur" == -* ]]; then
                                 COMPREPLY=($(compgen -W "--dry-run" -- "$cur"))
+                            else
+                                COMPREPLY=($(compgen -W "$envs" -- "$cur"))
+                            fi
+                            ;;
+                        smoke)
+                            COMPREPLY=($(compgen -W "$envs" -- "$cur")) ;;
+                        cache-purge)
+                            if [[ "$cur" == -* ]]; then
+                                COMPREPLY=($(compgen -W "--path --yes" -- "$cur"))
                             else
                                 COMPREPLY=($(compgen -W "$envs" -- "$cur"))
                             fi
@@ -130,7 +143,17 @@ _yuviron_cli_completion() {
                     esac
                     ;;
                 backup)
-                    COMPREPLY=($(compgen -W "$envs" -- "$cur")) ;;
+                    case "${words[2]}" in
+                        create)
+                            COMPREPLY=($(compgen -W "--skip-restore-test --restore-test-min-tables" -- "$cur")) ;;
+                        restore)
+                            COMPREPLY=($(compgen -W "--env --archive --force --project-root" -- "$cur")) ;;
+                        verify)
+                            COMPREPLY=($(compgen -W "--archive --full --project-root" -- "$cur")) ;;
+                        restore-test)
+                            COMPREPLY=($(compgen -W "--env --archive --min-tables --project-root" -- "$cur")) ;;
+                    esac
+                    ;;
                 certs)
                     case "${words[2]}" in
                         generate)
@@ -141,10 +164,20 @@ _yuviron_cli_completion() {
                             COMPREPLY=($(compgen -W "--env" -- "$cur")) ;;
                     esac
                     ;;
+                dns)
+                    case "${words[2]}" in
+                        generate)
+                            COMPREPLY=($(compgen -W "--env --domain --ip --acl-net --project-root" -- "$cur")) ;;
+                    esac
+                    ;;
                 tools)
                     case "${words[2]}" in
                         docker-clean)
                             COMPREPLY=($(compgen -W "--mode --reserved-space --max-used-space --min-free-space --volumes --yes" -- "$cur")) ;;
+                        cleanup)
+                            COMPREPLY=($(compgen -W "-y --yes" -- "$cur")) ;;
+                        setup-completion)
+                            COMPREPLY=($(compgen -W "--shell" -- "$cur")) ;;
                         rotate-htpasswd|rotate-aspire-tokens|rotation-status|setup-monitoring|setup-certs-cron|setup-healthcheck-cron|healthcheck-alert|send-test-alert)
                             COMPREPLY=($(compgen -W "$envs" -- "$cur")) ;;
                     esac
