@@ -126,6 +126,19 @@ jobs:
           python3 ./scripts/cli.py tools docker-clean --mode report
           gha_pass_stage "Docker disk report collected."
 
+      - name: Clean Docker build cache before preflight
+        continue-on-error: true
+        run: |
+          set -Eeuo pipefail
+          source "${RUNNER_TEMP}/yuviron-gha-observe.sh"
+          gha_begin_stage "Clean Docker build cache" "DevOps / server" "Runner Docker host" \
+            "Could not clean Docker build cache — deploy may fail the disk-space preflight check." \
+            "python3 ./scripts/cli.py tools docker-clean --mode build-cache --yes" \
+            "warning"
+          cd /opt/yuviron-server
+          python3 ./scripts/cli.py tools docker-clean --mode build-cache --yes
+          gha_pass_stage "Docker build cache cleaned."
+
       - name: Preflight check
         run: |
           set -Eeuo pipefail
@@ -251,8 +264,21 @@ jobs:
             fi
           done
 
+          # Free disk space first — the deploy may have failed precisely because
+          # the disk was full, and rollback will also fail under the same pressure.
+          # Use --mode safe (prunes stopped containers, dangling images, unused
+          # networks, and old build cache) without touching running containers.
           cd /opt/yuviron-server
-          timeout 1200 python3 ./scripts/cli.py stack up "${DEPLOY_ENV}" --no-rollback --skip-migrate --no-build
+          python3 ./scripts/cli.py tools docker-clean --mode safe --yes || true
+
+          # Rebuild only backend services from the rolled-back source.
+          # Using `stack restart --rebuild` instead of `stack up --no-build` so that:
+          #   1. Only backend and media-worker are restarted (--no-deps flag).
+          #   2. Stateful services (MySQL, RabbitMQ, Redis) are NOT touched —
+          #      they were healthy before the failed deploy and must not be
+          #      restarted under disk pressure where their health checks could fail.
+          timeout 1200 python3 ./scripts/cli.py stack restart backend media-worker \
+            --rebuild --env "${DEPLOY_ENV}"
           timeout 120 python3 ./scripts/cli.py stack smoke "${DEPLOY_ENV}"
           gha_pass_stage "Rolled back to \`${PREVIOUS_SHA}\` and smoke checks passed."
 
