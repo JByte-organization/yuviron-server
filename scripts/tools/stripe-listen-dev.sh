@@ -31,7 +31,7 @@ DEPLOY_ENV_FILE="$ROOT_DIR/generated/dev/deploy.env"
 ENV_FILE="$ROOT_DIR/env/dev.env"
 
 if [[ ! -f "$DEPLOY_ENV_FILE" ]]; then
-    echo "Ошибка: $DEPLOY_ENV_FILE не найден — сначала запусти scripts/generate-config.py --env dev"
+    echo "Ошибка: $DEPLOY_ENV_FILE не найден — сначала запусти scripts/cli.py generate-config --env dev"
     exit 1
 fi
 
@@ -65,7 +65,7 @@ update_secret() {
     log "New signing secret detected — updating backend..."
     sed -i "s|^Stripe__WebhookSecret=.*|Stripe__WebhookSecret=$secret|" "$ENV_FILE"
 
-    python3 "$ROOT_DIR/scripts/generate-config.py" --env dev --domain "$BASE_DOMAIN" > /dev/null
+    python3 "$ROOT_DIR/scripts/cli.py" generate-config --env dev --domain "$BASE_DOMAIN" > /dev/null
 
     docker compose \
         --env-file "$DEPLOY_ENV_FILE" \

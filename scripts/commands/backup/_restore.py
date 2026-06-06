@@ -17,9 +17,13 @@ from core.env import (
 from core.paths import resolve_root_dir, resolve_runtime_path
 from core.validators import fail
 
+from commands.stack._common import REQUIRED_STACK_SERVICES
+from commands.stack._health import _wait_for_service_health
+
 from .core import (
     DEFAULT_ROOT,
     BackupLogger,
+    _ALPINE_IMAGE,
     _resolve_backup_paths,
     _stream_gzip_to_stdin,
     _validate_tar,
@@ -111,7 +115,7 @@ def cmd_backup_restore(args: argparse.Namespace) -> int:
                     f"{volume_name}:/target",
                     "-v",
                     f"{archive_path.parent}:/backup:ro",
-                    "alpine:3.20",
+                    _ALPINE_IMAGE,
                     "sh",
                     "-c",
                     (
@@ -188,7 +192,14 @@ def cmd_backup_restore(args: argparse.Namespace) -> int:
             logger.info("MySQL dump not found, skipping logical DB restore")
 
         logger.info("Starting full environment")
-        run_compose(context, "up", "-d", "--build", "--remove-orphans")
+        run_compose(context, "up", "-d", "--remove-orphans")
+
+        logger.info("Waiting for core services to become healthy")
+        for service in REQUIRED_STACK_SERVICES:
+            try:
+                _wait_for_service_health(context, service, timeout=120)
+            except Exception as exc:
+                logger.warn(f"Service '{service}' did not become healthy after restore: {exc}")
 
     logger.info(f"Restore completed successfully for {environment}")
     return 0

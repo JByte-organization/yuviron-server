@@ -30,6 +30,12 @@ from core.validators import CommandError
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[3]   # корень проекта
 
+# Docker image digests — pinned to match infra/compose.yml.
+# Update both here and in compose.yml together when upgrading a dependency.
+_MYSQL_IMAGE = "mysql:8.4@sha256:43bd9764df60666fb2ba2cf8217dd17b3d2414c150005d2fdd07a0cd73d3b7f5"
+_REDIS_IMAGE = "redis:7-alpine@sha256:7aec734b2bb298a1d769fd8729f13b8514a41bf90fcdd1f38ec52267fbaa8ee6"
+_ALPINE_IMAGE = "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc"
+
 
 @dataclass
 class BackupPaths:

@@ -38,8 +38,8 @@ from core.paths import resolve_root_dir
 from core.ui import log_info, log_ok, log_warn
 from core.validators import CommandError, resolve_prompted_environment
 
-from ._common import DEFAULT_ROOT, FRONTEND_SWAGGER_DIR, SWAGGER_DOCUMENTS
-from ._health import _wait_for_service_health
+from ._common import DEFAULT_ROOT, FRONTEND_SWAGGER_DIR, SWAGGER_DOCUMENTS, _load_compose_services
+from ._health import _check_service_healths, _wait_for_service_health
 from ._migrate import _run_migrator
 from ._rollback import _cleanup_rollback_images, _restore_rollback_images, _snapshot_rollback_images
 from ._swagger import _prepare_frontend_swagger
@@ -174,6 +174,7 @@ def _cmd_up_locked(args: argparse.Namespace, environment: str, root_dir: Path) -
                 run_compose(context, "build", "--pull=false")
             run_compose(context, "up", "-d", "--remove-orphans")
         if snapshot:
+            _check_service_healths(context, _load_compose_services(context))
             _cleanup_rollback_images(snapshot)
     except CommandError:
         if snapshot:

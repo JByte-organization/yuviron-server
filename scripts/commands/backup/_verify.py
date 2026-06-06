@@ -20,6 +20,8 @@ from core.validators import CommandError, fail
 from .core import (
     DEFAULT_ROOT,
     BackupLogger,
+    _ALPINE_IMAGE,
+    _MYSQL_IMAGE,
     _resolve_backup_paths,
     _stream_gzip_to_stdin,
     _validate_gzip,
@@ -221,9 +223,10 @@ def cmd_backup_verify(args: argparse.Namespace) -> int:
                     "-d",
                     "--name",
                     "restore-test-mysql",
+                    "--network", "none",
                     "-e",
                     "MYSQL_ROOT_PASSWORD=restoretest",
-                    "mysql:8.4",
+                    _MYSQL_IMAGE,
                 ]
             )
 
@@ -327,7 +330,7 @@ def cmd_backup_verify(args: argparse.Namespace) -> int:
                         f"{target_volume}:/target",
                         "-v",
                         f"{archive_path.parent}:/backup:ro",
-                        "alpine:3.20",
+                        _ALPINE_IMAGE,
                         "sh",
                         "-c",
                         (

@@ -27,6 +27,9 @@ from .core import (
     DEFAULT_ROOT,
     BackupLogger,
     BackupPaths,
+    _ALPINE_IMAGE,
+    _MYSQL_IMAGE,
+    _REDIS_IMAGE,
     _append_unique,
     _resolve_backup_paths,
     _stream_command_stdout_to_gzip,
@@ -243,9 +246,9 @@ def _archive_storage(session: _BackupSession, env_name: str, out_file: Path) -> 
 
 
 _TAR_HELPER_IMAGES = [
-    "redis:7-alpine",
-    "mysql:8.4",
-    "alpine:3.20",
+    _REDIS_IMAGE,
+    _MYSQL_IMAGE,
+    _ALPINE_IMAGE,
 ]
 
 

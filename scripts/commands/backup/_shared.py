@@ -15,7 +15,7 @@ from pathlib import Path
 
 from core.docker import run
 from core.validators import CommandError, fail
-from .core import _validate_gzip, _validate_tar, _stream_gzip_to_stdin
+from .core import _MYSQL_IMAGE, _validate_gzip, _validate_tar, _stream_gzip_to_stdin
 
 
 MYSQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
@@ -205,8 +205,9 @@ def _restore_mysql_dump_into_standalone_container(
     run(
         [
             "docker", "run", "-d", "--name", container_name,
+            "--network", "none",
             "-e", "MYSQL_ROOT_PASSWORD=restoretest",
-            "mysql:8.4",
+            _MYSQL_IMAGE,
         ],
         capture_output=True,
     )
