@@ -1,0 +1,64 @@
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+# F  — pyflakes (undefined names, unused imports, unused variables)
+# E9 — syntax errors and runtime errors (always fatal)
+# W  — pycodestyle warnings
+select = ["F", "E9"]
+
+# F401 (unused-import) is noisy due to re-exports and __init__.py patterns;
+# kept in select but suppressed per-file where needed via # noqa: F401.
+# F811 (redefinition of unused name from import) — common in test patches.
+ignore = ["F811"]
+
+exclude = [
+    ".venv",
+    "__pycache__",
+    "*.pyc",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# __init__.py files re-export symbols — unused-import is intentional there.
+"commands/backup/__init__.py" = ["F401"]
+"commands/stack/__init__.py"  = ["F401"]
+"commands/tools/__init__.py"  = ["F401"]
+
+[tool.pytest.ini_options]
+# pytest discovers tests in tests/ (same as pytest.ini)
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+check_untyped_defs = true
+# tests/ is excluded — mypy is for source, pytest covers tests
+exclude = ["^\\.venv/", "^tests/"]
+
+# Legacy files that use duck-typed ctx/context: object patterns.
+# Grandfathered until each file gets a proper Protocol or dataclass.
+[[tool.mypy.overrides]]
+module = [
+    "checks.preflight_checks",
+    "core.render_nginx",
+    "commands.backup._verify",
+    "commands.backup.docker_utils",
+    "commands.backup._shared",
+    "core.nginx_tls_policy",
+    "core.nginx_csp",
+    "core.config_loader",
+    "core.tls",
+    "core.nginx_route",
+    "core.env_validation",
+    "commands.tools._rotation",
+    "commands.doctor",
+    "commands.tools._monitoring",
+    "commands.stack._common",
+    "commands.security",
+    "core.ui",
+    "core.env",
+]
+ignore_errors = true

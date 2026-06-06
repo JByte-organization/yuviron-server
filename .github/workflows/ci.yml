@@ -33,11 +33,21 @@ jobs:
         run: |
           python3 -m venv .venv
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
-          .venv/bin/pip install -r requirements.txt
-          .venv/bin/pip install pip-audit==2.9.0
+          .venv/bin/pip install -r requirements.lock
+          .venv/bin/pip install pip-audit==2.9.0 ruff==0.11.13
+
+      - name: Lint with ruff
+        run: |
+          cd scripts
+          ruff check .
+
+      - name: Type-check with mypy
+        run: |
+          cd scripts
+          mypy core/ commands/ checks/ --config-file pyproject.toml
 
       - name: Audit Python dependencies
-        run: pip-audit -r requirements.txt
+        run: pip-audit -r requirements.lock
 
       - name: Run unit tests
         run: |
