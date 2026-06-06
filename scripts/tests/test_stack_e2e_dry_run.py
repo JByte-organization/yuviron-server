@@ -56,6 +56,12 @@ RabbitMQ__Username=yuviron_e2e
 RabbitMQ__VirtualHost=/yuviron_e2e
 
 JamendoApi__ClientId=e2e-jamendo-client
+
+Stripe__SecretKey=sk_test_e2e_placeholder_key
+Stripe__WebhookSecret=whsec_e2e_placeholder_secret
+
+CLICKHOUSE_ADMIN_PASSWORD=e2e-clickhouse-admin-pass-1234
+CLICKHOUSE_API_PASSWORD=e2e-clickhouse-api-pass-12345
 """
 
 

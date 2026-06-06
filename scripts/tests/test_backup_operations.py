@@ -315,7 +315,7 @@ class DeployEnvBackupWarningTests(unittest.TestCase):
     """#23 — backup must warn when deploy.env (plaintext secrets) is included in archive."""
 
     def test_deploy_env_backup_emits_secret_warning(self) -> None:
-        from commands.backup._create import _archive_runtime_files, _BackupSession, BackupPaths
+        from commands.backup._create import _archive_runtime_files, _BackupSession
         from commands.backup.core import BackupLogger
 
         with tempfile.TemporaryDirectory() as tmp:

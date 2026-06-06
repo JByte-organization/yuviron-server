@@ -49,7 +49,7 @@ from core.tls import (
     shared_certificate_paths,
     validate_nginx_cert_mode,
 )
-from core.ui import confirm, log_info, log_ok, log_warn
+from core.ui import log_info, log_ok, log_warn
 from core.validators import ensure_command, fail, resolve_prompted_environment, resolve_prompted_required
 
 
