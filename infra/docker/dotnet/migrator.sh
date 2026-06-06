@@ -66,7 +66,25 @@ run_ef() {
 }
 
 echo "Applying EF Core migrations"
-run_ef database update
+
+# Retry-логика: MySQL может быть ещё не полностью готов сразу после healthcheck
+# (grant-таблицы инициализируются асинхронно). Несколько попыток с паузой
+# защищают от Access denied в первые секунды после старта MySQL.
+MIGRATOR_MAX_RETRIES="${MIGRATOR_MAX_RETRIES:-3}"
+MIGRATOR_RETRY_DELAY="${MIGRATOR_RETRY_DELAY:-5}"
+attempt=1
+while true; do
+    if run_ef database update; then
+        break
+    fi
+    if [ "$attempt" -ge "$MIGRATOR_MAX_RETRIES" ]; then
+        echo "EF Core migration failed after ${MIGRATOR_MAX_RETRIES} attempt(s)" >&2
+        exit 1
+    fi
+    echo "Migration attempt ${attempt}/${MIGRATOR_MAX_RETRIES} failed, retrying in ${MIGRATOR_RETRY_DELAY}s..." >&2
+    sleep "$MIGRATOR_RETRY_DELAY"
+    attempt=$((attempt + 1))
+done
 
 # Проверяем что не осталось pending миграций
 echo "Verifying EF Core migration state"
