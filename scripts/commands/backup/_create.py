@@ -447,14 +447,16 @@ def _freeze_clickhouse_and_archive(
         return
 
     freeze_name = f"backup_{session.timestamp_utc}"
-    admin_password = parse_env_file(context.runtime_env).get("CLICKHOUSE_ADMIN_PASSWORD", "")
 
     session.logger.info(f"ClickHouse SYSTEM FREEZE ({freeze_name}) for {env_name}")
+    # Password is passed via the container's own CLICKHOUSE_PASSWORD env var (set in compose
+    # environment) so it never appears in process args visible to `ps aux` on the host.
     freeze_result = run(
         [
             "docker", "exec", container_name,
-            "clickhouse-client", "--password", admin_password,
-            "--query", f"SYSTEM FREEZE WITH NAME '{freeze_name}'",
+            "sh", "-c",
+            f"clickhouse-client --password \"$CLICKHOUSE_PASSWORD\""
+            f" --query \"SYSTEM FREEZE WITH NAME '{freeze_name}'\"",
         ],
         check=False, capture_output=True,
     )
@@ -503,8 +505,9 @@ def _freeze_clickhouse_and_archive(
         run(
             [
                 "docker", "exec", container_name,
-                "clickhouse-client", "--password", admin_password,
-                "--query", f"SYSTEM UNFREEZE WITH NAME '{freeze_name}'",
+                "sh", "-c",
+                f"clickhouse-client --password \"$CLICKHOUSE_PASSWORD\""
+                f" --query \"SYSTEM UNFREEZE WITH NAME '{freeze_name}'\"",
             ],
             check=False, capture_output=True,
         )

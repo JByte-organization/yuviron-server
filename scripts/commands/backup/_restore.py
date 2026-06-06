@@ -125,6 +125,20 @@ def cmd_backup_restore(args: argparse.Namespace) -> int:
         restore_volume(redis_volume_archive, f"{compose_project_name}_redis_data", "redis_data")
         restore_volume(rabbitmq_volume_archive, f"{compose_project_name}_rabbitmq_data", "rabbitmq_data")
 
+        clickhouse_shadow_archive = env_snapshot_dir / "clickhouse_shadow.tar.gz"
+        if clickhouse_shadow_archive.is_file():
+            # The shadow archive contains only MergeTree data parts (data/{db}/{table}/{part}/).
+            # It does NOT contain metadata/ (table DDL) or access/ (users), so extracting it
+            # to the volume would produce orphaned parts ClickHouse cannot attach without
+            # ATTACH PARTITION. Automatic restore is intentionally not implemented here.
+            logger.warn(
+                "ClickHouse shadow archive found but NOT automatically restored. "
+                "The shadow backup contains data parts only — restoring it requires "
+                "manual steps: start ClickHouse, copy parts to detached/, then run "
+                "ALTER TABLE ... ATTACH PARTITION for each table. "
+                f"Archive: {clickhouse_shadow_archive}"
+            )
+
         if storage_archive.is_file():
             logger.info(f"Restoring bind-mounted storage to {storage_path}")
             storage_path.mkdir(parents=True, exist_ok=True)
