@@ -220,15 +220,11 @@ def _generate_mkcert(
     cert_mode: str,
 ) -> None:
     if shutil.which("mkcert") is None:
-        log_warn("mkcert not found.")
-        log_info("Required: mkcert + libnss3-tools")
-        log_info("Install manually:  sudo apt install -y mkcert libnss3-tools")
-        log_info("Or via brew:       brew install mkcert")
-        if confirm("Install automatically via apt now?"):
-            run(["sudo", "apt", "update", "-y"])
-            run(["sudo", "apt", "install", "-y", "mkcert", "libnss3-tools"])
-        else:
-            fail("mkcert is required. Install it and re-run.")
+        log_warn("mkcert not found. Install it manually (one-time, dev only):")
+        log_info("  Debian/Ubuntu:  sudo apt install -y mkcert libnss3-tools")
+        log_info("  macOS:          brew install mkcert")
+        log_info("  Other:          https://github.com/FiloSottile/mkcert#installation")
+        fail("mkcert is required. Install it and re-run.")
 
     ensure_command("mkcert")
 

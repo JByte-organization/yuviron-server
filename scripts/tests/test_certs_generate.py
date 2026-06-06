@@ -329,5 +329,75 @@ class CertsGenerateTests(unittest.TestCase):
             self.assertEqual(0o640, (root_dir / "certs" / "prod" / "example.com-key.pem").stat().st_mode & 0o777)
 
 
+class MkcertAutoInstallTests(unittest.TestCase):
+    """#36 — _generate_mkcert must not run sudo apt install automatically."""
+
+    def test_missing_mkcert_raises_command_error_without_prompting(self) -> None:
+        """When mkcert is absent the function must fail immediately, never invoke confirm()."""
+        with (
+            patch("shutil.which", return_value=None),
+            patch.object(certs, "confirm") as mock_confirm,
+        ):
+            with self.assertRaises(CommandError):
+                certs._generate_mkcert(Path("/tmp/certs"), "dev", "example.com", ["dev.example.com"], "shared")
+        mock_confirm.assert_not_called()
+
+    def test_missing_mkcert_does_not_run_sudo(self) -> None:
+        """No subprocess that includes 'sudo' may be launched when mkcert is missing."""
+        sudo_calls: list[list] = []
+
+        def fake_run(cmd, **kw):
+            if "sudo" in cmd:
+                sudo_calls.append(list(cmd))
+            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+        with (
+            patch("shutil.which", return_value=None),
+            patch.object(certs, "run", side_effect=fake_run),
+        ):
+            with self.assertRaises(CommandError):
+                certs._generate_mkcert(Path("/tmp/certs"), "dev", "example.com", ["dev.example.com"], "shared")
+
+        self.assertEqual([], sudo_calls, f"sudo was invoked unexpectedly: {sudo_calls}")
+
+    def test_generate_mkcert_does_not_call_apt_or_sudo(self) -> None:
+        """_generate_mkcert must not execute apt or sudo — only print install instructions."""
+        executed: list[list] = []
+
+        def fake_run(cmd, **kw):
+            executed.append(list(cmd))
+            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+        with (
+            patch("shutil.which", return_value=None),
+            patch.object(certs, "run", side_effect=fake_run),
+        ):
+            with self.assertRaises(CommandError):
+                certs._generate_mkcert(Path("/tmp/certs"), "dev", "example.com", ["dev.example.com"], "shared")
+
+        for cmd in executed:
+            self.assertNotIn("apt", cmd, f"apt must not be executed: {cmd}")
+            self.assertNotIn("sudo", cmd, f"sudo must not be executed: {cmd}")
+
+
+class BackupEnvsDefaultTests(unittest.TestCase):
+    """#38 — BACKUP_ENVS default must not include dev in production-only installs."""
+
+    def test_common_env_backup_envs_does_not_include_dev(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        common_env_text = (root / "env" / "common.env").read_text(encoding="utf-8")
+        for line in common_env_text.splitlines():
+            line = line.strip()
+            if line.startswith("BACKUP_ENVS="):
+                value = line.split("=", 1)[1]
+                self.assertNotIn(
+                    "dev", value,
+                    "BACKUP_ENVS in common.env must not include 'dev' — "
+                    "production-only installs produce spurious warnings when dev stack is not running",
+                )
+                return
+        self.fail("BACKUP_ENVS not found in common.env")
+
+
 if __name__ == "__main__":
     unittest.main()
