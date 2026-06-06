@@ -32,10 +32,10 @@ from typing import Iterator
 
 from checks import preflight_checks
 from core.compose_runner import create_compose_context
-from core.docker import run_compose
+from core.docker import ComposeContext, run, run_compose
 from core.env import parse_env_file
 from core.paths import resolve_root_dir
-from core.ui import log_info, log_ok
+from core.ui import log_info, log_ok, log_warn
 from core.validators import CommandError, resolve_prompted_environment
 
 from ._common import DEFAULT_ROOT, FRONTEND_SWAGGER_DIR, SWAGGER_DOCUMENTS
@@ -81,6 +81,39 @@ def _deploy_lock(root_dir: Path, environment: str) -> Iterator[None]:
                 f"If no other deploy is active, remove the lock: {lock_path}"
             )
         yield
+
+
+def _restart_unhealthy_services(context: ComposeContext) -> None:
+    """Restart any running-but-unhealthy containers in the compose project.
+
+    Docker's restart policy only triggers on container exit, not on an unhealthy
+    healthcheck. Without this, a permanently-unhealthy container stays broken
+    until someone intervenes manually. Called before `compose up --no-build`
+    so that `stack up --no-build` acts as a true "ensure running and healthy".
+    """
+    result = run_compose(context, "ps", "-q", capture_output=True, check=False)
+    container_ids = [c for c in result.stdout.strip().splitlines() if c]
+    if not container_ids:
+        return
+
+    unhealthy: list[str] = []
+    for cid in container_ids:
+        inspect = run(
+            ["docker", "inspect", "-f",
+             "{{.Name}}/{{.State.Running}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}",
+             cid],
+            capture_output=True, check=False,
+        ).stdout.strip()
+        if not inspect:
+            continue
+        name, _, rest = inspect.lstrip("/").partition("/")
+        running, _, health = rest.partition("/")
+        if running == "true" and health == "unhealthy":
+            unhealthy.append(name)
+
+    if unhealthy:
+        log_warn(f"Restarting unhealthy containers before up: {', '.join(unhealthy)}")
+        run(["docker", "restart", *unhealthy], check=False)
 
 
 def cmd_up(args: argparse.Namespace) -> int:
@@ -130,6 +163,7 @@ def _cmd_up_locked(args: argparse.Namespace, environment: str, root_dir: Path) -
 
     try:
         if no_build:
+            _restart_unhealthy_services(context)
             run_compose(context, "up", "-d", "--remove-orphans")
         else:
             log_info("Pulling pre-built service images")
