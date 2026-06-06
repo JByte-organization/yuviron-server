@@ -48,11 +48,10 @@ from core.env_validation import ERROR as ENV_ERROR
 from core.env_validation import (
     OPTIONAL_SENSITIVE_SECRET_KEYS,
     SENSITIVE_SECRET_KEYS,
-    WEAK_SECRET_VALUES,
     validate_runtime_env,
     weak_secret_reason,
 )
-from core.findings import ERROR, WARN, Finding as AuditFinding, Report as AuditReport
+from core.findings import ERROR, Finding as AuditFinding, Report as AuditReport
 from core.models import MANAGEMENT_ROUTE_NAMES
 from core.paths import resolve_root_dir, resolve_runtime_path
 from core.tls import (
@@ -62,7 +61,7 @@ from core.tls import (
     validate_nginx_cert_mode,
 )
 from core.ui import log_err, log_info, log_ok, log_warn
-from core.validators import fail, resolve_prompted_environment
+from core.validators import resolve_prompted_environment
 
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[2]

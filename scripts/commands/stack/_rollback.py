@@ -21,7 +21,7 @@ import json
 import subprocess
 from datetime import datetime, timezone
 
-from core.docker import ComposeContext, run, run_compose
+from core.docker import ComposeContext, run_compose
 from core.ui import log_info, log_ok, log_warn
 
 from ._common import _built_service_image_name
@@ -112,3 +112,25 @@ def _restore_rollback_images(context: ComposeContext, snapshot: dict[str, str]) 
         log_ok("Rollback complete — previous images are running and healthy.")
     else:
         log_warn("Rollback complete, but some services did not pass healthcheck. Manual inspection required.")
+
+
+def _cleanup_rollback_images(snapshot: dict[str, str]) -> None:
+    """Удалить rollback-теги после успешного деплоя.
+
+    Rollback-образы нужны только пока идёт деплой. После успеха они становятся
+    балластом: не являются dangling (у них есть тег), поэтому docker image prune
+    их не тронет. Удаляем явно чтобы не накапливать «мёртвые» образы.
+    """
+    if not snapshot:
+        return
+    log_info("Cleaning up rollback images from previous snapshot...")
+    for service, rollback_tag in snapshot.items():
+        result = subprocess.run(
+            ["docker", "rmi", rollback_tag],
+            capture_output=True, check=False,
+        )
+        if result.returncode == 0:
+            log_info(f"  Removed: {rollback_tag}")
+        else:
+            details = (result.stderr or b"").decode(errors="replace").strip()
+            log_warn(f"  Could not remove {rollback_tag}: {details}")

@@ -32,9 +32,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from checks import preflight_checks
-from core.compose_runner import create_compose_context, validate_compose_config
+from core.compose_runner import create_compose_context
 from core.docker import ComposeContext, run, run_compose
-from core.env import _read_project_name, parse_env_file, parse_routes_file, resolve_runtime_env
+from core.env import _read_project_name, parse_env_file, resolve_runtime_env
 from core.paths import resolve_root_dir
 from core.ui import log_info, log_ok, log_warn
 from core.validators import CommandError, fail, resolve_prompted_environment

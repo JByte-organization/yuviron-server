@@ -26,8 +26,8 @@ from core.env import _read_project_name
 from core.docker import ComposeContext, run, run_compose
 from core.env import parse_env_file
 from core.paths import resolve_root_dir
-from core.ui import log_info, log_ok, log_warn
-from core.validators import CommandError, fail, resolve_prompted_environment
+from core.ui import log_info, log_ok
+from core.validators import fail, resolve_prompted_environment
 
 from ._common import (
     BACKEND_SERVICE,

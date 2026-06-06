@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -65,7 +66,7 @@ class CheckInternetConnectivityTests(unittest.TestCase):
             preflight_checks.check_internet_connectivity(ctx)
 
         mock_run.assert_called_once_with(
-            ["curl", "--silent", "--max-time", "3", "--output", "/dev/null", "http://google.com"],
+            ["curl", "--silent", "--max-time", "5", "--output", "/dev/null", "https://cloudflare.com"],
             check=False,
             capture_output=True,
         )
@@ -86,6 +87,18 @@ class CheckInternetConnectivityTests(unittest.TestCase):
                 preflight_checks.check_internet_connectivity(ctx)
 
         self.assertIn(stderr_msg, str(raised.exception))
+
+    def test_custom_url_via_env_var(self) -> None:
+        ctx = SimpleNamespace()
+        with patch.dict(os.environ, {"PREFLIGHT_CONNECTIVITY_URL": "https://1.1.1.1"}):
+            with patch("checks.preflight_checks.run", return_value=self._make_result(0)) as mock_run:
+                preflight_checks.check_internet_connectivity(ctx)
+
+        mock_run.assert_called_once_with(
+            ["curl", "--silent", "--max-time", "5", "--output", "/dev/null", "https://1.1.1.1"],
+            check=False,
+            capture_output=True,
+        )
 
 
 if __name__ == "__main__":

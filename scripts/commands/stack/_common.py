@@ -6,10 +6,9 @@
 # =============================================================================
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-from core.docker import ComposeContext, container_id_for_service, run, run_compose
+from core.docker import ComposeContext, container_id_for_service, run_compose
 from core.env import parse_routes_file
 from core.ui import log_info, log_ok, log_warn
 from core.validators import fail

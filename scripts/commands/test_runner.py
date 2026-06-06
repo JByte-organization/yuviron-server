@@ -26,7 +26,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-from core.paths import resolve_root_dir
 from core.ui import log_info, log_warn
 
 

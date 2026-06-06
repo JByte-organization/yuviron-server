@@ -57,7 +57,7 @@ from ._health import (
 )
 from ._migrate import _confirm_production_migrate, _run_migrator, cmd_migrate
 from ._preflight import PreflightContext, cmd_preflight
-from ._rollback import _restore_rollback_images, _snapshot_rollback_images
+from ._rollback import _cleanup_rollback_images, _restore_rollback_images, _snapshot_rollback_images
 from ._smoke import _check_nginx_https, _check_nginx_route_health, cmd_smoke
 from ._swagger import (
     _ensure_swagger_backend_image,

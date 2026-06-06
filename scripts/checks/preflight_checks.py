@@ -185,8 +185,11 @@ def check_docker_access(ctx: object) -> None:
 def check_internet_connectivity(ctx: object) -> None:
     log_info("Checking internet connectivity and DNS resolution")
     # curl is used instead of ping: ICMP is commonly blocked by cloud/VPS firewalls.
+    # PREFLIGHT_CONNECTIVITY_URL can be overridden for restricted networks (CN, corporate proxies).
+    # Default uses https:// to also verify TLS connectivity needed for Let's Encrypt and Docker registry.
+    url = os.getenv("PREFLIGHT_CONNECTIVITY_URL", "https://cloudflare.com").strip()
     result = run(
-        ["curl", "--silent", "--max-time", "3", "--output", "/dev/null", "http://google.com"],
+        ["curl", "--silent", "--max-time", "5", "--output", "/dev/null", url],
         check=False,
         capture_output=True,
     )

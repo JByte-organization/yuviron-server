@@ -22,7 +22,7 @@ from core.compose_runner import create_compose_context, validate_compose_config
 from core.docker import run
 from core.env import parse_env_file, parse_routes_file
 from core.paths import resolve_root_dir
-from core.ui import log_info, log_ok, log_warn
+from core.ui import log_info, log_ok
 from core.validators import ensure_command, fail, resolve_prompted_environment
 
 from ._common import (

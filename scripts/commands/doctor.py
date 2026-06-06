@@ -47,7 +47,7 @@ from checks import preflight_checks
 from commands.stack import DEFAULT_ROOT, PreflightContext
 from core.docker import container_id_for_service
 from core.env import parse_env_file, parse_routes_file
-from core.findings import ERROR, WARN, Finding as DoctorFinding, Report as DoctorReport
+from core.findings import ERROR, Finding as DoctorFinding, Report as DoctorReport
 from core.paths import resolve_root_dir, resolve_runtime_path
 from core.tls import (
     NGINX_CERT_MODE_PER_ROUTE,

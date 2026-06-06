@@ -22,9 +22,9 @@ from core.docker import ComposeContext, run_compose
 from core.env import parse_env_file
 from core.paths import resolve_root_dir
 from core.ui import log_info, log_ok, log_warn
-from core.validators import CommandError, fail, resolve_prompted_environment
+from core.validators import CommandError, resolve_prompted_environment
 
-from ._common import DEFAULT_ROOT, MIGRATOR_PROFILE, MIGRATOR_SERVICE, MIGRATOR_TIMEOUT_SECONDS, BACKEND_SERVICE
+from ._common import DEFAULT_ROOT, MIGRATOR_PROFILE, MIGRATOR_SERVICE, MIGRATOR_TIMEOUT_SECONDS
 
 
 def _confirm_production_migrate(context: ComposeContext) -> None:

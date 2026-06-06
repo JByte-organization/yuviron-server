@@ -41,7 +41,7 @@ from core.validators import CommandError, resolve_prompted_environment
 from ._common import DEFAULT_ROOT
 from ._health import _wait_for_service_health
 from ._migrate import _run_migrator
-from ._rollback import _restore_rollback_images, _snapshot_rollback_images
+from ._rollback import _cleanup_rollback_images, _restore_rollback_images, _snapshot_rollback_images
 from ._swagger import _prepare_frontend_swagger
 
 try:
@@ -139,6 +139,8 @@ def _cmd_up_locked(args: argparse.Namespace, environment: str, root_dir: Path) -
             else:
                 run_compose(context, "build", "--pull=false")
             run_compose(context, "up", "-d", "--remove-orphans")
+        if snapshot:
+            _cleanup_rollback_images(snapshot)
     except CommandError:
         if snapshot:
             _restore_rollback_images(context, snapshot)

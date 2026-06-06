@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import base64
-import hashlib
+import bcrypt
 import stat
 import sys
 import tempfile
@@ -18,14 +17,12 @@ from core.htpasswd import ensure_htpasswd_file
 from core.validators import CommandError
 
 
-def verify_ssha(password: str, stored_hash: str) -> bool:
-    prefix = "{SSHA}"
-    if not stored_hash.startswith(prefix):
+def verify_bcrypt(password: str, stored_hash: str) -> bool:
+    if not stored_hash.startswith("$2y$"):
         return False
-    payload = base64.b64decode(stored_hash[len(prefix):])
-    digest = payload[:20]
-    salt = payload[20:]
-    return hashlib.sha1(password.encode("utf-8") + salt).digest() == digest
+    # nginx uses $2y$; Python bcrypt accepts $2b$ — swap prefix for verification
+    normalized = "$2b$" + stored_hash[4:]
+    return bcrypt.checkpw(password.encode("utf-8"), normalized.encode("ascii"))
 
 
 class HtpasswdTests(unittest.TestCase):
@@ -42,7 +39,8 @@ class HtpasswdTests(unittest.TestCase):
             username, stored_hash = path.read_text(encoding="utf-8").strip().split(":", 1)
 
             self.assertEqual("ops", username)
-            self.assertTrue(verify_ssha(password, stored_hash))
+            self.assertTrue(stored_hash.startswith("$2y$"), "hash must use bcrypt $2y$ format")
+            self.assertTrue(verify_bcrypt(password, stored_hash))
             self.assertEqual(0o644, stat.S_IMODE(path.stat().st_mode))
             self.assertEqual(0o600, stat.S_IMODE(generated.credentials_file.stat().st_mode))
 
@@ -109,7 +107,7 @@ class RotateHtpasswdTests(unittest.TestCase):
             from types import SimpleNamespace
             from unittest.mock import patch
 
-            with patch.object(tools, "resolve_prompted_environment", return_value="dev"):
+            with patch("commands.tools._rotation.resolve_prompted_environment", return_value="dev"):
                 tools.cmd_rotate_htpasswd(
                     SimpleNamespace(environment="dev", project_root=str(root))
                 )
@@ -127,7 +125,7 @@ class RotateHtpasswdTests(unittest.TestCase):
             from types import SimpleNamespace
             from unittest.mock import patch
 
-            with patch.object(tools, "resolve_prompted_environment", return_value="dev"):
+            with patch("commands.tools._rotation.resolve_prompted_environment", return_value="dev"):
                 tools.cmd_rotate_htpasswd(
                     SimpleNamespace(environment="dev", project_root=str(root))
                 )
@@ -157,7 +155,7 @@ class RotateHtpasswdTests(unittest.TestCase):
             from unittest.mock import patch
 
             with (
-                patch.object(tools, "resolve_prompted_environment", return_value="dev"),
+                patch("commands.tools._rotation.resolve_prompted_environment", return_value="dev"),
                 self.assertRaises(CommandError),
             ):
                 tools.cmd_rotate_htpasswd(

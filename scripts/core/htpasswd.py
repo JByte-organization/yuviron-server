@@ -4,8 +4,9 @@
 # nginx Basic Auth используется для закрытия служебных маршрутов:
 #   seq, aspire, grafana, adminer, rabbitmq и других management-интерфейсов.
 #
-# Формат файла: username:{SSHA}base64(sha1(password + salt))
-# Это стандартный RFC 2307 SSHA, который поддерживается nginx ngx_http_auth_basic_module.
+# Формат файла: username:$2y$<bcrypt-hash>
+# nginx >= 1.18 поддерживает bcrypt ($2y$) — на несколько порядков медленнее
+# для брутфорса по сравнению с {SSHA}/SHA-1.
 #
 # При первой генерации конфига:
 #   1. Генерируется случайный пароль (24 байта urlsafe base64)
@@ -16,8 +17,7 @@
 # =============================================================================
 from __future__ import annotations
 
-import base64
-import hashlib
+import bcrypt
 import os
 import re
 import secrets
@@ -57,11 +57,11 @@ def _validate_username(username: str) -> str:
     return normalized
 
 
-def _ssha_password_hash(password: str, salt: bytes | None = None) -> str:
-    # nginx auth_basic supports RFC 2307 {SSHA} entries in htpasswd files.
-    salt = salt if salt is not None else secrets.token_bytes(8)
-    digest = hashlib.sha1(password.encode("utf-8") + salt).digest()
-    return "{SSHA}" + base64.b64encode(digest + salt).decode("ascii")
+def _bcrypt_password_hash(password: str) -> str:
+    # nginx >= 1.18 supports bcrypt ($2y$). Python bcrypt generates $2b$ (same
+    # algorithm, different minor version letter) — replace prefix for nginx.
+    raw = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12))
+    return raw.decode("ascii").replace("$2b$", "$2y$", 1)
 
 
 def _write_secret_file(path: Path, content: str, mode: int) -> None:
@@ -99,7 +99,7 @@ def ensure_htpasswd_file(
     password = secrets.token_urlsafe(24)
     credentials_file = credentials_file or path.with_name("htpasswd.credentials")
 
-    _write_secret_file(path, f"{username}:{_ssha_password_hash(password)}\n", 0o644)
+    _write_secret_file(path, f"{username}:{_bcrypt_password_hash(password)}\n", 0o644)
     _write_secret_file(
         credentials_file,
         f"NGINX_BASIC_AUTH_USER={username}\nNGINX_BASIC_AUTH_PASSWORD={password}\n",
