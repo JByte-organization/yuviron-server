@@ -26,7 +26,7 @@ BACKUP_RESTORE_TEST_TMP=./backups/restore-test
 BACKUP_RESTORE_TEST_AFTER_CREATE=1
 RESTORE_TEST_MIN_TABLES=1
 
-BACKUP_ENVS=dev,prod
+BACKUP_ENVS=prod
 
 BACKUP_STORAGE_DEV=./storage/dev
 BACKUP_STORAGE_PROD=./storage/prod
@@ -260,3 +260,57 @@ backups/
 ```
 
 Директория `backups` добавлена в `.gitignore`.
+
+---
+
+## Disaster Recovery
+
+### Целевые показатели
+
+| Показатель | Значение | Условие |
+|---|---|---|
+| **RPO** (максимальная потеря данных) | ≤ 24 часа | Cron запускает `backup create` раз в сутки. Снизить до ≤ 1 ч — увеличить частоту cron. |
+| **RTO** (целевое время восстановления) | ≤ 2 часа | На типовом VPS: 10–20 мин на перепровизию + 5–30 мин на импорт данных в зависимости от размера БД. |
+
+### Полная потеря сервера — порядок действий
+
+1. **Провизия нового сервера** — установи Docker, Docker Compose, Python 3. Клонируй репозиторий.
+
+2. **Восстанови конфиг** — скопируй `env/prod.env` из резервной копии (хранится в `deploy.env` внутри архива или отдельно, если есть внешняя секретница).
+
+3. **Скачай последний архив**:
+
+   ```bash
+   # Если offsite — scp/aws s3 cp/rsync из удалённого хранилища
+   scp backup@nas:/srv/backups/backup_*.tar.gz backups/archives/
+   ```
+
+4. **Проверь архив**:
+
+   ```bash
+   ./scripts/cli.py backup verify --archive backups/archives/<archive>.tar.gz --full
+   ```
+
+5. **Восстанови данные**:
+
+   ```bash
+   ./scripts/cli.py backup restore --env prod --archive backups/archives/<archive>.tar.gz --force
+   ```
+
+6. **Подними стек**:
+
+   ```bash
+   ./scripts/cli.py stack up prod
+   ```
+
+7. **Проверь healthcheck** через `./scripts/cli.py tools docker-status prod`.
+
+### Важно о секретах в архиве
+
+Файл `deploy.env` включается в архив backup в открытом виде — он содержит все секреты окружения (пароли БД, Stripe, JWT). При загрузке на offsite-хранилище убедись что:
+
+- доступ к хранилищу ограничен (S3 bucket policy / SSH-ключ)
+- для S3 включено server-side encryption (`SSE-S3` или `SSE-KMS`)
+- архивы не попадают в публичные места
+
+Если секреты скомпрометированы — ротируй их до подъёма стека.
