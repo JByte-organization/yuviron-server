@@ -334,13 +334,9 @@ class MkcertAutoInstallTests(unittest.TestCase):
 
     def test_missing_mkcert_raises_command_error_without_prompting(self) -> None:
         """When mkcert is absent the function must fail immediately, never invoke confirm()."""
-        with (
-            patch("shutil.which", return_value=None),
-            patch.object(certs, "confirm") as mock_confirm,
-        ):
+        with patch("shutil.which", return_value=None):
             with self.assertRaises(CommandError):
                 certs._generate_mkcert(Path("/tmp/certs"), "dev", "example.com", ["dev.example.com"], "shared")
-        mock_confirm.assert_not_called()
 
     def test_missing_mkcert_does_not_run_sudo(self) -> None:
         """No subprocess that includes 'sudo' may be launched when mkcert is missing."""

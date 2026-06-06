@@ -232,6 +232,7 @@ class StackSmokeTests(unittest.TestCase):
             patch.object(stack.preflight_checks, "prepare_host_storage_layout"),
             patch("commands.stack._up._prepare_frontend_swagger") as swagger_mock,
             patch("commands.stack._up._snapshot_rollback_images", return_value={}),
+            patch("commands.stack._up._restart_unhealthy_services"),
             patch("commands.stack._up.run_compose") as run_compose_mock,
         ):
             stack.cmd_up(self._up_args(skip_migrate=True, no_build=True))

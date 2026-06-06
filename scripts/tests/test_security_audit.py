@@ -498,7 +498,10 @@ class SecurityAuditTests(unittest.TestCase):
 
     def test_frontend_build_context_has_dockerignore_excluding_node_modules(self) -> None:
         root = SCRIPTS_ROOT.parent
-        dockerignore = root / "src" / "yuviron-frontend" / ".dockerignore"
+        frontend_dir = root / "src" / "yuviron-frontend"
+        if not frontend_dir.is_dir():
+            self.skipTest("src/yuviron-frontend not checked out (external repo)")
+        dockerignore = frontend_dir / ".dockerignore"
 
         self.assertTrue(
             dockerignore.is_file(),
