@@ -15,9 +15,11 @@
 # Использует "docker stats --no-stream" + "docker ps" для получения данных.
 # Очищает терминал перед каждым обновлением (ANSI escape \033[H\033[J).
 # =============================================================================
+from __future__ import annotations
 
-import subprocess
 import json
+import subprocess
+import sys
 import time
 from collections import defaultdict
 
@@ -45,7 +47,7 @@ RESET = "\033[0m"
 # ICONS
 # =========================
 
-ICONS = {
+ICONS: dict[str, str] = {
     "healthy": "✔",
     "starting": "◔",
     "unhealthy": "✘",
@@ -57,32 +59,30 @@ ICONS = {
 # =========================
 
 
-def clear():
+def clear() -> None:
     print("\033[2J\033[H", end="", flush=True)
 
 
-def run(command):
+def run(command: list[str]) -> str:
     result = subprocess.run(
         command,
-        shell=True,
         capture_output=True,
         text=True
     )
 
     if result.returncode != 0:
-        import sys
         print(f"[docker error] {result.stderr.strip()}", file=sys.stderr)
         return ""
 
     return result.stdout.strip()
 
 
-def shorten_ports(ports):
+def shorten_ports(ports: str) -> str:
     if not ports or ports == "-":
         return "-"
 
-    mappings = []
-    seen = set()
+    mappings: list[str] = []
+    seen: set[str] = set()
 
     for part in ports.split(", "):
         if "->" not in part:
@@ -100,39 +100,44 @@ def shorten_ports(ports):
     return ", ".join(mappings) if mappings else "-"
 
 
-def get_docker_stats():
-    cmd = (
-        "docker stats --no-stream "
-        "--format '{{json .}}'"
-    )
+def get_docker_stats() -> dict[str, dict[str, str]]:
+    output = run(["docker", "stats", "--no-stream", "--format", "{{json .}}"])
 
-    output = run(cmd)
-
-    stats = {}
+    stats: dict[str, dict[str, str]] = {}
 
     for line in output.splitlines():
-        data = json.loads(line)
+        if not line.strip():
+            continue
+        try:
+            data: dict[str, str] = json.loads(line)
+        except json.JSONDecodeError:
+            print(f"[dashboard] Skipping malformed stats line: {line!r}", file=sys.stderr)
+            continue
 
-        stats[data["Name"]] = {
-            "cpu": data["CPUPerc"],
-            "mem": data["MemUsage"],
-            "net": data["NetIO"],
-        }
+        name = data.get("Name", "")
+        if name:
+            stats[name] = {
+                "cpu": data.get("CPUPerc", "-"),
+                "mem": data.get("MemUsage", "-"),
+                "net": data.get("NetIO", "-"),
+            }
 
     return stats
 
 
-def get_containers():
-    cmd = (
-        "docker ps --format '{{json .}}'"
-    )
+def get_containers() -> list[dict[str, str]]:
+    output = run(["docker", "ps", "--format", "{{json .}}"])
 
-    output = run(cmd)
-
-    containers = []
+    containers: list[dict[str, str]] = []
 
     for line in output.splitlines():
-        data = json.loads(line)
+        if not line.strip():
+            continue
+        try:
+            data: dict[str, str] = json.loads(line)
+        except json.JSONDecodeError:
+            print(f"[dashboard] Skipping malformed ps line: {line!r}", file=sys.stderr)
+            continue
 
         labels = data.get("Labels", "")
         project = "standalone"
@@ -161,7 +166,7 @@ def get_containers():
 
         containers.append({
             "project": project,
-            "name": data["Names"],
+            "name": data.get("Names", ""),
             "status": status,
             "health": health,
             "color": color,
@@ -171,8 +176,8 @@ def get_containers():
     return containers
 
 
-def render(containers, stats):
-    grouped = defaultdict(list)
+def render(containers: list[dict[str, str]], stats: dict[str, dict[str, str]]) -> None:
+    grouped: dict[str, list[dict[str, str]]] = defaultdict(list)
 
     for container in containers:
         grouped[container["project"]].append(container)
@@ -209,7 +214,7 @@ def render(containers, stats):
         )
 
         for c in project_containers:
-            icon = ICONS[c["health"]]
+            icon = ICONS.get(c["health"], "•")
 
             stat = stats.get(c["name"], {})
 

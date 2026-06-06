@@ -9,9 +9,11 @@
 #
 # Использует "docker ps --format {{json .}}" для получения данных.
 # =============================================================================
+from __future__ import annotations
 
-import subprocess
 import json
+import subprocess
+import sys
 from collections import defaultdict
 
 # ANSI цвета для статусов контейнеров
@@ -24,7 +26,7 @@ GRAY = "\033[90m"
 RESET = "\033[0m"
 
 # Иконки для состояния healthcheck
-ICONS = {
+ICONS: dict[str, str] = {
     "healthy": "✔",
     "starting": "◔",
     "unhealthy": "✘",
@@ -32,23 +34,22 @@ ICONS = {
 }
 
 
-def run_command(command):
+def run_command(command: list[str]) -> str:
     result = subprocess.run(
         command,
-        shell=True,
         capture_output=True,
         text=True
     )
 
     if result.returncode != 0:
-        print(f"\t{RED}Command failed:{RESET} {command}")
+        print(f"\t{RED}Command failed:{RESET} {' '.join(command)}")
         print(result.stderr)
         exit(1)
 
     return result.stdout.strip()
 
 
-def extract_project(labels):
+def extract_project(labels: str) -> str:
     for label in labels.split(","):
         if label.startswith("com.docker.compose.project="):
             return label.split("=")[1]
@@ -56,7 +57,7 @@ def extract_project(labels):
     return "standalone"
 
 
-def extract_health(status):
+def extract_health(status: str) -> tuple[str, str]:
     if "(healthy)" in status:
         return "healthy", GREEN
 
@@ -69,16 +70,16 @@ def extract_health(status):
     return "none", GRAY
 
 
-def format_mapping(host_port, container_port):
+def format_mapping(host_port: str, container_port: str) -> str:
     return f"{host_port} -> {container_port}"
 
 
-def shorten_ports(ports):
+def shorten_ports(ports: str) -> str:
     if not ports or ports == "-":
         return "-"
 
-    mappings = []
-    seen = set()
+    mappings: list[str] = []
+    seen: set[str] = set()
 
     for part in ports.split(", "):
         if "->" not in part:
@@ -98,18 +99,19 @@ def shorten_ports(ports):
     return ", ".join(mappings) if mappings else "-"
 
 
-def get_containers():
-    cmd = (
-        'docker ps --format '
-        '\'{{json .}}\''
-    )
+def get_containers() -> list[dict[str, str]]:
+    output = run_command(["docker", "ps", "--format", "{{json .}}"])
 
-    output = run_command(cmd)
-
-    containers = []
+    containers: list[dict[str, str]] = []
 
     for line in output.splitlines():
-        data = json.loads(line)
+        if not line.strip():
+            continue
+        try:
+            data: dict[str, str] = json.loads(line)
+        except json.JSONDecodeError:
+            print(f"[status] Skipping malformed ps line: {line!r}", file=sys.stderr)
+            continue
 
         project = extract_project(data.get("Labels", ""))
         status = data.get("Status", "")
@@ -117,7 +119,7 @@ def get_containers():
 
         containers.append({
             "project": project,
-            "name": data.get("Names"),
+            "name": data.get("Names", ""),
             "status": status,
             "health": health,
             "color": color,
@@ -127,8 +129,8 @@ def get_containers():
     return containers
 
 
-def print_grouped(containers):
-    grouped = defaultdict(list)
+def print_grouped(containers: list[dict[str, str]]) -> None:
+    grouped: dict[str, list[dict[str, str]]] = defaultdict(list)
 
     for container in containers:
         grouped[container["project"]].append(container)
@@ -149,7 +151,7 @@ def print_grouped(containers):
         )
 
         for c in grouped[project]:
-            icon = ICONS[c["health"]]
+            icon = ICONS.get(c["health"], "•")
             ports = shorten_ports(c["ports"])
 
             print(
