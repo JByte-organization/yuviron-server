@@ -29,12 +29,14 @@ def _wait_for_service_health(context: ComposeContext, service: str, timeout: int
     while True:
         cid = _service_container_id(context, service)
         if cid:
-            status = run(["docker", "inspect", "-f", "{{.State.Status}}", cid], capture_output=True, check=False).stdout.strip()
-            health = run(
-                ["docker", "inspect", "-f", "{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}", cid],
+            combined = run(
+                ["docker", "inspect", "-f",
+                 "{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}",
+                 cid],
                 capture_output=True,
                 check=False,
             ).stdout.strip()
+            status, _, health = combined.partition("/")
 
             if status == "running" and health in {"healthy", "no-healthcheck"}:
                 log_ok(f"Service '{service}' is running/healthy")
