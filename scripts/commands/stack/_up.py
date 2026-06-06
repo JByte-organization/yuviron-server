@@ -38,7 +38,7 @@ from core.paths import resolve_root_dir
 from core.ui import log_info, log_ok
 from core.validators import CommandError, resolve_prompted_environment
 
-from ._common import DEFAULT_ROOT
+from ._common import DEFAULT_ROOT, FRONTEND_SWAGGER_DIR, SWAGGER_DOCUMENTS
 from ._health import _wait_for_service_health
 from ._migrate import _run_migrator
 from ._rollback import _cleanup_rollback_images, _restore_rollback_images, _snapshot_rollback_images
@@ -165,10 +165,21 @@ def cmd_restart(args: argparse.Namespace) -> int:
     root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
     services: list[str] = list(args.services)
     rebuild: bool = getattr(args, "rebuild", False)
+    skip_swagger: bool = getattr(args, "skip_swagger", False)
 
     context = create_compose_context(root_dir, environment, ensure_generated=False)
 
     if rebuild:
+        if not skip_swagger:
+            swagger_dir = root_dir / FRONTEND_SWAGGER_DIR
+            specs_missing = not all(
+                (swagger_dir / f"{name}.swagger.json").exists()
+                for name in SWAGGER_DOCUMENTS
+            )
+            if specs_missing:
+                log_info("Swagger specs missing from disk — regenerating before rebuild")
+                _prepare_frontend_swagger(context, root_dir)
+
         log_info(f"Rebuilding: {' '.join(services)}")
         run_compose(context, "build", "--pull=false", *services)
 

@@ -81,6 +81,7 @@ jobs:
             tests.test_backend_workflows \
             tests.test_python_requirements \
             tests.test_healthcheck_alert \
+            tests.test_stack_restart \
             -v
 
   e2e-dry-run:

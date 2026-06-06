@@ -161,6 +161,12 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         action="store_true",
         help="Пересобрать образ(ы) перед перезапуском (docker compose build)",
     )
+    restart_parser.add_argument(
+        "--skip-swagger",
+        action="store_true",
+        dest="skip_swagger",
+        help="Skip Swagger doc regeneration when --rebuild is used (use when specs are already up to date)",
+    )
     restart_parser.add_argument("--env", dest="environment", help="Окружение: dev|prod")
     restart_parser.add_argument("--project-root", dest="project_root")
     restart_parser.set_defaults(handler=cmd_restart)
