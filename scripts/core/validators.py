@@ -15,7 +15,7 @@ import re
 import shutil
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from .ui import log_err, log_warn
 
@@ -37,7 +37,7 @@ class CommandError(RuntimeError):
         self.exit_code = exit_code
 
 
-def fail(message: str, exit_code: int = 1) -> None:
+def fail(message: str, exit_code: int = 1) -> NoReturn:
     """Бросить CommandError — стандартный способ сигнализировать об ошибке."""
     raise CommandError(message, exit_code=exit_code)
 

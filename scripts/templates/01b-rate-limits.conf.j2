@@ -6,4 +6,7 @@
     limit_req_zone $binary_remote_addr zone=api_upload:10m   rate={{ nginx_rate_api_upload }};
     # 1m достаточно для /health — burst 10 покрывает smoke-тест по всем маршрутам за раз
     limit_req_zone $binary_remote_addr zone=health_probe:1m  rate=30r/m;
+    # Защита от connection flooding (Slowloris): max {{ nginx_conn_per_ip }} одновременных
+    # соединений с одного IP. Не пересекается с limit_req (rate), действует независимо.
+    limit_conn_zone $binary_remote_addr zone=conn_per_ip:10m;
     # -------------------------------------------------------------------

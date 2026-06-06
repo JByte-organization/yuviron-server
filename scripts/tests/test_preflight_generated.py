@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
-from os import stat as os_stat
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch

@@ -21,7 +21,6 @@
 from __future__ import annotations
 
 import ipaddress
-import re
 from pathlib import Path
 from typing import Iterable, Mapping
 
@@ -34,6 +33,10 @@ from .nginx_csp import (
     _security_headers,
 )
 from .nginx_route import (
+    DEFAULT_NGINX_CONN_PER_IP,
+    DEFAULT_NGINX_MEDIA_CACHE_INACTIVE,
+    DEFAULT_NGINX_MEDIA_CACHE_MAX_SIZE,
+    DEFAULT_NGINX_PROXY_READ_TIMEOUT,
     DEFAULT_NGINX_PUBLIC_RATE_BURST,
     DEFAULT_NGINX_PUBLIC_RATE_LIMIT,
     DEFAULT_NGINX_RATE_API_AUTH,
@@ -42,6 +45,8 @@ from .nginx_route import (
     DEFAULT_NGINX_WORKER_PROCESSES,
     NGINX_RATE_BURST_PATTERN,
     NGINX_RATE_LIMIT_PATTERN,
+    NGINX_SIZE_PATTERN,
+    NGINX_TIME_PATTERN,
     NGINX_WORKER_CONNECTIONS_PATTERN,
     NGINX_WORKER_PROCESSES_PATTERN,
     NginxRoute,
@@ -136,6 +141,36 @@ def _validate_nginx_worker_connections(field_name: str, value: object) -> str:
     if value != value.strip():
         fail(f"Invalid nginx {field_name}: surrounding whitespace is not allowed")
     if not NGINX_WORKER_CONNECTIONS_PATTERN.fullmatch(value):
+        fail(f"Invalid nginx {field_name}: {value!r}. Expected a positive integer")
+    return value
+
+
+def _validate_nginx_time(field_name: str, value: object) -> str:
+    if not isinstance(value, str):
+        fail(f"Invalid nginx {field_name}: expected string")
+    if value != value.strip():
+        fail(f"Invalid nginx {field_name}: surrounding whitespace is not allowed")
+    if not NGINX_TIME_PATTERN.fullmatch(value):
+        fail(f"Invalid nginx {field_name}: {value!r}. Expected nginx time value like '60s', '2m', '1h'")
+    return value
+
+
+def _validate_nginx_size(field_name: str, value: object) -> str:
+    if not isinstance(value, str):
+        fail(f"Invalid nginx {field_name}: expected string")
+    if value != value.strip():
+        fail(f"Invalid nginx {field_name}: surrounding whitespace is not allowed")
+    if not NGINX_SIZE_PATTERN.fullmatch(value):
+        fail(f"Invalid nginx {field_name}: {value!r}. Expected nginx size value like '10g', '512m', '1G'")
+    return value
+
+
+def _validate_nginx_positive_integer(field_name: str, value: object) -> str:
+    if not isinstance(value, str):
+        fail(f"Invalid nginx {field_name}: expected string")
+    if value != value.strip():
+        fail(f"Invalid nginx {field_name}: surrounding whitespace is not allowed")
+    if not value.isdigit() or int(value) < 1:
         fail(f"Invalid nginx {field_name}: {value!r}. Expected a positive integer")
     return value
 
@@ -259,6 +294,22 @@ def render_nginx_conf_modular(
         "nginx_worker_connections": _validate_nginx_worker_connections(
             "NGINX_WORKER_CONNECTIONS",
             _env_value(env_values, "NGINX_WORKER_CONNECTIONS", DEFAULT_NGINX_WORKER_CONNECTIONS),
+        ),
+        "nginx_proxy_read_timeout": _validate_nginx_time(
+            "NGINX_PROXY_READ_TIMEOUT",
+            _env_value(env_values, "NGINX_PROXY_READ_TIMEOUT", DEFAULT_NGINX_PROXY_READ_TIMEOUT),
+        ),
+        "nginx_conn_per_ip": _validate_nginx_positive_integer(
+            "NGINX_CONN_PER_IP",
+            _env_value(env_values, "NGINX_CONN_PER_IP", DEFAULT_NGINX_CONN_PER_IP),
+        ),
+        "nginx_media_cache_max_size": _validate_nginx_size(
+            "NGINX_MEDIA_CACHE_MAX_SIZE",
+            _env_value(env_values, "NGINX_MEDIA_CACHE_MAX_SIZE", DEFAULT_NGINX_MEDIA_CACHE_MAX_SIZE),
+        ),
+        "nginx_media_cache_inactive": _validate_nginx_time(
+            "NGINX_MEDIA_CACHE_INACTIVE",
+            _env_value(env_values, "NGINX_MEDIA_CACHE_INACTIVE", DEFAULT_NGINX_MEDIA_CACHE_INACTIVE),
         ),
         **_validate_nginx_tls_policy(DEFAULT_TLS_POLICY),
     }

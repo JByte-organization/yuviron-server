@@ -34,11 +34,19 @@ DEFAULT_NGINX_RATE_API_AUTH = "10r/m"       # 10 req/min для auth-эндпо�
 DEFAULT_NGINX_RATE_API_UPLOAD = "5r/m"      # 5 req/min для загрузки файлов
 DEFAULT_NGINX_WORKER_PROCESSES = "auto"     # автоматически = число CPU
 DEFAULT_NGINX_WORKER_CONNECTIONS = "1024"   # одновременных соединений на worker
+DEFAULT_NGINX_PROXY_READ_TIMEOUT = "60s"    # read timeout для API-прокси (не SSE/upload)
+DEFAULT_NGINX_CONN_PER_IP = "50"            # max одновременных соединений с одного IP
+DEFAULT_NGINX_MEDIA_CACHE_MAX_SIZE = "10g"  # максимальный объём диска под media-кэш
+DEFAULT_NGINX_MEDIA_CACHE_INACTIVE = "365d" # удалять из кэша если не запрашивался N времени
 
 NGINX_RATE_LIMIT_PATTERN = re.compile(r"^[1-9][0-9]*r/[sm]$")
 NGINX_RATE_BURST_PATTERN = re.compile(r"^[1-9][0-9]*$")
 NGINX_WORKER_PROCESSES_PATTERN = re.compile(r"^(?:auto|[1-9][0-9]*)$")
 NGINX_WORKER_CONNECTIONS_PATTERN = re.compile(r"^[1-9][0-9]*$")
+# nginx time value: число + необязательный суффикс ms/s/m/h/d/w/M/y
+NGINX_TIME_PATTERN = re.compile(r"^[0-9]+(ms|s|m|h|d|w|M|y)?$")
+# nginx size value: число + обязательный суффикс k/m/g (case-insensitive)
+NGINX_SIZE_PATTERN = re.compile(r"^[0-9]+[kmgKMG]$")
 NGINX_RATE_LIMIT_ZONES = frozenset({"api_general", "api_auth", "api_upload"})
 NGINX_UPLOAD_LOCATION_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 

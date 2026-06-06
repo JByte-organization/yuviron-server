@@ -349,19 +349,41 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("Authorization", content)
         self.assertIn("X-CSRF-Protection", content)
 
-    def test_render_proxy_read_timeout_is_3600s(self) -> None:
-        # proxy_read_timeout does not support nginx variables (msec_slot directive,
-        # evaluated at config load — not runtime). 3600s covers both regular requests
-        # (upstream responds quickly, timeout never fires) and WebSocket/SignalR tunnels
-        # that stay idle for hours.
+    def test_render_proxy_read_timeout_defaults_to_60s(self) -> None:
         rendered = render_nginx_conf_modular(
             [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
             SCRIPTS_ROOT / "templates",
         )
 
+        self.assertIn("proxy_read_timeout 60s;", rendered)
+        self.assertNotIn("proxy_read_timeout 3600s;", rendered)
+
+    def test_render_uses_nginx_proxy_read_timeout_env_value(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
+            SCRIPTS_ROOT / "templates",
+            {"NGINX_PROXY_READ_TIMEOUT": "3600s"},
+        )
+
         self.assertIn("proxy_read_timeout 3600s;", rendered)
-        self.assertNotIn("proxy_read_timeout $proxy_ws_read_timeout;", rendered)
-        self.assertNotIn("map $http_upgrade $proxy_ws_read_timeout {", rendered)
+        self.assertNotIn("proxy_read_timeout 60s;", rendered)
+
+    def test_render_rejects_invalid_nginx_proxy_read_timeout(self) -> None:
+        with self.assertRaises(CommandError) as raised:
+            render_nginx_conf_modular(
+                [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
+                SCRIPTS_ROOT / "templates",
+                {"NGINX_PROXY_READ_TIMEOUT": "60s; include /tmp/x"},
+            )
+
+        self.assertIn("Invalid nginx NGINX_PROXY_READ_TIMEOUT", str(raised.exception))
+
+    def test_proxy_read_timeout_lives_in_render_context_not_template(self) -> None:
+        template = (SCRIPTS_ROOT / "templates" / "03-routes.conf.j2").read_text(encoding="utf-8")
+
+        self.assertIn("proxy_read_timeout {{ nginx_proxy_read_timeout }};", template)
+        self.assertNotIn("proxy_read_timeout 3600s;", template)
+        self.assertNotIn("proxy_read_timeout 60s;", template)
 
     def test_nginx_route_template_does_not_branch_on_route_name_api(self) -> None:
         template = (SCRIPTS_ROOT / "templates" / "03-routes.conf.j2").read_text(encoding="utf-8")
@@ -583,6 +605,94 @@ class RenderNginxTests(unittest.TestCase):
 
         self.assertIn("Invalid nginx upstream", str(raised.exception))
 
+
+    def test_render_includes_limit_conn_zone_and_directive(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
+            SCRIPTS_ROOT / "templates",
+        )
+
+        self.assertIn("limit_conn_zone $binary_remote_addr zone=conn_per_ip:10m;", rendered)
+        self.assertIn("limit_conn conn_per_ip 50;", rendered)
+
+    def test_render_uses_nginx_conn_per_ip_env_value(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
+            SCRIPTS_ROOT / "templates",
+            {"NGINX_CONN_PER_IP": "25"},
+        )
+
+        self.assertIn("limit_conn conn_per_ip 25;", rendered)
+        self.assertNotIn("limit_conn conn_per_ip 50;", rendered)
+
+    def test_render_rejects_invalid_nginx_conn_per_ip(self) -> None:
+        with self.assertRaises(CommandError) as raised:
+            render_nginx_conf_modular(
+                [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
+                SCRIPTS_ROOT / "templates",
+                {"NGINX_CONN_PER_IP": "50; include /tmp/x"},
+            )
+
+        self.assertIn("Invalid nginx NGINX_CONN_PER_IP", str(raised.exception))
+
+    def test_limit_conn_directive_lives_in_render_context_not_template(self) -> None:
+        routes_template = (SCRIPTS_ROOT / "templates" / "03-routes.conf.j2").read_text(encoding="utf-8")
+        rate_template = (SCRIPTS_ROOT / "templates" / "01b-rate-limits.conf.j2").read_text(encoding="utf-8")
+
+        # Directive uses template variable (not hardcoded value)
+        self.assertIn("limit_conn conn_per_ip {{ nginx_conn_per_ip }};", routes_template)
+        self.assertNotIn("limit_conn conn_per_ip 50;", routes_template)
+        # Zone definition is in the rate-limits template
+        self.assertIn("limit_conn_zone $binary_remote_addr zone=conn_per_ip:10m;", rate_template)
+
+    def test_render_uses_nginx_media_cache_settings_env_values(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [NginxRoute("i", "dev-i.example.com", "backend:5073", "5m", media_proxy=True)],
+            SCRIPTS_ROOT / "templates",
+            {"NGINX_MEDIA_CACHE_MAX_SIZE": "2g", "NGINX_MEDIA_CACHE_INACTIVE": "30d"},
+        )
+
+        self.assertIn("max_size=2g", rendered)
+        self.assertIn("inactive=30d", rendered)
+        self.assertNotIn("max_size=10g", rendered)
+        self.assertNotIn("inactive=365d", rendered)
+
+    def test_render_media_cache_uses_conservative_defaults(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [NginxRoute("i", "dev-i.example.com", "backend:5073", "5m", media_proxy=True)],
+            SCRIPTS_ROOT / "templates",
+        )
+
+        self.assertIn("max_size=10g", rendered)
+        self.assertIn("inactive=365d", rendered)
+
+    def test_render_rejects_invalid_nginx_media_cache_max_size(self) -> None:
+        with self.assertRaises(CommandError) as raised:
+            render_nginx_conf_modular(
+                [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
+                SCRIPTS_ROOT / "templates",
+                {"NGINX_MEDIA_CACHE_MAX_SIZE": "10g; include /tmp/x"},
+            )
+
+        self.assertIn("Invalid nginx NGINX_MEDIA_CACHE_MAX_SIZE", str(raised.exception))
+
+    def test_render_rejects_invalid_nginx_media_cache_inactive(self) -> None:
+        with self.assertRaises(CommandError) as raised:
+            render_nginx_conf_modular(
+                [NginxRoute("api", "api.example.com", "backend:5073", "50m")],
+                SCRIPTS_ROOT / "templates",
+                {"NGINX_MEDIA_CACHE_INACTIVE": "365d; include /tmp/x"},
+            )
+
+        self.assertIn("Invalid nginx NGINX_MEDIA_CACHE_INACTIVE", str(raised.exception))
+
+    def test_media_cache_settings_live_in_render_context_not_template(self) -> None:
+        template = (SCRIPTS_ROOT / "templates" / "01-global.conf.j2").read_text(encoding="utf-8")
+
+        self.assertIn("max_size={{ nginx_media_cache_max_size }}", template)
+        self.assertIn("inactive={{ nginx_media_cache_inactive }}", template)
+        self.assertNotIn("max_size=10g", template)
+        self.assertNotIn("inactive=365d", template)
 
     def test_global_template_has_docker_resolver(self) -> None:
         template = (SCRIPTS_ROOT / "templates" / "01-global.conf.j2").read_text(encoding="utf-8")
