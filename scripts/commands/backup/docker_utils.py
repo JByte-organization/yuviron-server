@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
 
-from core.docker import run, run_compose
+from core.docker import run_compose
 from core.validators import CommandError
 
 REDIS_BGSAVE_POLL_INTERVAL = 1

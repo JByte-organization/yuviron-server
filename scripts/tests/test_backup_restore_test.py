@@ -14,6 +14,9 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from commands.backup import operations
+from commands.backup import _create as backup_create
+from commands.backup import _verify as backup_verify
+from commands.backup import _shared as backup_shared
 from commands.backup.remote import (
     TRANSPORT_LOCAL,
     TRANSPORT_RSYNC,
@@ -169,8 +172,8 @@ class BackupRestoreTestTests(unittest.TestCase):
                 (work_dir / "backup_2026-05-12T00-00-00Z").mkdir()
                 return SimpleNamespace(returncode=0)
 
-            with patch.object(operations, "_validate_tar"):
-                with patch.object(operations, "run", side_effect=fake_run):
+            with patch.object(backup_shared, "_validate_tar"):
+                with patch.object(backup_shared, "run", side_effect=fake_run):
                     snapshot_dir = operations._extract_snapshot_dir(archive, work_dir)
 
         self.assertEqual("backup_2026-05-12T00-00-00Z", snapshot_dir.name)
@@ -188,8 +191,8 @@ class BackupRestoreTestTests(unittest.TestCase):
                 (work_dir / "backup_b").mkdir()
                 return SimpleNamespace(returncode=0)
 
-            with patch.object(operations, "_validate_tar"):
-                with patch.object(operations, "run", side_effect=fake_run):
+            with patch.object(backup_shared, "_validate_tar"):
+                with patch.object(backup_shared, "run", side_effect=fake_run):
                     with self.assertRaises(CommandError) as raised:
                         operations._extract_snapshot_dir(archive, work_dir)
 
@@ -219,13 +222,13 @@ class BackupRestoreTestTests(unittest.TestCase):
     def test_check_restored_mysql_tables_accepts_minimum_table_count(self) -> None:
         logger = SimpleNamespace(info=lambda _message: None)
 
-        with patch.object(operations, "_query_standalone_mysql", side_effect=["2", "Albums\nTracks"]):
+        with patch.object(backup_shared, "_query_standalone_mysql", side_effect=["2", "Albums\nTracks"]):
             operations._check_restored_mysql_tables("restore-test-dev", "restore_dev", 1, logger)
 
     def test_check_restored_mysql_tables_fails_when_dump_imports_no_tables(self) -> None:
         logger = SimpleNamespace(info=lambda _message: None)
 
-        with patch.object(operations, "_query_standalone_mysql", return_value="0"):
+        with patch.object(backup_shared, "_query_standalone_mysql", return_value="0"):
             with self.assertRaises(CommandError) as raised:
                 operations._check_restored_mysql_tables("restore-test-dev", "restore_dev", 1, logger)
 
@@ -291,9 +294,9 @@ class BackupRestoreTestTests(unittest.TestCase):
                             input_archive.extractall(cmd[4])
                 return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-            with patch.object(operations, "load_dotenv_if_exists"):
-                with patch.object(operations, "_resolve_backup_paths", return_value=paths):
-                    with patch.object(operations, "run", side_effect=fake_run):
+            with patch.object(backup_verify, "load_dotenv_if_exists"):
+                with patch.object(backup_verify, "_resolve_backup_paths", return_value=paths):
+                    with patch.object(backup_verify, "run", side_effect=fake_run):
                         with self.assertRaises(CommandError) as raised:
                             operations.cmd_backup_verify(
                                 SimpleNamespace(
@@ -320,11 +323,11 @@ class BackupRestoreTestTests(unittest.TestCase):
             prod_dump.write_text("prod", encoding="utf-8")
             logger = SimpleNamespace(info=lambda _message: None)
 
-            with patch.object(operations.time, "strftime", return_value="2026-05-12T07-30-00Z"):
-                with patch.object(operations.os, "getpid", return_value=1234):
-                    with patch.object(operations, "_extract_snapshot_dir", return_value=snapshot_dir):
-                        with patch.object(operations, "_restore_mysql_dump_into_standalone_container") as restore_mock:
-                            with patch.object(operations, "run") as run_mock:
+            with patch.object(backup_shared.time, "strftime", return_value="2026-05-12T07-30-00Z"):
+                with patch.object(backup_shared.os, "getpid", return_value=1234):
+                    with patch.object(backup_shared, "_extract_snapshot_dir", return_value=snapshot_dir):
+                        with patch.object(backup_shared, "_restore_mysql_dump_into_standalone_container") as restore_mock:
+                            with patch.object(backup_shared, "run") as run_mock:
                                 operations._run_archive_restore_tests(
                                     archive_file=archive,
                                     paths=paths,
@@ -410,19 +413,19 @@ class BackupRestoreTestTests(unittest.TestCase):
                 "BACKUP_RESTORE_TEST_AFTER_CREATE": "1",
             }
 
-            with patch.dict(operations.os.environ, env, clear=False):
-                with patch.object(operations, "load_dotenv_if_exists"):
-                    with patch.object(operations, "_resolve_backup_paths", return_value=paths):
-                        with patch.object(operations, "ensure_generated_env"):
-                            with patch.object(operations, "generated_exists", return_value=True):
-                                with patch.object(operations, "create_compose_context", return_value=context):
-                                    with patch.object(operations, "_service_exists", side_effect=lambda _ctx, service: service == "mysql"):
-                                        with patch.object(operations, "_service_running", side_effect=lambda _ctx, service: service == "mysql"):
-                                            with patch.object(operations, "_stream_command_stdout_to_gzip", side_effect=fake_stream):
-                                                with patch.object(operations, "_validate_gzip"):
-                                                    with patch.object(operations, "_validate_tar"):
-                                                        with patch.object(operations, "run", side_effect=fake_run):
-                                                            with patch.object(operations, "_run_archive_restore_tests") as restore_test_mock:
+            with patch.dict(backup_create.os.environ, env, clear=False):
+                with patch.object(backup_create, "load_dotenv_if_exists"):
+                    with patch.object(backup_create, "_resolve_backup_paths", return_value=paths):
+                        with patch.object(backup_create, "ensure_generated_env"):
+                            with patch.object(backup_create, "generated_exists", return_value=True):
+                                with patch.object(backup_create, "create_compose_context", return_value=context):
+                                    with patch.object(backup_create, "_service_exists", side_effect=lambda _ctx, service: service == "mysql"):
+                                        with patch.object(backup_create, "_service_running", side_effect=lambda _ctx, service: service == "mysql"):
+                                            with patch.object(backup_create, "_stream_command_stdout_to_gzip", side_effect=fake_stream):
+                                                with patch.object(backup_create, "_validate_gzip"):
+                                                    with patch.object(backup_create, "_validate_tar"):
+                                                        with patch.object(backup_create, "run", side_effect=fake_run):
+                                                            with patch.object(backup_create, "_run_archive_restore_tests") as restore_test_mock:
                                                                 result = operations.cmd_backup_create(
                                                                     SimpleNamespace(
                                                                         project_root=str(root),
@@ -450,9 +453,9 @@ class BackupRestoreTestTests(unittest.TestCase):
             archive = root / "backup.tar.gz"
             archive.write_text("archive", encoding="utf-8")
 
-            with patch.object(operations, "load_dotenv_if_exists"):
-                with patch.object(operations, "_resolve_backup_paths", return_value=paths):
-                    with patch.object(operations, "_resolve_backup_archive", return_value=archive):
+            with patch.object(backup_verify, "load_dotenv_if_exists"):
+                with patch.object(backup_verify, "_resolve_backup_paths", return_value=paths):
+                    with patch.object(backup_verify, "_resolve_backup_archive", return_value=archive):
                         with self.assertRaises(CommandError) as raised:
                             operations.cmd_backup_restore_test(
                                 SimpleNamespace(
@@ -481,17 +484,17 @@ class BackupRestoreTestTests(unittest.TestCase):
             env_dir.mkdir(parents=True)
             (env_dir / "mysql.sql.gz").write_text("dump", encoding="utf-8")
 
-            with patch.object(operations, "load_dotenv_if_exists"):
-                with patch.object(operations, "_resolve_backup_paths", return_value=paths):
-                    with patch.object(operations, "_resolve_backup_archive", return_value=archive):
-                        with patch.object(operations, "_extract_snapshot_dir", return_value=snapshot_dir):
+            with patch.object(backup_verify, "load_dotenv_if_exists"):
+                with patch.object(backup_verify, "_resolve_backup_paths", return_value=paths):
+                    with patch.object(backup_verify, "_resolve_backup_archive", return_value=archive):
+                        with patch.object(backup_verify, "_extract_snapshot_dir", return_value=snapshot_dir):
                             with patch.object(
-                                operations,
+                                backup_verify,
                                 "_restore_mysql_dump_into_standalone_container",
                                 side_effect=CommandError("import failed"),
                             ):
-                                with patch.object(operations, "run") as run_mock:
-                                    with patch.object(operations.shutil, "rmtree") as rmtree_mock:
+                                with patch.object(backup_verify, "run") as run_mock:
+                                    with patch.object(backup_verify.shutil, "rmtree") as rmtree_mock:
                                         with self.assertRaises(CommandError):
                                             operations.cmd_backup_restore_test(
                                                 SimpleNamespace(
@@ -513,7 +516,7 @@ class BackupRestoreTestTests(unittest.TestCase):
         )
 
         with patch.object(
-            operations,
+            backup_create,
             "run",
             return_value=SimpleNamespace(returncode=0, stdout="", stderr=""),
         ):
@@ -528,7 +531,7 @@ class BackupRestoreTestTests(unittest.TestCase):
         stdout = "yuviron_dev.Users\t\tError: Corrupt\nyuviron_dev.Tracks\t\tWarning: Not unique"
 
         with patch.object(
-            operations,
+            backup_create,
             "run",
             return_value=SimpleNamespace(returncode=1, stdout=stdout, stderr=""),
         ):
@@ -544,7 +547,7 @@ class BackupRestoreTestTests(unittest.TestCase):
         )
 
         with patch.object(
-            operations,
+            backup_create,
             "run",
             return_value=SimpleNamespace(returncode=2, stdout="", stderr="connection refused"),
         ):

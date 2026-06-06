@@ -265,18 +265,18 @@ class OffsiteBackupTests(unittest.TestCase):
                 "BACKUP_RETENTION_DAYS": "14",
                 "BACKUP_REMOTE_PATH": "",
             }),
-            patch("commands.backup.operations.ensure_generated_env"),
-            patch("commands.backup.operations.generated_exists", return_value=True),
-            patch("commands.backup.operations.create_compose_context", return_value=ctx),
-            patch("commands.backup.operations._service_exists", return_value=False),
-            patch("commands.backup.operations._service_running", return_value=False),
-            patch("commands.backup.operations._trigger_redis_bgsave", return_value=True),
-            patch("commands.backup.operations._stream_command_stdout_to_gzip",
+            patch("commands.backup._create.ensure_generated_env"),
+            patch("commands.backup._create.generated_exists", return_value=True),
+            patch("commands.backup._create.create_compose_context", return_value=ctx),
+            patch("commands.backup._create._service_exists", return_value=False),
+            patch("commands.backup._create._service_running", return_value=False),
+            patch("commands.backup._create._trigger_redis_bgsave", return_value=True),
+            patch("commands.backup._create._stream_command_stdout_to_gzip",
                   return_value=(1, "")),  # mysql not running, skip
-            patch("commands.backup.operations.resolve_offsite_config",
+            patch("commands.backup._create.resolve_offsite_config",
                   return_value=offsite_config),
-            patch("commands.backup.operations.upload_offsite", upload_mock),
-            patch("commands.backup.operations.run", side_effect=_make_fake_run()),
+            patch("commands.backup._create.upload_offsite", upload_mock),
+            patch("commands.backup._create.run", side_effect=_make_fake_run()),
         ):
             result = cmd_backup_create(args)
 
@@ -309,3 +309,49 @@ class OffsiteBackupTests(unittest.TestCase):
             upload_mock, result = self._run_backup(Path(tmp), offsite_config=None)
         upload_mock.assert_not_called()
         self.assertEqual(0, result)
+
+
+class DeployEnvBackupWarningTests(unittest.TestCase):
+    """#23 — backup must warn when deploy.env (plaintext secrets) is included in archive."""
+
+    def test_deploy_env_backup_emits_secret_warning(self) -> None:
+        from commands.backup._create import _archive_runtime_files, _BackupSession, BackupPaths
+        from commands.backup.core import BackupLogger
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gen = root / "generated" / "prod"
+            gen.mkdir(parents=True)
+            (gen / "deploy.env").write_text(
+                "JWT_SECRET=supersecret\nMYSQL_PASSWORD=pw\n", encoding="utf-8"
+            )
+
+            warnings: list[str] = []
+
+            class _CapturingLogger(BackupLogger):
+                def __init__(self) -> None:  # skip log_file setup
+                    self._log_file = None
+                def warn(self, msg: str) -> None:
+                    warnings.append(msg)
+
+            session = _BackupSession(
+                root_dir=root,
+                paths=MagicMock(),
+                logger=_CapturingLogger(),
+                backend_service_name="backend",
+                mysql_service_name="mysql",
+                redis_service_name="redis",
+                offsite_config=None,
+                backup_retention_days=14,
+                backup_project_name="test",
+                requested_envs=["prod"],
+                tmp_snapshot_dir=root / "tmp",
+                timestamp_utc="20260606_120000",
+            )
+
+            out_env = root / "out.env"
+            _archive_runtime_files(session, "prod", out_env, root / "r.env", root / "s.env")
+
+            self.assertTrue(any("deploy.env" in w and "plaintext" in w for w in warnings),
+                            f"Expected plaintext secret warning, got: {warnings}")
+            self.assertTrue(any("plaintext secrets" in w or "plaintext" in w for w in warnings))

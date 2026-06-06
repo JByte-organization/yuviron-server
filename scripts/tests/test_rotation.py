@@ -8,13 +8,11 @@ Coverage:
 """
 from __future__ import annotations
 
-import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch, MagicMock
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
@@ -142,12 +140,11 @@ class RotateHtpasswdTests(unittest.TestCase):
         creds_path = gen / "htpasswd.credentials"
         initial = ensure_htpasswd_file(htpasswd_path)
         assert initial is not None
-        initial_password = initial.password
 
         # Create deploy.env that points to this htpasswd
         (gen / "deploy.env").write_text(
-            f"NGINX_BASIC_AUTH_FILE=./generated/dev/htpasswd\n"
-            f"NGINX_BASIC_AUTH_USER=admin\n",
+            "NGINX_BASIC_AUTH_FILE=./generated/dev/htpasswd\n"
+            "NGINX_BASIC_AUTH_USER=admin\n",
             encoding="utf-8",
         )
 

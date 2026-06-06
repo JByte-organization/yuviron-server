@@ -18,12 +18,10 @@
 from __future__ import annotations
 
 import gzip
-import json
 import os
 import shutil
 import subprocess
 import tarfile
-import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -117,7 +115,8 @@ def _validate_redis_persistence_archive(path: Path) -> None:
 def _stream_command_stdout_to_gzip(cmd: list[str], out_file: Path) -> tuple[int, str]:
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-    assert proc.stdout is not None
+    if proc.stdout is None:
+        raise RuntimeError("Popen stdout is None despite stdout=PIPE")
     with gzip.open(out_file, "wb") as gz:
         shutil.copyfileobj(proc.stdout, gz)
 
@@ -129,7 +128,8 @@ def _stream_command_stdout_to_gzip(cmd: list[str], out_file: Path) -> tuple[int,
 
 def _stream_gzip_to_stdin(gzip_file: Path, cmd: list[str]) -> tuple[int, str]:
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-    assert proc.stdin is not None
+    if proc.stdin is None:
+        raise RuntimeError("Popen stdin is None despite stdin=PIPE")
 
     with gzip.open(gzip_file, "rb") as src:
         shutil.copyfileobj(src, proc.stdin)

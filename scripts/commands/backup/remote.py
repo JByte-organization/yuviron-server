@@ -213,13 +213,21 @@ def _resolve_ssh_key() -> str | None:
 def _upload_local(archive: Path, destination: str, logger: BackupLogger) -> None:
     """Скопировать архив в локально смонтированную директорию.
 
-    mkdir -p создаёт вложенные папки если не существуют (удобно для первого запуска).
-    shutil.copy2 сохраняет временны́е метки оригинала — полезно для логирования.
+    Используем атомарный паттерн: копируем во временный .part-файл, затем
+    os.rename() переименовывает атомарно. Если процесс прерваётся на середине
+    копирования, неполный .part-файл не будет принят за финальный архив.
     """
     dest_dir = Path(destination)
     dest_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(archive, dest_dir / archive.name)
-    logger.info(f"Local offsite copy completed: {dest_dir / archive.name}")
+    final = dest_dir / archive.name
+    part = dest_dir / (archive.name + ".part")
+    try:
+        shutil.copy2(archive, part)
+        os.rename(part, final)
+    except Exception:
+        part.unlink(missing_ok=True)
+        raise
+    logger.info(f"Local offsite copy completed: {final}")
 
 
 def _upload_rsync(archive: Path, destination: str, logger: BackupLogger) -> None:
