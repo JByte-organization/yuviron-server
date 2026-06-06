@@ -206,9 +206,9 @@ services:
     cpus: ${RABBITMQ_CPUS:-0.5}
 
   clickhouse:
-    # LTS image — pin to a specific patch when it becomes available via digest.
-    # Check for newer LTS: https://hub.docker.com/r/clickhouse/clickhouse-server/tags?name=lts
-    image: clickhouse/clickhouse-server:24.8-lts
+    # 24.8 is the LTS series (the -lts tag does not exist on Docker Hub; use the series tag).
+    # Check for newer LTS: https://hub.docker.com/r/clickhouse/clickhouse-server/tags
+    image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b
     container_name: ${COMPOSE_PROJECT_NAME}-clickhouse
     restart: ${RESTART_POLICY}
     cap_drop:
