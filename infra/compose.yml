@@ -392,7 +392,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget -qO- http://127.0.0.1/health | grep -qx 'edge-nginx-ok' || exit 1; found=0; for f in /etc/nginx/certs/*.pem /etc/nginx/certs/*/*.pem; do [ -f $f ] || continue; case $f in *-key.pem) continue;; esac; openssl x509 -checkend 0 -noout -in $f 2>/dev/null || exit 1; found=1; done; [ $found -eq 1 ] || exit 1",
+          "wget -qO- http://127.0.0.1/health | grep -qx 'edge-nginx-ok' || exit 1; found=0; for f in /etc/nginx/certs/*.pem /etc/nginx/certs/*/*.pem; do [ -f $$f ] || continue; case $$f in *-key.pem) continue;; esac; openssl x509 -checkend 0 -noout -in $$f 2>/dev/null || exit 1; found=1; done; [ $$found -eq 1 ] || exit 1",
         ]
       interval: 15s
       timeout: 5s
