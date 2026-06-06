@@ -14,7 +14,9 @@
 # В нём описываются сервисы выбранных фронтенд-приложений (admin, backoffice и др.)
 # и патчатся depends_on для nginx (чтобы nginx ждал фронтенды перед стартом).
 #
-# Healthcheck для фронтенда: TCP-коннект к порту 3000 через Node.js net.connect().
+# Healthcheck для фронтенда: используется HEALTHCHECK из infra/docker/frontend-next/Dockerfile
+# (HTTP GET / с проверкой statusCode < 400). Compose не переопределяет его, чтобы не
+# деградировать до TCP-only проверки.
 # =============================================================================
 from __future__ import annotations
 
@@ -62,14 +64,6 @@ def build_frontend_service(app: FrontendApp, root_dir: Path) -> dict:
         frontend_context_path,
     )
     resource_prefix = frontend_resource_env_prefix(app)
-    healthcheck_command = (
-        "node -e \"const net = require('net'); "
-        "const socket = net.connect(3000, '127.0.0.1'); "
-        "socket.setTimeout(5000); "
-        "socket.on('connect', () => process.exit(0)); "
-        "socket.on('error', () => process.exit(1)); "
-        "socket.on('timeout', () => process.exit(1));\""
-    )
     return {
         app.service_name: {
             "build": {
@@ -85,13 +79,6 @@ def build_frontend_service(app: FrontendApp, root_dir: Path) -> dict:
             "cap_drop": ["ALL"],
             "security_opt": ["no-new-privileges:true"],
             "networks": ["default"],
-            "healthcheck": {
-                "test": ["CMD-SHELL", healthcheck_command],
-                "interval": "15s",
-                "timeout": "5s",
-                "retries": 5,
-                "start_period": "30s",
-            },
             "mem_limit": f"${{{resource_prefix}_MEM_LIMIT:-256m}}",
             "memswap_limit": f"${{{resource_prefix}_MEMSWAP_LIMIT:-256m}}",
             "cpus": f"${{{resource_prefix}_CPUS:-0.25}}",

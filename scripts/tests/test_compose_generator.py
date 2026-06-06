@@ -126,10 +126,9 @@ class RenderComposeTests(unittest.TestCase):
         self.assertEqual("${ADMIN_MEM_LIMIT:-256m}", admin["mem_limit"])
         self.assertEqual("${ADMIN_MEMSWAP_LIMIT:-256m}", admin["memswap_limit"])
         self.assertEqual("${ADMIN_CPUS:-0.25}", admin["cpus"])
-        self.assertEqual("CMD-SHELL", admin["healthcheck"]["test"][0])
-        self.assertIn("net.connect(3000, '127.0.0.1')", admin["healthcheck"]["test"][1])
-        self.assertEqual(5, admin["healthcheck"]["retries"])
-        self.assertEqual("30s", admin["healthcheck"]["start_period"])
+        # No healthcheck override — the Dockerfile HEALTHCHECK (HTTP GET /) is used instead.
+        # A compose override would downgrade to TCP-only (net.connect) and miss HTTP 500 errors.
+        self.assertNotIn("healthcheck", admin)
 
 
 if __name__ == "__main__":

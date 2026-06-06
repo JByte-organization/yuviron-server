@@ -27,6 +27,11 @@ __pycache__/
 **/bin/
 **/obj/
 
+# Env-specific appsettings contain secrets — all secrets are injected via compose env vars.
+# The base appsettings.json (with placeholder values) stays in the image.
+**/appsettings.Production.json
+**/appsettings.Development.json
+
 # Frontend source and build artifacts — frontend images use src/yuviron-frontend as context
 src/yuviron-frontend/
 **/node_modules/

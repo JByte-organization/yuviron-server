@@ -121,5 +121,43 @@ class ConfigLoaderStackPortsTests(unittest.TestCase):
         (root / "env" / "prod.env").write_text("", encoding="utf-8")
 
 
+class CorsOriginVarsTests(unittest.TestCase):
+    def _get_stack_values(self, env_name: str, domain: str = "example.com") -> dict:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "config").mkdir(parents=True)
+            (root / "env").mkdir(parents=True)
+            (root / "config" / "project.yml").write_text("project_name: yuviron\n", encoding="utf-8")
+            (root / "env" / "common.env").write_text("", encoding="utf-8")
+            (root / "env" / f"{env_name}.env").write_text("", encoding="utf-8")
+            return render_stack_values(root, env_name, domain)
+
+    def test_prod_generates_three_cors_origins_without_localhost(self) -> None:
+        values = self._get_stack_values("prod", "example.com")
+        self.assertEqual(values["CORS_ORIGIN_0"], "https://example.com")
+        self.assertEqual(values["CORS_ORIGIN_1"], "https://admin.example.com")
+        self.assertEqual(values["CORS_ORIGIN_2"], "https://backoffice.example.com")
+        self.assertNotIn("CORS_ORIGIN_3", values)
+
+    def test_dev_generates_four_cors_origins_with_localhost(self) -> None:
+        values = self._get_stack_values("dev", "example.com")
+        self.assertEqual(values["CORS_ORIGIN_0"], "https://dev.example.com")
+        self.assertEqual(values["CORS_ORIGIN_1"], "https://dev-admin.example.com")
+        self.assertEqual(values["CORS_ORIGIN_2"], "https://dev-backoffice.example.com")
+        self.assertEqual(values["CORS_ORIGIN_3"], "http://localhost:3000")
+
+    def test_cors_origins_use_provided_domain(self) -> None:
+        values = self._get_stack_values("prod", "myapp.io")
+        self.assertIn("myapp.io", values["CORS_ORIGIN_0"])
+        self.assertIn("myapp.io", values["CORS_ORIGIN_1"])
+        self.assertIn("myapp.io", values["CORS_ORIGIN_2"])
+
+    def test_cors_origins_appear_in_deploy_env(self) -> None:
+        """CORS_ORIGIN_* must be present in deploy.env for compose.yml to expand them."""
+        values = self._get_stack_values("dev", "example.com")
+        for i in range(4):
+            self.assertIn(f"CORS_ORIGIN_{i}", values)
+
+
 if __name__ == "__main__":
     unittest.main()

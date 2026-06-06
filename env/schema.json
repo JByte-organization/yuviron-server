@@ -50,6 +50,8 @@
     "SHARED_NETWORK",
     "STORAGE_PATH",
     "Seq__ServerUrl",
+    "Stripe__SecretKey",
+    "Stripe__WebhookSecret",
     "Swagger__Enabled"
   ],
   "properties": {
@@ -84,252 +86,332 @@
     },
     "ASPNETCORE_ENVIRONMENT": {
       "type": "string",
-      "enum": ["Development", "Production"]
+      "enum": ["Development", "Production"],
+      "description": "ASP.NET Core runtime environment. Use 'Development' for dev (Swagger on, detailed errors) and 'Production' for prod."
     },
     "ASPIRE_ASPNETCORE_URLS": {
       "type": "string",
-      "format": "url"
+      "format": "url",
+      "description": "Kestrel listen URL for the Aspire dashboard service (e.g. http://+:18888)."
     },
     "ASPIRE_FRONTEND_AUTH_MODE": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Aspire dashboard frontend auth mode. 'BrowserToken' requires ASPIRE_FRONTEND_BROWSER_TOKEN to be set."
     },
     "ASPIRE_FRONTEND_BROWSER_TOKEN": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Browser authentication token for accessing the Aspire dashboard UI. Must be at least 128 bits of entropy."
     },
     "ASPIRE_OTLP_API_KEY": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "API key sent as a header when the .NET services push OpenTelemetry data to the Aspire collector."
     },
     "ASPIRE_OTLP_ENDPOINT_URL": {
       "type": "string",
-      "format": "url"
+      "format": "url",
+      "description": "OpenTelemetry collector endpoint URL that .NET services export traces/metrics/logs to."
     },
     "BACKEND_SERVICE_NAME": {
       "type": "string",
-      "format": "docker-name"
+      "format": "docker-name",
+      "description": "Docker Compose service name of the backend API container. Used by backup to stop/start the service."
     },
     "BACKUP_ARCHIVE_DIR": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Host directory where completed backup archives (.tar.gz) are stored. Rotated by BACKUP_RETENTION_DAYS."
     },
     "BACKUP_ENVS": {
       "type": "string",
-      "format": "csv"
+      "format": "csv",
+      "description": "Comma-separated list of environments to include in each backup run (e.g. 'dev,prod')."
     },
     "BACKUP_LOG_DIR": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Host directory for backup operation log files."
     },
     "BACKUP_PROJECT_NAME": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Project name prefix embedded in backup archive filenames (e.g. 'yuviron')."
     },
     "BACKUP_REMOTE_PATH": {
-      "type": "string"
+      "type": "string",
+      "description": "Destination path for offsite backup copies. Interpreted by BACKUP_REMOTE_TRANSPORT (remote path for rsync/scp, bucket/prefix for s3, local directory for local)."
     },
     "BACKUP_REMOTE_TRANSPORT": {
       "type": "string",
-      "enum": ["", "local", "rsync", "scp", "s3"]
+      "enum": ["", "local", "rsync", "scp", "s3"],
+      "description": "Transport for offsite backup copies. 'local' = local filesystem copy, 'rsync'/'scp' = SSH remote, 's3' = AWS S3. Empty string disables offsite copies."
     },
     "BACKUP_SSH_KEY_FILE": {
-      "type": "string"
+      "type": "string",
+      "description": "Path to SSH private key used when BACKUP_REMOTE_TRANSPORT is 'rsync' or 'scp'."
     },
     "BACKUP_S3_STORAGE_CLASS": {
-      "type": "string"
+      "type": "string",
+      "description": "S3 storage class for backup uploads (e.g. STANDARD, STANDARD_IA, GLACIER). Defaults to STANDARD if not set."
     },
     "BACKUP_RESTORE_TEST_TMP": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Temporary directory used during restore-test operations. Must have enough space to hold an unpacked backup."
     },
     "BACKUP_RESTORE_TEST_AFTER_CREATE": {
       "type": "string",
-      "format": "boolean"
+      "format": "boolean",
+      "description": "Set to 'true' to automatically run a restore test immediately after each backup create."
     },
     "BACKUP_RETENTION_DAYS": {
       "type": "string",
-      "format": "positive-integer"
+      "format": "positive-integer",
+      "description": "Number of days to keep backup archives before automatic deletion. Archives older than this are removed during cleanup."
     },
     "BACKUP_ROOT": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Root directory for all backup data on the host (archives, logs, tmp). Subdirectories are created automatically."
     },
     "BACKUP_STORAGE_DEV": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Path inside the backend container where the dev environment's file storage is mounted (used during backup snapshot)."
     },
     "BACKUP_STORAGE_PROD": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Path inside the backend container where the prod environment's file storage is mounted (used during backup snapshot)."
     },
     "BACKUP_TMP": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Temporary working directory used during backup creation. Cleaned up after each run."
     },
     "BASE_DOMAIN": {
       "type": "string",
-      "format": "domain"
+      "format": "domain",
+      "description": "Root domain for all services (e.g. 'yuviron.com'). Subdomains are derived by prepending environment prefix and route name."
     },
     "CERT_FILE": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Host path to the TLS certificate file (.pem) mounted into the nginx container. In per-route mode this is the default/fallback cert."
     },
     "COMPOSE_PROJECT_NAME": {
       "type": "string",
-      "format": "docker-name"
+      "format": "docker-name",
+      "description": "Docker Compose project name. Prefixes all container names and network names (e.g. 'yuviron-dev')."
     },
     "ConnectionStrings__Default": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "MySQL connection string for Entity Framework Core (e.g. 'Server=mysql;Database=...;User=...;Password=...')."
     },
     "ConnectionStrings__Redis": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Redis connection string for StackExchange.Redis (e.g. 'redis:6379,password=...')."
     },
     "DOTNET_APP_GID": {
       "type": "string",
-      "format": "non-negative-integer"
+      "format": "non-negative-integer",
+      "description": "GID for the non-root user inside .NET containers. Must match the user created in the Dockerfile."
     },
     "DOTNET_APP_UID": {
       "type": "string",
-      "format": "non-negative-integer"
+      "format": "non-negative-integer",
+      "description": "UID for the non-root user inside .NET containers. Must match the user created in the Dockerfile."
     },
     "DOTNET_VERSION": {
       "type": "string",
-      "pattern": "^[0-9]+(\\.[0-9]+)?$"
+      "pattern": "^[0-9]+(\\.[0-9]+)?$",
+      "description": ".NET SDK/runtime major version used as a build arg in the Dockerfile (e.g. '9' or '9.0')."
     },
     "ENVIRONMENT": {
       "type": "string",
-      "enum": ["dev", "prod"]
+      "enum": ["dev", "prod"],
+      "description": "Deployment environment identifier. Controls nginx domain prefixing, TLS cert mode defaults, and security check thresholds."
     },
     "FILE_STORAGE_ROOT": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Host filesystem path where user-uploaded files are stored and bind-mounted into the backend container."
     },
     "HTTP_PORT": {
       "type": "string",
-      "format": "port"
+      "format": "port",
+      "description": "Host port that nginx binds for HTTP (port 80 traffic). Used for ACME challenges and HTTP→HTTPS redirects."
     },
     "HTTPS_PORT": {
       "type": "string",
-      "format": "port"
+      "format": "port",
+      "description": "Host port that nginx binds for HTTPS (port 443 traffic). Main entry point for all TLS traffic."
     },
     "JamendoApi__ClientId": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Jamendo API client ID used by the backend for royalty-free music search and licensing."
     },
     "KEY_FILE": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Host path to the TLS private key file (.pem). Mounted read-only into nginx. Group ownership must match NGINX_CERT_GROUP_ID."
     },
     "MYSQL_DATABASE": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "MySQL database name created on first run and used by the application. Also serves as the ALLOW_PRODUCTION_MIGRATE fingerprint."
     },
     "MYSQL_PASSWORD": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Password for the application MySQL user (MYSQL_USER). Use a strong password in production."
     },
     "MYSQL_ROOT_PASSWORD": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "MySQL root password. Required for mysqldump during backup and for EF Core migrations. Keep secret."
     },
     "MYSQL_SERVICE_NAME": {
       "type": "string",
-      "format": "docker-name"
+      "format": "docker-name",
+      "description": "Docker Compose service name of the MySQL container. Used by backup to run mysqldump inside the container."
     },
     "MYSQL_USER": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "MySQL application username with access to MYSQL_DATABASE. Used in ConnectionStrings__Default."
     },
     "NGINX_ADMIN_ALLOWLIST": {
       "type": "string",
-      "format": "cidr-list"
+      "format": "cidr-list",
+      "description": "Comma-separated IP/CIDR allowlist for management routes (seq, aspire, rabbitmq, adminer). Always includes 127.0.0.1/32."
     },
     "NGINX_BASIC_AUTH_FILE": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Host path to the htpasswd file bind-mounted into nginx for HTTP Basic Auth on management routes."
     },
     "NGINX_BASIC_AUTH_USER": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Username for nginx HTTP Basic Auth. Used to generate the htpasswd file on first deploy."
     },
     "NGINX_CERT_GROUP_ID": {
       "type": "string",
-      "format": "non-negative-integer"
+      "format": "non-negative-integer",
+      "description": "GID of the OS group that owns TLS key files. nginx runs as this group to read keys without world-readable permissions."
     },
     "NGINX_CERT_MODE": {
       "type": "string",
-      "enum": ["shared", "per-route"]
+      "enum": ["shared", "per-route"],
+      "description": "TLS certificate mode. 'shared' = one SAN cert for all domains (default in dev). 'per-route' = one cert per domain (default in prod, used with Let's Encrypt)."
     },
     "NGINX_CONTENT_SECURITY_POLICY": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Content-Security-Policy header value. Overrides the built-in strict default. Set per-environment if external scripts/fonts are needed."
     },
     "NGINX_PRIVATE_ACCESS_CIDRS": {
       "type": "string",
-      "format": "cidr-list"
+      "format": "cidr-list",
+      "description": "Extra IP/CIDR ranges added to NGINX_ADMIN_ALLOWLIST. Set in non-tracked env files (e.g. Tailscale network CIDRs or office IPs)."
     },
     "NGINX_PUBLIC_RATE_BURST": {
       "type": "string",
-      "format": "positive-integer"
+      "format": "positive-integer",
+      "description": "Burst size for the api_general rate limit zone — number of requests allowed to exceed the rate limit instantly before throttling."
     },
     "NGINX_PUBLIC_RATE_LIMIT": {
       "type": "string",
-      "format": "nginx-rate"
+      "format": "nginx-rate",
+      "description": "Rate limit for the api_general zone (e.g. '20r/s', '30r/m'). Applied to all public API routes not using a stricter zone."
     },
     "NGINX_WORKER_CONNECTIONS": {
       "type": "string",
-      "format": "positive-integer"
+      "format": "positive-integer",
+      "description": "Maximum number of simultaneous connections per nginx worker process. Total capacity = NGINX_WORKER_PROCESSES × NGINX_WORKER_CONNECTIONS."
     },
     "NGINX_WORKER_PROCESSES": {
       "type": "string",
-      "pattern": "^(auto|[1-9][0-9]*)$"
+      "pattern": "^(auto|[1-9][0-9]*)$",
+      "description": "Number of nginx worker processes. 'auto' sets it equal to the number of CPU cores. Increase for CPU-bound workloads."
     },
     "NGINX_RATE_API_AUTH": {
       "type": "string",
-      "format": "nginx-rate"
+      "format": "nginx-rate",
+      "description": "Rate limit for auth endpoints (login, register, token refresh). Should be stricter than api_general to slow brute-force attacks."
     },
     "NGINX_RATE_API_GENERAL": {
       "type": "string",
-      "format": "nginx-rate"
+      "format": "nginx-rate",
+      "description": "Rate limit for general API traffic in dev.env. Note: render_nginx.py reads NGINX_PUBLIC_RATE_LIMIT (from common.env) for the api_general zone — this variable has no effect on the generated nginx.conf."
     },
     "NGINX_RATE_API_UPLOAD": {
       "type": "string",
-      "format": "nginx-rate"
+      "format": "nginx-rate",
+      "description": "Rate limit for file upload endpoints (e.g. media, upload). Typically much lower than api_general to prevent storage abuse."
+    },
+    "NGINX_PROXY_READ_TIMEOUT": {
+      "type": "string",
+      "description": "nginx proxy_read_timeout for regular API routes. Defaults to 60s. Increase for SSE/long-polling endpoints (e.g. '3600s')."
+    },
+    "NGINX_CONN_PER_IP": {
+      "type": "string",
+      "format": "positive-integer",
+      "description": "Maximum simultaneous nginx connections from a single IP (limit_conn). Protects against connection flooding (Slowloris). Default: 50."
+    },
+    "NGINX_MEDIA_CACHE_MAX_SIZE": {
+      "type": "string",
+      "description": "Maximum disk space for the nginx media proxy cache (e.g. '10g', '2g'). Keep well below total available disk. Default: 10g."
+    },
+    "NGINX_MEDIA_CACHE_INACTIVE": {
+      "type": "string",
+      "description": "Evict media cache entries not accessed within this period (e.g. '365d', '30d'). Default: 365d."
     },
     "OPS_LOG_DIR": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Host directory for operational log files (stack up/down, cron job output)."
     },
     "OTEL_EXPORTER_OTLP_ENDPOINT": {
       "type": "string",
-      "format": "url"
+      "format": "url",
+      "description": "OpenTelemetry Protocol (OTLP) collector endpoint URL that .NET services send traces and metrics to."
     },
     "OTEL_EXPORTER_OTLP_HEADERS": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "HTTP headers for the OTLP exporter, as a comma-separated list of 'Key=Value' pairs (e.g. 'Authorization=Bearer ...')."
     },
     "OTEL_EXPORTER_OTLP_PROTOCOL": {
       "type": "string",
-      "enum": ["grpc", "http/protobuf"]
+      "enum": ["grpc", "http/protobuf"],
+      "description": "OTLP wire protocol. 'grpc' uses gRPC (port 4317), 'http/protobuf' uses HTTP/1.1 (port 4318)."
     },
     "RABBITMQ_DEFAULT_PASS": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "RabbitMQ default user password. Used both by the RabbitMQ container and by the .NET RabbitMQ__Password connection setting."
     },
     "RABBITMQ_DEFAULT_USER": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "RabbitMQ default username. Must match RabbitMQ__Username used by the .NET backend."
     },
     "RABBITMQ_DEFAULT_VHOST": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "RabbitMQ default virtual host. Use '/' for simple setups or a named vhost for isolation."
     },
     "REDIS_PASSWORD": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Redis AUTH password. Set on the Redis container and referenced in ConnectionStrings__Redis."
     },
     "REDIS_MAXMEMORY": {
       "type": "string",
@@ -343,79 +425,231 @@
     },
     "RESTART_POLICY": {
       "type": "string",
-      "enum": ["always", "no", "on-failure", "unless-stopped"]
+      "enum": ["always", "no", "on-failure", "unless-stopped"],
+      "description": "Docker restart policy applied to all services. Use 'unless-stopped' in production so containers survive reboots but can be manually stopped."
     },
     "RESTORE_TEST_HEALTH_TIMEOUT": {
       "type": "string",
-      "format": "positive-integer"
+      "format": "positive-integer",
+      "description": "Seconds to wait for containers to become healthy during a restore test. Increase on slow machines."
     },
     "RESTORE_TEST_MIN_TABLES": {
       "type": "string",
-      "format": "non-negative-integer"
+      "format": "non-negative-integer",
+      "description": "Minimum number of MySQL tables expected in a successfully restored database. Restore test fails if actual count is below this."
     },
     "RESTORE_TEST_MYSQL_READY_TIMEOUT": {
       "type": "string",
-      "format": "positive-integer"
+      "format": "positive-integer",
+      "description": "Seconds to wait for MySQL to accept connections before declaring the restore test failed."
     },
     "RabbitMQ__Host": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": ".NET RabbitMQ connection host. Must match the Docker Compose service name of the RabbitMQ container."
     },
     "RabbitMQ__Port": {
       "type": "string",
-      "format": "port"
+      "format": "port",
+      "description": ".NET RabbitMQ AMQP port (default 5672)."
     },
     "RabbitMQ__Username": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": ".NET RabbitMQ connection username. Must match RABBITMQ_DEFAULT_USER."
     },
     "RabbitMQ__Password": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": ".NET RabbitMQ connection password. Must match RABBITMQ_DEFAULT_PASS."
     },
     "RabbitMQ__VirtualHost": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": ".NET RabbitMQ virtual host. Must match RABBITMQ_DEFAULT_VHOST."
     },
     "SEQ_FIRSTRUN_ADMINPASSWORDHASH": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Bcrypt hash of the Seq admin password injected on first container start. Generate with 'echo -n password | seq password hash'."
     },
     "SEQ_FIRSTRUN_ADMINUSERNAME": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Seq admin username created on first container start (e.g. 'admin')."
     },
     "SEQ_GID": {
       "type": "string",
-      "format": "non-negative-integer"
+      "format": "non-negative-integer",
+      "description": "GID for the Seq container process. Must have write access to SEQ_STORAGE_PATH on the host."
     },
     "SEQ_STORAGE_PATH": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Host directory bind-mounted into the Seq container for persistent log storage. Must be writable by SEQ_UID:SEQ_GID."
     },
     "SEQ_UID": {
       "type": "string",
-      "format": "non-negative-integer"
+      "format": "non-negative-integer",
+      "description": "UID for the Seq container process. Must have write access to SEQ_STORAGE_PATH on the host."
     },
     "SHARED_NETWORK": {
       "type": "string",
-      "format": "docker-name"
+      "format": "docker-name",
+      "description": "Name of the external Docker network shared between the backend and frontend Compose stacks. Created once and referenced by both."
     },
     "STORAGE_DIR_MODE": {
       "type": "string",
-      "pattern": "^0[0-7]{3}$"
+      "pattern": "^0[0-7]{3}$",
+      "description": "Octal permission mode for directories created under FILE_STORAGE_ROOT (e.g. '0775'). Must include write for the backend UID."
     },
     "STORAGE_PATH": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Path inside the backend container where user-uploaded files are accessible. Corresponds to FILE_STORAGE_ROOT on the host."
     },
     "Seq__ServerUrl": {
       "type": "string",
-      "format": "url"
+      "format": "url",
+      "description": "Seq structured log ingestion URL used by the .NET backend (e.g. 'http://seq:5341')."
     },
     "Swagger__Enabled": {
       "type": "string",
-      "format": "boolean"
+      "format": "boolean",
+      "description": "Set to 'true' to enable the Swagger UI in the backend. Must be 'false' in production to avoid API schema exposure."
+    },
+    "AD_COOLDOWN_MINUTES": {
+      "type": "string",
+      "format": "positive-integer",
+      "description": "Minimum minutes between ad impressions per user session. Default 2 (dev), set to 15 in prod."
+    },
+    "EMAIL_HOST": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SMTP server hostname for backend email sending. Default: smtp.gmail.com."
+    },
+    "EMAIL_PORT": {
+      "type": "string",
+      "format": "positive-integer",
+      "description": "SMTP server port. Default: 587 (STARTTLS)."
+    },
+    "FFMPEG_AUDIO_FILTERS": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ffmpeg -af filter chain applied during HLS transcoding. Default: loudnorm=I=-14:LRA=11:TP=-1.5."
+    },
+    "FREE_USER_MAX_PROFILES": {
+      "type": "string",
+      "format": "positive-integer",
+      "description": "Maximum number of artist profiles a free user may create. Default: 1."
+    },
+    "HLS_QUALITIES": {
+      "type": "string",
+      "description": "Comma-separated list of HLS audio bitrates in kbps (e.g. '128,320'). Default: 128,320."
+    },
+    "JWT_AUDIENCE": {
+      "type": "string",
+      "minLength": 1,
+      "description": "JWT 'aud' claim value. Must match client expectation. Default: YuvironClient."
+    },
+    "JWT_EXPIRY_MINUTES": {
+      "type": "string",
+      "format": "positive-integer",
+      "description": "JWT access token lifetime in minutes. Default: 60."
+    },
+    "JWT_ISSUER": {
+      "type": "string",
+      "minLength": 1,
+      "description": "JWT 'iss' claim value. Must match client expectation. Default: YuvironApi."
+    },
+    "PREMIUM_USER_MAX_PROFILES": {
+      "type": "string",
+      "format": "positive-integer",
+      "description": "Maximum number of artist profiles a premium user may create. Default: 5."
+    },
+    "CORS_ORIGIN_0": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Primary CORS allowed origin for the backend API (generated from BASE_DOMAIN and ENVIRONMENT by generate-config.py)."
+    },
+    "CORS_ORIGIN_1": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Secondary CORS allowed origin (admin subdomain, generated)."
+    },
+    "CORS_ORIGIN_2": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Tertiary CORS allowed origin (backoffice subdomain, generated)."
+    },
+    "CORS_ORIGIN_3": {
+      "type": "string",
+      "description": "Optional fourth CORS origin (e.g. http://localhost:3000 for dev). Empty in prod."
+    },
+    "EMAIL_PASSWORD": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SMTP app password for the backend email sender (Gmail app password)."
+    },
+    "EMAIL_USERNAME": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SMTP username (Gmail address) used by the backend to send transactional emails."
+    },
+    "JWT_SECRET": {
+      "type": "string",
+      "minLength": 32,
+      "description": "HS256 signing secret for JWT tokens issued by the backend. Minimum 32 characters; rotate to invalidate all active sessions."
+    },
+    "SEED_ADMIN_EMAIL": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Email address for the seeded admin user created on first database migration."
+    },
+    "SEED_ADMIN_PASSWORD": {
+      "type": "string",
+      "minLength": 8,
+      "description": "Password for the seeded admin user. Must meet ASP.NET Core Identity complexity requirements."
+    },
+    "SEED_MANAGER_EMAIL": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Email address for the seeded manager user."
+    },
+    "SEED_MANAGER_PASSWORD": {
+      "type": "string",
+      "minLength": 8,
+      "description": "Password for the seeded manager user."
+    },
+    "SEED_PREMIUM_EMAIL": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Email address for the seeded premium user."
+    },
+    "SEED_PREMIUM_PASSWORD": {
+      "type": "string",
+      "minLength": 8,
+      "description": "Password for the seeded premium user."
+    },
+    "SEED_USER_EMAIL": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Email address for the seeded regular user."
+    },
+    "SEED_USER_PASSWORD": {
+      "type": "string",
+      "minLength": 8,
+      "description": "Password for the seeded regular user."
+    },
+    "STREAM_SECRET": {
+      "type": "string",
+      "minLength": 32,
+      "description": "HMAC secret for signing HLS stream URLs. Minimum 32 characters."
+    },
+    "RABBITMQ_IMAGE": {
+      "type": "string",
+      "minLength": 1,
+      "description": "RabbitMQ Docker image. Defaults to rabbitmq:3 (no management plugin). Set to rabbitmq:3-management in dev to enable the management UI on port 15672."
     },
     "Stripe__SecretKey": {
       "type": "string",

@@ -42,6 +42,15 @@ def _write_atomic(path: Path, data: dict) -> None:
     print(f"  Written: {path.relative_to(ROOT)}")
 
 
+def _opt(name: str, default: str) -> str:
+    return os.environ.get(name, default) or default
+
+
+def _hls_qualities() -> list[int]:
+    raw = _opt("HLS_QUALITIES", "128,320")
+    return [int(q.strip()) for q in raw.split(",") if q.strip()]
+
+
 def _api_config(is_prod: bool) -> dict:
     cors = [
         "https://yuviron.com",
@@ -56,17 +65,18 @@ def _api_config(is_prod: bool) -> dict:
             "http://localhost:3000",
         ]
 
+    default_cooldown = "15" if is_prod else "2"
     return {
         "CorsSettings": {"AllowedOrigins": cors},
         "JwtSettings": {
             "Secret": _env("JWT_SECRET"),
-            "Issuer": "YuvironApi",
-            "Audience": "YuvironClient",
-            "ExpiryMinutes": 60,
+            "Issuer": _opt("JWT_ISSUER", "YuvironApi"),
+            "Audience": _opt("JWT_AUDIENCE", "YuvironClient"),
+            "ExpiryMinutes": int(_opt("JWT_EXPIRY_MINUTES", "60")),
         },
         "Email": {
-            "Host": "smtp.gmail.com",
-            "Port": 587,
+            "Host": _opt("EMAIL_HOST", "smtp.gmail.com"),
+            "Port": int(_opt("EMAIL_PORT", "587")),
             "Username": _env("EMAIL_USERNAME"),
             "Password": _env("EMAIL_PASSWORD"),
         },
@@ -79,15 +89,15 @@ def _api_config(is_prod: bool) -> dict:
         "JamendoApi": {"ClientId": _env("JAMENDO_CLIENT_ID")},
         "StreamSecurity": {"SecretKey": _env("STREAM_SECRET")},
         "ArtistLimits": {
-            "FreeUserMaxProfiles": 1,
-            "PremiumUserMaxProfiles": 5,
+            "FreeUserMaxProfiles": int(_opt("FREE_USER_MAX_PROFILES", "1")),
+            "PremiumUserMaxProfiles": int(_opt("PREMIUM_USER_MAX_PROFILES", "5")),
         },
         "AudioSettings": {
-            "HlsQualities": [128, 320],
-            "FfmpegAudioFilters": "-af loudnorm=I=-14:LRA=11:TP=-1.5",
+            "HlsQualities": _hls_qualities(),
+            "FfmpegAudioFilters": _opt("FFMPEG_AUDIO_FILTERS", "-af loudnorm=I=-14:LRA=11:TP=-1.5"),
         },
         "AdSettings": {
-            "CooldownMinutes": 15 if is_prod else 2,
+            "CooldownMinutes": int(_opt("AD_COOLDOWN_MINUTES", default_cooldown)),
         },
         "FileAccess": {
             "PublicFolders": ["covers/", "avatars/", "banners/", "ads/"],

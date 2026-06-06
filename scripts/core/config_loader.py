@@ -404,6 +404,24 @@ def load_nginx_cert_mode(
     return validate_nginx_cert_mode(value, environment=env_name)
 
 
+def _cors_origin_vars(env_name: str, domain: str) -> Dict[str, str]:
+    """Compute CORS_ORIGIN_* env vars used by compose.yml to set CorsSettings__AllowedOrigins__*."""
+    if env_name == "prod":
+        origins = [
+            f"https://{domain}",
+            f"https://admin.{domain}",
+            f"https://backoffice.{domain}",
+        ]
+    else:
+        origins = [
+            f"https://dev.{domain}",
+            f"https://dev-admin.{domain}",
+            f"https://dev-backoffice.{domain}",
+            "http://localhost:3000",
+        ]
+    return {f"CORS_ORIGIN_{i}": v for i, v in enumerate(origins)}
+
+
 def render_stack_values(
     root_dir: Path,
     env_name: str,
@@ -475,4 +493,5 @@ def render_stack_values(
             env_file_path=env_file_path,
         ),
         "SHARED_NETWORK": shared_network,
+        **_cors_origin_vars(env_name, domain),
     }

@@ -33,6 +33,8 @@ _FULL_SECRETS = {
     "SEED_PREMIUM_PASSWORD": "premium-pass",
     "JAMENDO_CLIENT_ID": "jamendo-id-123",
     "STREAM_SECRET": "stream-secret-xyz",
+    "STRIPE_SECRET_KEY": "sk_test_abc123",
+    "STRIPE_WEBHOOK_SECRET": "whsec_def456",
 }
 
 
@@ -98,10 +100,54 @@ class GenerateApiConfigTests(unittest.TestCase):
         self.assertEqual(config["JamendoApi"]["ClientId"], "jamendo-id-123")
         self.assertEqual(config["StreamSecurity"]["SecretKey"], "stream-secret-xyz")
 
+    def test_stripe_keys_populated(self) -> None:
+        config = generate_api_config("prod", _FULL_SECRETS)
+        stripe = config["Stripe"]
+        self.assertEqual(stripe["SecretKey"], "sk_test_abc123")
+        self.assertEqual(stripe["WebhookSecret"], "whsec_def456")
+
+    def test_artist_limits_present(self) -> None:
+        config = generate_api_config("prod", _FULL_SECRETS)
+        limits = config["ArtistLimits"]
+        self.assertEqual(limits["FreeUserMaxProfiles"], 1)
+        self.assertEqual(limits["PremiumUserMaxProfiles"], 5)
+
+    def test_audio_settings_present(self) -> None:
+        config = generate_api_config("prod", _FULL_SECRETS)
+        audio = config["AudioSettings"]
+        self.assertIsInstance(audio["HlsQualities"], list)
+        self.assertGreater(len(audio["HlsQualities"]), 0)
+        self.assertIn("FfmpegAudioFilters", audio)
+
+    def test_file_access_present(self) -> None:
+        config = generate_api_config("prod", _FULL_SECRETS)
+        folders = config["FileAccess"]["PublicFolders"]
+        self.assertIn("covers/", folders)
+        self.assertIn("avatars/", folders)
+
+    def test_ad_settings_cooldown_is_15_in_prod(self) -> None:
+        config = generate_api_config("prod", _FULL_SECRETS)
+        self.assertEqual(config["AdSettings"]["CooldownMinutes"], 15)
+
+    def test_ad_settings_cooldown_is_2_in_dev(self) -> None:
+        config = generate_api_config("dev", _FULL_SECRETS)
+        self.assertEqual(config["AdSettings"]["CooldownMinutes"], 2)
+
     def test_result_is_json_serialisable(self) -> None:
         config = generate_api_config("dev", _FULL_SECRETS)
         dumped = json.dumps(config)
         self.assertEqual(json.loads(dumped), config)
+
+    def test_api_config_structure_matches_ci_generator(self) -> None:
+        """Verify generate_api_config has all sections from shared/backend/scripts/generate_appsettings.py."""
+        config = generate_api_config("prod", _FULL_SECRETS, "example.com")
+        required_sections = {
+            "CorsSettings", "JwtSettings", "Email", "SeedUsers",
+            "JamendoApi", "StreamSecurity", "Stripe",
+            "ArtistLimits", "AudioSettings", "AdSettings", "FileAccess",
+        }
+        missing = required_sections - config.keys()
+        self.assertFalse(missing, f"Missing sections in generate_api_config: {missing}")
 
 
 class GenerateWorkerConfigTests(unittest.TestCase):
@@ -163,6 +209,74 @@ class WriteConfigAtomicTests(unittest.TestCase):
             self.assertTrue(raw.endswith("\n"))
 
 
+class ConfigurableDefaultsTests(unittest.TestCase):
+    """#55 — hardcoded values must be overridable via env vars."""
+
+    def _config(self, extra_env: dict) -> dict:
+        with patch.dict(os.environ, extra_env, clear=False):
+            return generate_api_config("prod", _FULL_SECRETS)
+
+    def test_email_host_defaults_to_gmail(self) -> None:
+        config = self._config({})
+        self.assertEqual(config["Email"]["Host"], "smtp.gmail.com")
+
+    def test_email_host_overridable_via_env(self) -> None:
+        config = self._config({"EMAIL_HOST": "mail.mycompany.com"})
+        self.assertEqual(config["Email"]["Host"], "mail.mycompany.com")
+
+    def test_email_port_defaults_to_587(self) -> None:
+        config = self._config({})
+        self.assertEqual(config["Email"]["Port"], 587)
+
+    def test_email_port_overridable_via_env(self) -> None:
+        config = self._config({"EMAIL_PORT": "465"})
+        self.assertEqual(config["Email"]["Port"], 465)
+
+    def test_jwt_issuer_defaults_to_YuvironApi(self) -> None:
+        config = self._config({})
+        self.assertEqual(config["JwtSettings"]["Issuer"], "YuvironApi")
+
+    def test_jwt_issuer_overridable_via_env(self) -> None:
+        config = self._config({"JWT_ISSUER": "MyApi"})
+        self.assertEqual(config["JwtSettings"]["Issuer"], "MyApi")
+
+    def test_jwt_expiry_defaults_to_60(self) -> None:
+        config = self._config({})
+        self.assertEqual(config["JwtSettings"]["ExpiryMinutes"], 60)
+
+    def test_jwt_expiry_overridable_via_env(self) -> None:
+        config = self._config({"JWT_EXPIRY_MINUTES": "30"})
+        self.assertEqual(config["JwtSettings"]["ExpiryMinutes"], 30)
+
+    def test_free_user_max_profiles_defaults_to_1(self) -> None:
+        config = self._config({})
+        self.assertEqual(config["ArtistLimits"]["FreeUserMaxProfiles"], 1)
+
+    def test_free_user_max_profiles_overridable_via_env(self) -> None:
+        config = self._config({"FREE_USER_MAX_PROFILES": "3"})
+        self.assertEqual(config["ArtistLimits"]["FreeUserMaxProfiles"], 3)
+
+    def test_premium_user_max_profiles_defaults_to_5(self) -> None:
+        config = self._config({})
+        self.assertEqual(config["ArtistLimits"]["PremiumUserMaxProfiles"], 5)
+
+    def test_hls_qualities_defaults_to_128_320(self) -> None:
+        config = self._config({})
+        self.assertEqual(config["AudioSettings"]["HlsQualities"], [128, 320])
+
+    def test_hls_qualities_overridable_via_env(self) -> None:
+        config = self._config({"HLS_QUALITIES": "64,128,320"})
+        self.assertEqual(config["AudioSettings"]["HlsQualities"], [64, 128, 320])
+
+    def test_ffmpeg_filters_overridable_via_env(self) -> None:
+        config = self._config({"FFMPEG_AUDIO_FILTERS": "-af volume=2dB"})
+        self.assertEqual(config["AudioSettings"]["FfmpegAudioFilters"], "-af volume=2dB")
+
+    def test_ad_cooldown_overridable_via_env(self) -> None:
+        config = self._config({"AD_COOLDOWN_MINUTES": "10"})
+        self.assertEqual(config["AdSettings"]["CooldownMinutes"], 10)
+
+
 class LoadSecretsTests(unittest.TestCase):
     def test_raises_on_missing_env_vars(self) -> None:
         from commands.appsettings import _load_secrets
@@ -180,6 +294,7 @@ class LoadSecretsTests(unittest.TestCase):
             secrets = _load_secrets()
         self.assertEqual(secrets["JWT_SECRET"], "test-jwt-secret")
         self.assertEqual(secrets["JAMENDO_CLIENT_ID"], "jamendo-id-123")
+        self.assertEqual(secrets["STRIPE_SECRET_KEY"], "sk_test_abc123")
 
 
 if __name__ == "__main__":

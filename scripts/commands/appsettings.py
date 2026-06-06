@@ -2,23 +2,20 @@
 # =============================================================================
 # scripts/commands/appsettings.py — Генерация appsettings.json для .NET бэкенда.
 #
-# .NET ASP.NET Core читает конфигурацию из appsettings.json.
-# Этот скрипт генерирует его из переменных окружения (deploy.env),
-# чтобы не хранить секреты в appsettings файлах в git.
+# Используется для локальной разработки вне Docker (dotnet run).
+# В Docker-деплое секреты передаются через переменные окружения в compose.yml
+# (JwtSettings__Secret, Email__*, SeedUsers__*, StreamSecurity__SecretKey и т.д.),
+# а appsettings.Development.json и appsettings.Production.json исключены из образа
+# через .dockerignore.
 #
 # Команды:
-#   appsettings generate [env]      — генерировать appsettings.json
-#   appsettings generate-mediasettings [env] — генерировать для MediaWorker
+#   appsettings gen [env]      — генерировать appsettings.{env}.json
 #
 # Что происходит:
 #   1. Читает deploy.env для окружения
 #   2. Извлекает нужные ключи (JWT_SECRET, строки подключения, CORS и др.)
-#   3. Генерирует appsettings.json в формате ASP.NET Core
-#   4. Записывает в src/yuviron-backend/src/Yuviron.Api/appsettings.json
-#      (только при --write, иначе выводит в stdout)
-#
-# Используется в CI/CD перед "docker compose build" чтобы встроить секреты
-# в Docker-образ через COPY appsettings.json ./ в Dockerfile.
+#   3. Генерирует appsettings.{Development|Production}.json
+#   4. Записывает в src/yuviron-backend/src/Yuviron.Api/ и Yuviron.MediaWorker/
 # =============================================================================
 from __future__ import annotations
 
@@ -58,6 +55,8 @@ _REQUIRED_SECRETS = (
     "SEED_PREMIUM_PASSWORD",
     "JAMENDO_CLIENT_ID",
     "STREAM_SECRET",
+    "STRIPE_SECRET_KEY",
+    "STRIPE_WEBHOOK_SECRET",
 )
 
 def _cors_origins(deploy_env: str, domain: str) -> list[str]:
@@ -88,19 +87,25 @@ def aspnet_env(deploy_env: str) -> str:
     return "Production" if deploy_env == "prod" else "Development"
 
 
+def _hls_qualities() -> list[int]:
+    raw = os.environ.get("HLS_QUALITIES", "128,320")
+    return [int(q.strip()) for q in raw.split(",") if q.strip()]
+
+
 def generate_api_config(deploy_env: str, secrets: dict[str, str], domain: str = "") -> dict:
     cors_origins = _cors_origins(deploy_env, domain)
+    default_cooldown = "15" if deploy_env == "prod" else "2"
     return {
         "CorsSettings": {"AllowedOrigins": cors_origins},
         "JwtSettings": {
             "Secret": secrets["JWT_SECRET"],
-            "Issuer": "YuvironApi",
-            "Audience": "YuvironClient",
-            "ExpiryMinutes": 60,
+            "Issuer": os.environ.get("JWT_ISSUER", "YuvironApi"),
+            "Audience": os.environ.get("JWT_AUDIENCE", "YuvironClient"),
+            "ExpiryMinutes": int(os.environ.get("JWT_EXPIRY_MINUTES", "60")),
         },
         "Email": {
-            "Host": "smtp.gmail.com",
-            "Port": 587,
+            "Host": os.environ.get("EMAIL_HOST", "smtp.gmail.com"),
+            "Port": int(os.environ.get("EMAIL_PORT", "587")),
             "Username": secrets["EMAIL_USERNAME"],
             "Password": secrets["EMAIL_PASSWORD"],
         },
@@ -124,6 +129,26 @@ def generate_api_config(deploy_env: str, secrets: dict[str, str], domain: str = 
         },
         "JamendoApi": {"ClientId": secrets["JAMENDO_CLIENT_ID"]},
         "StreamSecurity": {"SecretKey": secrets["STREAM_SECRET"]},
+        "Stripe": {
+            "SecretKey": secrets["STRIPE_SECRET_KEY"],
+            "WebhookSecret": secrets["STRIPE_WEBHOOK_SECRET"],
+        },
+        "ArtistLimits": {
+            "FreeUserMaxProfiles": int(os.environ.get("FREE_USER_MAX_PROFILES", "1")),
+            "PremiumUserMaxProfiles": int(os.environ.get("PREMIUM_USER_MAX_PROFILES", "5")),
+        },
+        "AudioSettings": {
+            "HlsQualities": _hls_qualities(),
+            "FfmpegAudioFilters": os.environ.get(
+                "FFMPEG_AUDIO_FILTERS", "-af loudnorm=I=-14:LRA=11:TP=-1.5"
+            ),
+        },
+        "AdSettings": {
+            "CooldownMinutes": int(os.environ.get("AD_COOLDOWN_MINUTES", default_cooldown)),
+        },
+        "FileAccess": {
+            "PublicFolders": ["covers/", "avatars/", "banners/", "ads/"],
+        },
     }
 
 
