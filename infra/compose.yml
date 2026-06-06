@@ -13,6 +13,30 @@ x-dotnet-env: &dotnet-env
   RabbitMQ__Password: ${RABBITMQ_DEFAULT_PASS}
   RabbitMQ__VirtualHost: ${RabbitMQ__VirtualHost}
   JamendoApi__ClientId: ${JamendoApi__ClientId}
+  JwtSettings__Secret: ${JWT_SECRET}
+  JwtSettings__Issuer: ${JWT_ISSUER:-YuvironApi}
+  JwtSettings__Audience: ${JWT_AUDIENCE:-YuvironClient}
+  JwtSettings__ExpiryMinutes: ${JWT_EXPIRY_MINUTES:-60}
+  Email__Host: ${EMAIL_HOST:-smtp.gmail.com}
+  Email__Port: "${EMAIL_PORT:-587}"
+  Email__Username: ${EMAIL_USERNAME}
+  Email__Password: ${EMAIL_PASSWORD}
+  SeedUsers__Admin__Email: ${SEED_ADMIN_EMAIL}
+  SeedUsers__Admin__Password: ${SEED_ADMIN_PASSWORD}
+  SeedUsers__Manager__Email: ${SEED_MANAGER_EMAIL}
+  SeedUsers__Manager__Password: ${SEED_MANAGER_PASSWORD}
+  SeedUsers__User__Email: ${SEED_USER_EMAIL}
+  SeedUsers__User__Password: ${SEED_USER_PASSWORD}
+  SeedUsers__Premium__Email: ${SEED_PREMIUM_EMAIL}
+  SeedUsers__Premium__Password: ${SEED_PREMIUM_PASSWORD}
+  StreamSecurity__SecretKey: ${STREAM_SECRET}
+  AdSettings__CooldownMinutes: ${AD_COOLDOWN_MINUTES:-2}
+  ArtistLimits__FreeUserMaxProfiles: ${FREE_USER_MAX_PROFILES:-1}
+  ArtistLimits__PremiumUserMaxProfiles: ${PREMIUM_USER_MAX_PROFILES:-5}
+  CorsSettings__AllowedOrigins__0: ${CORS_ORIGIN_0}
+  CorsSettings__AllowedOrigins__1: ${CORS_ORIGIN_1}
+  CorsSettings__AllowedOrigins__2: ${CORS_ORIGIN_2}
+  CorsSettings__AllowedOrigins__3: ${CORS_ORIGIN_3:-}
 
 x-dotnet-build: &dotnet-build
   context: ..
@@ -33,7 +57,14 @@ x-dotnet-hardening: &dotnet-hardening
   security_opt:
     - no-new-privileges:true
 
+x-default-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 x-dotnet-service-defaults: &dotnet-service-defaults
+  stop_grace_period: 30s
   restart: ${RESTART_POLICY}
   volumes:
     - ${STORAGE_PATH}:/app/storage
@@ -71,15 +102,21 @@ services:
     command: >
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
+      --slow_query_log=ON
+      --long_query_time=1
+      --slow_query_log_file=/var/lib/mysql/slow.log
     volumes:
       - mysql_data:/var/lib/mysql
     networks:
       - default
+    logging: *default-logging
     healthcheck:
-      # MYSQL_PWD=$$MYSQL_ROOT_PASSWORD задаёт пароль через env var перед вызовом mysql.
-      # $$ в Docker Compose — это экранированный $, внутри контейнера превращается в $MYSQL_ROOT_PASSWORD.
+      # MYSQL_PWD=$$MYSQL_PASSWORD задаёт пароль через env var перед вызовом mysql.
+      # $$ в Docker Compose — это экранированный $, внутри контейнера превращается в $MYSQL_PASSWORD.
       # Такой подход убирает пароль из аргументов командной строки (ps aux внутри контейнера).
-      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysql -h 127.0.0.1 -uroot -e 'SELECT 1' >/dev/null 2>&1 || exit 1"]
+      # Используем MYSQL_USER (app-пользователь), а не root: root может авторизоваться даже
+      # если app-database недоступна, что делает healthcheck неточным.
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_PASSWORD mysql -h 127.0.0.1 -u$$MYSQL_USER -e 'SELECT 1' >/dev/null 2>&1 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -111,6 +148,7 @@ services:
       - redis_data:/data
     networks:
       - default
+    logging: *default-logging
     healthcheck:
       # REDISCLI_AUTH уже задан в environment секции выше — redis-cli читает его автоматически.
       # Убран флаг -a $$REDIS_PASSWORD: он дублировал env var и делал пароль видимым в ps aux внутри контейнера.
@@ -123,7 +161,9 @@ services:
     cpus: ${REDIS_CPUS:-0.25}
 
   rabbitmq:
-    image: rabbitmq:3-management@sha256:e582c0bc7766f3342496d8485efb5a1df782b5ce3886ad017e2eaae442311f69
+    # Prod: rabbitmq:3 (no management plugin — smaller image, no port 15672 exposure).
+    # Dev: set RABBITMQ_IMAGE=rabbitmq:3-management in env/<env>.env to get the management UI.
+    image: ${RABBITMQ_IMAGE:-rabbitmq:3}
     container_name: ${COMPOSE_PROJECT_NAME}-rabbitmq
     user: "999:999"
     restart: ${RESTART_POLICY}
@@ -142,6 +182,7 @@ services:
       - rabbitmq_data:/var/lib/rabbitmq
     networks:
       - default
+    logging: *default-logging
     ulimits:
       nofile:
         soft: 65536
@@ -180,6 +221,7 @@ services:
       - ${SEQ_STORAGE_PATH}:/data
     networks:
       - default
+    logging: *default-logging
     healthcheck:
       test: ["CMD-SHELL", "curl -fso /dev/null http://127.0.0.1/health"]
       interval: 15s
@@ -215,6 +257,7 @@ services:
       - "18889"
     networks:
       - default
+    logging: *default-logging
     healthcheck:
       # aspire-dashboard:9.0 is a distroless (chiseled) image with no shell or Unix tools;
       # no service depends on aspire health, so the check is disabled rather than kept broken.
@@ -242,6 +285,7 @@ services:
         condition: service_healthy
     networks:
       - default
+    logging: *default-logging
     mem_limit: ${MIGRATOR_MEM_LIMIT:-512m}
     memswap_limit: ${MIGRATOR_MEMSWAP_LIMIT:-512m}
     cpus: ${MIGRATOR_CPUS:-0.5}
@@ -255,6 +299,7 @@ services:
       args:
         <<: *dotnet-build-args
     container_name: ${COMPOSE_PROJECT_NAME}-backend
+    logging: *default-logging
     environment:
       <<: *dotnet-env
       ASPNETCORE_HTTP_PORTS: 5073
@@ -285,6 +330,7 @@ services:
       args:
         <<: *dotnet-build-args
     container_name: ${COMPOSE_PROJECT_NAME}-media-worker
+    logging: *default-logging
     environment:
       <<: *dotnet-env
       ASPNETCORE_HTTP_PORTS: 5074
@@ -346,7 +392,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget -qO- http://127.0.0.1/health | grep -qx 'edge-nginx-ok' || exit 1; openssl x509 -checkend 0 -noout -in /etc/nginx/certs/${ENVIRONMENT}-${BASE_DOMAIN}.pem >/dev/null || exit 1",
+          "wget -qO- http://127.0.0.1/health | grep -qx 'edge-nginx-ok' || exit 1; found=0; for f in /etc/nginx/certs/*.pem /etc/nginx/certs/*/*.pem; do [ -f $f ] || continue; case $f in *-key.pem) continue;; esac; openssl x509 -checkend 0 -noout -in $f 2>/dev/null || exit 1; found=1; done; [ $found -eq 1 ] || exit 1",
         ]
       interval: 15s
       timeout: 5s

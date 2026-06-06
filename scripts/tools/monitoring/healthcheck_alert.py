@@ -68,7 +68,15 @@ def _docker_ps() -> list[dict]:
 
 
 def _unhealthy(containers: list[dict]) -> list[str]:
-    return [c["Names"] for c in containers if "(unhealthy)" in c.get("Status", "")]
+    result = []
+    for c in containers:
+        status = c.get("Status", "")
+        # "(unhealthy)" — Docker healthcheck failed.
+        # "Restarting" — container is in a crash-restart loop (covers services with
+        # healthcheck disabled, such as aspire-dashboard in a distroless image).
+        if "(unhealthy)" in status or status.startswith("Restarting"):
+            result.append(c["Names"])
+    return result
 
 
 # ─── Cooldown / deploy marker ─────────────────────────────────────────────────

@@ -18,6 +18,38 @@ if str(_MONITORING_DIR) not in sys.path:
 import healthcheck_alert as ha
 
 
+# ─── _unhealthy ───────────────────────────────────────────────────────────────
+
+class UnhealthyDetectionTests(unittest.TestCase):
+    """#19 — _unhealthy() must catch restart loops, not only Docker-healthcheck failures."""
+
+    def test_unhealthy_status_detected(self) -> None:
+        self.assertEqual(["backend"], ha._unhealthy([{"Names": "backend", "Status": "Up 2 hours (unhealthy)"}]))
+
+    def test_restarting_status_detected(self) -> None:
+        self.assertEqual(["aspire"], ha._unhealthy([{"Names": "aspire", "Status": "Restarting (1) 5 seconds ago"}]))
+
+    def test_healthy_running_not_flagged(self) -> None:
+        self.assertEqual([], ha._unhealthy([{"Names": "nginx", "Status": "Up 3 hours (healthy)"}]))
+
+    def test_plain_up_not_flagged(self) -> None:
+        self.assertEqual([], ha._unhealthy([{"Names": "mysql", "Status": "Up 10 minutes"}]))
+
+    def test_mixed_returns_only_bad_ones(self) -> None:
+        containers = [
+            {"Names": "ok", "Status": "Up 1 hour (healthy)"},
+            {"Names": "bad1", "Status": "Up 30 minutes (unhealthy)"},
+            {"Names": "bad2", "Status": "Restarting (3) 2 seconds ago"},
+        ]
+        result = ha._unhealthy(containers)
+        self.assertIn("bad1", result)
+        self.assertIn("bad2", result)
+        self.assertNotIn("ok", result)
+
+    def test_empty_list_returns_empty(self) -> None:
+        self.assertEqual([], ha._unhealthy([]))
+
+
 # ─── build_alert_email ────────────────────────────────────────────────────────
 
 class BuildAlertEmailSubjectTests(unittest.TestCase):
@@ -209,6 +241,74 @@ class CooldownTests(unittest.TestCase):
             ha._mark_alerted(root, "backend")
             self.assertTrue(ha._is_in_cooldown(root, "backend"))
             self.assertFalse(ha._is_in_cooldown(root, "redis"))
+
+
+# ─── Cron wrapper ────────────────────────────────────────────────────────────
+
+class CronWrapperTests(unittest.TestCase):
+    """Tests for _write_healthcheck_alert_wrapper and _healthcheck_alert_cron_line."""
+
+    def setUp(self) -> None:
+        from commands.tools._monitoring import (
+            _write_healthcheck_alert_wrapper,
+            _healthcheck_alert_cron_line,
+            _CRON_WRAPPER_NAME,
+        )
+        self._write_wrapper = _write_healthcheck_alert_wrapper
+        self._cron_line = _healthcheck_alert_cron_line
+        self._wrapper_name = _CRON_WRAPPER_NAME
+
+    def test_wrapper_is_written_to_generated_env_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "generated" / "dev").mkdir(parents=True)
+            wrapper = self._write_wrapper(root, "dev")
+            self.assertTrue(wrapper.exists())
+            self.assertEqual(wrapper.name, self._wrapper_name)
+
+    def test_wrapper_is_executable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "generated" / "dev").mkdir(parents=True)
+            wrapper = self._write_wrapper(root, "dev")
+            self.assertTrue(os.access(wrapper, os.X_OK))
+
+    def test_wrapper_sources_deploy_env_not_inline_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "generated" / "dev").mkdir(parents=True)
+            wrapper = self._write_wrapper(root, "dev")
+            content = wrapper.read_text(encoding="utf-8")
+            self.assertIn('source "', content)
+            self.assertIn("deploy.env", content)
+            # Values must be read from env at runtime, not baked in at setup time
+            self.assertIn("ALERTS_EMAIL", content)
+            self.assertIn("SMTP_HOST", content)
+
+    def test_wrapper_does_not_contain_single_quote_wrapping(self) -> None:
+        """No bash -c '...' pattern — immune to single-quote injection."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "generated" / "dev").mkdir(parents=True)
+            wrapper = self._write_wrapper(root, "dev")
+            content = wrapper.read_text(encoding="utf-8")
+            self.assertNotIn("bash -c '", content)
+
+    def test_cron_line_references_wrapper_script_directly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            line = self._cron_line(root, "dev")
+            self.assertIn(self._wrapper_name, line)
+            # Must not use bash -c with inline quoting
+            self.assertNotIn("bash -c '", line)
+
+    def test_wrapper_survives_special_chars_in_path(self) -> None:
+        """Wrapper generation must not fail when root path contains spaces."""
+        with tempfile.TemporaryDirectory(prefix="path with spaces ") as tmp:
+            root = Path(tmp)
+            (root / "generated" / "prod").mkdir(parents=True)
+            wrapper = self._write_wrapper(root, "prod")
+            self.assertTrue(wrapper.exists())
 
 
 if __name__ == "__main__":

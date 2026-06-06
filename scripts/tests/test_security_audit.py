@@ -222,6 +222,10 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertNotIn("openssl s_client", healthcheck)
         self.assertNotIn("127.0.0.1:443", healthcheck)
         self.assertGreaterEqual(ssl_defaults.count("location = /health"), 2)
+        # Must cover both shared (*.pem) and per-route (*/*.pem) — not a single hardcoded path
+        self.assertIn("/etc/nginx/certs/*.pem", healthcheck)
+        self.assertIn("/etc/nginx/certs/*/*.pem", healthcheck)
+        self.assertNotIn("${ENVIRONMENT}-${BASE_DOMAIN}.pem", healthcheck)
 
     def test_aspire_dashboard_uses_official_image_with_disabled_healthcheck(self) -> None:
         root = SCRIPTS_ROOT.parent
@@ -244,11 +248,13 @@ class SecurityAuditTests(unittest.TestCase):
         healthcheck = compose["services"]["mysql"]["healthcheck"]["test"]
 
         self.assertEqual("CMD-SHELL", healthcheck[0])
-        # Пароль передаётся через MYSQL_PWD env var, а не через аргумент -p,
-        # чтобы избежать появления пароля в ps aux внутри контейнера.
-        self.assertIn("MYSQL_PWD=$$MYSQL_ROOT_PASSWORD", healthcheck[1])
-        self.assertNotIn("-p$$MYSQL_ROOT_PASSWORD", healthcheck[1])
-        self.assertIn("mysql -h 127.0.0.1 -uroot", healthcheck[1])
+        # Password via MYSQL_PWD env var — keeps it out of ps aux.
+        self.assertIn("MYSQL_PWD=$$MYSQL_PASSWORD", healthcheck[1])
+        self.assertNotIn("MYSQL_PWD=$$MYSQL_ROOT_PASSWORD", healthcheck[1])
+        self.assertNotIn("-p$$MYSQL_PASSWORD", healthcheck[1])
+        # Must use the unprivileged app user, not root.
+        self.assertIn("-u$$MYSQL_USER", healthcheck[1])
+        self.assertNotIn("-uroot", healthcheck[1])
         self.assertIn("-e 'SELECT 1'", healthcheck[1])
         self.assertIn(">/dev/null 2>&1", healthcheck[1])
         self.assertNotIn("mysqladmin ping", healthcheck[1])
@@ -455,6 +461,41 @@ class SecurityAuditTests(unittest.TestCase):
         (SCRIPTS_ROOT.parent / "src" / "yuviron-frontend").is_dir(),
         "src/yuviron-frontend not cloned — skipping build context guard",
     )
+    def test_frontend_compose_overlay_does_not_override_dockerfile_healthcheck(self) -> None:
+        """Compose-generated frontend overlay must not define a healthcheck.
+
+        The Dockerfile uses HEALTHCHECK CMD http.get('/') which verifies an HTTP 2xx response.
+        If compose defines its own 'healthcheck' block it completely replaces the Dockerfile one,
+        downgrading to TCP-only (net.connect) which passes even when Next.js returns HTTP 500.
+        """
+        from core.compose_generator import build_frontend_service
+        from core.models import FrontendApp
+
+        dummy_root = SCRIPTS_ROOT.parent
+        app = FrontendApp(
+            key="client-app",
+            service_name="client-app",
+            app_name="client-app",
+            port=3000,
+            host_strategy="root",
+            required=True,
+            default_enabled=True,
+        )
+        service_def = build_frontend_service(app, dummy_root)
+        inner = service_def[app.service_name]
+        self.assertNotIn(
+            "healthcheck", inner,
+            "Frontend compose overlay must not define 'healthcheck' — use the Dockerfile one "
+            "which probes HTTP 2xx, not just TCP connectivity",
+        )
+
+    def test_backend_appsettings_env_files_are_excluded_from_docker_build_context(self) -> None:
+        """Generated env-specific appsettings must never enter the Docker build context."""
+        root = SCRIPTS_ROOT.parent
+        dockerignore = (root / ".dockerignore").read_text(encoding="utf-8")
+        self.assertIn("appsettings.Production.json", dockerignore)
+        self.assertIn("appsettings.Development.json", dockerignore)
+
     def test_frontend_build_context_has_dockerignore_excluding_node_modules(self) -> None:
         root = SCRIPTS_ROOT.parent
         dockerignore = root / "src" / "yuviron-frontend" / ".dockerignore"
@@ -476,6 +517,168 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertIn(".git", content)
         # local env files must not leak secrets into the image
         self.assertIn(".env", content)
+
+
+class ComposeProductionHardeningTests(unittest.TestCase):
+    """#18-#25 — compose.yml production hardening checks."""
+
+    def _compose(self) -> dict:
+        root = SCRIPTS_ROOT.parent
+        return yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
+
+    def test_mysql_healthcheck_uses_app_user_not_root(self) -> None:
+        hc = self._compose()["services"]["mysql"]["healthcheck"]["test"][1]
+        self.assertIn("-u$$MYSQL_USER", hc)
+        self.assertNotIn("-uroot", hc)
+        self.assertIn("MYSQL_PWD=$$MYSQL_PASSWORD", hc)
+        self.assertNotIn("MYSQL_ROOT_PASSWORD", hc)
+
+    def test_mysql_slow_query_log_enabled(self) -> None:
+        cmd = self._compose()["services"]["mysql"]["command"]
+        self.assertIn("--slow_query_log=ON", cmd)
+        self.assertIn("--long_query_time=1", cmd)
+        self.assertIn("--slow_query_log_file=", cmd)
+
+    def test_rabbitmq_image_uses_env_var_defaulting_to_plain_image(self) -> None:
+        image = self._compose()["services"]["rabbitmq"]["image"]
+        # Must use env var so prod can use rabbitmq:3 (no management)
+        self.assertIn("RABBITMQ_IMAGE", image)
+        # Default must NOT include the management variant
+        self.assertNotIn("management", image.split(":-")[-1] if ":-" in image else "")
+
+    def test_dotnet_service_defaults_include_stop_grace_period(self) -> None:
+        compose_text = (SCRIPTS_ROOT.parent / "infra" / "compose.yml").read_text(encoding="utf-8")
+        # stop_grace_period must be in the x-dotnet-service-defaults anchor
+        anchor_section = compose_text.split("x-dotnet-service-defaults:")[1].split("\nservices:")[0]
+        self.assertIn("stop_grace_period", anchor_section)
+
+    def test_backend_has_log_rotation(self) -> None:
+        svc = self._compose()["services"]["backend"]
+        self.assertIn("logging", svc)
+        self.assertEqual("json-file", svc["logging"]["driver"])
+        self.assertIn("max-size", svc["logging"]["options"])
+
+    def test_media_worker_has_log_rotation(self) -> None:
+        svc = self._compose()["services"]["media-worker"]
+        self.assertIn("logging", svc)
+        self.assertEqual("json-file", svc["logging"]["driver"])
+
+    def test_mysql_has_log_rotation(self) -> None:
+        svc = self._compose()["services"]["mysql"]
+        self.assertIn("logging", svc)
+        self.assertEqual("json-file", svc["logging"]["driver"])
+
+    def test_redis_has_log_rotation(self) -> None:
+        svc = self._compose()["services"]["redis"]
+        self.assertIn("logging", svc)
+        self.assertEqual("json-file", svc["logging"]["driver"])
+
+    def test_rabbitmq_has_log_rotation(self) -> None:
+        svc = self._compose()["services"]["rabbitmq"]
+        self.assertIn("logging", svc)
+        self.assertEqual("json-file", svc["logging"]["driver"])
+
+    def test_stripe_keys_are_in_schema_required(self) -> None:
+        import json
+        root = SCRIPTS_ROOT.parent
+        schema = json.loads((root / "env" / "schema.json").read_text(encoding="utf-8"))
+        required = schema["required"]
+        self.assertIn("Stripe__SecretKey", required)
+        self.assertIn("Stripe__WebhookSecret", required)
+
+    def test_stripe_keys_in_example_env(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        example = (root / "env" / "example.env").read_text(encoding="utf-8")
+        self.assertIn("Stripe__SecretKey=", example)
+        self.assertIn("Stripe__WebhookSecret=", example)
+
+    def test_rabbitmq_image_var_documented_in_example_env(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        example = (root / "env" / "example.env").read_text(encoding="utf-8")
+        self.assertIn("RABBITMQ_IMAGE", example)
+
+
+class FrontendStaticHardeningTests(unittest.TestCase):
+    """#56-#59 — nginx.conf security headers, Dockerfile HEALTHCHECK, pnpm version consistency."""
+
+    def _nginx_conf(self) -> str:
+        return (SCRIPTS_ROOT.parent / "infra" / "docker" / "frontend-static" / "nginx.conf").read_text(encoding="utf-8")
+
+    def _static_dockerfile(self) -> str:
+        return (SCRIPTS_ROOT.parent / "infra" / "docker" / "frontend-static" / "Dockerfile").read_text(encoding="utf-8")
+
+    def test_nginx_conf_has_server_tokens_off(self) -> None:
+        self.assertIn("server_tokens off", self._nginx_conf())
+
+    def test_nginx_conf_has_x_content_type_options_header(self) -> None:
+        self.assertIn("X-Content-Type-Options", self._nginx_conf())
+
+    def test_nginx_conf_has_x_frame_options_header(self) -> None:
+        self.assertIn("X-Frame-Options", self._nginx_conf())
+
+    def test_nginx_conf_has_referrer_policy_header(self) -> None:
+        self.assertIn("Referrer-Policy", self._nginx_conf())
+
+    def test_nginx_conf_has_gzip_enabled(self) -> None:
+        self.assertIn("gzip on", self._nginx_conf())
+
+    def test_nginx_conf_has_gzip_types(self) -> None:
+        self.assertIn("gzip_types", self._nginx_conf())
+
+    def test_nginx_conf_has_health_location(self) -> None:
+        self.assertIn("location = /health", self._nginx_conf())
+
+    def test_nginx_conf_health_location_returns_200(self) -> None:
+        self.assertIn("return 200", self._nginx_conf())
+
+    def test_frontend_static_dockerfile_declares_healthcheck(self) -> None:
+        dockerfile = self._static_dockerfile()
+        self.assertIn("HEALTHCHECK", dockerfile)
+        # Runtime is nginx:alpine (no Node.js) — must use wget
+        self.assertIn("wget", dockerfile)
+        self.assertIn("/health", dockerfile)
+
+    def test_frontend_static_healthcheck_probes_http_not_tcp(self) -> None:
+        # wget + /health endpoint = HTTP 2xx verification, not just port open
+        dockerfile = self._static_dockerfile()
+        self.assertIn("http://127.0.0.1:3000/health", dockerfile)
+
+    def test_pnpm_version_consistent_across_both_dockerfiles(self) -> None:
+        import re
+        root = SCRIPTS_ROOT.parent
+        df_next = (root / "infra" / "docker" / "frontend-next" / "Dockerfile").read_text(encoding="utf-8")
+        df_static = (root / "infra" / "docker" / "frontend-static" / "Dockerfile").read_text(encoding="utf-8")
+
+        ver_next = re.search(r"pnpm@(\S+)", df_next)
+        ver_static = re.search(r"pnpm@(\S+)", df_static)
+        self.assertIsNotNone(ver_next, "frontend-next/Dockerfile must pin a pnpm version")
+        self.assertIsNotNone(ver_static, "frontend-static/Dockerfile must pin a pnpm version")
+        self.assertEqual(
+            ver_next.group(1), ver_static.group(1),
+            "Both frontend Dockerfiles must use the same pnpm version",
+        )
+
+    def test_pnpm_version_is_not_9_0_0_in_next_dockerfile(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        df = (root / "infra" / "docker" / "frontend-next" / "Dockerfile").read_text(encoding="utf-8")
+        self.assertNotIn("pnpm@9.0.0", df, "pnpm 9.0.0 is outdated — update to a current 9.x release")
+
+    def test_pnpm_version_is_not_9_0_0_in_static_dockerfile(self) -> None:
+        df = self._static_dockerfile()
+        self.assertNotIn("pnpm@9.0.0", df, "pnpm 9.0.0 is outdated — update to a current 9.x release")
+
+    def test_service_health_poll_uses_single_docker_inspect_per_iteration(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        source = (root / "scripts" / "commands" / "stack" / "_health.py").read_text(encoding="utf-8")
+        # Combined format string must be present — one call returns both status and health
+        self.assertIn(
+            "{{.State.Status}}/{{if .State.Health}}",
+            source,
+            "_wait_for_service_health must use a combined inspect format to retrieve status and health in one call",
+        )
+        # At most 2 total inspect calls: one in the poll loop, one in the timeout diagnostic
+        inspect_count = source.count('"docker", "inspect"')
+        self.assertLessEqual(inspect_count, 2, f"Expected ≤2 docker inspect calls, found {inspect_count}")
 
 
 if __name__ == "__main__":
