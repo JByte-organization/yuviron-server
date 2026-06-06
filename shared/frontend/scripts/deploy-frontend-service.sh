@@ -87,4 +87,37 @@ echo "Deploy frontend-сервиса '$SERVICE_NAME' для окружения '
 
 "${COMPOSE_CMD[@]}" up -d --build --force-recreate "$SERVICE_NAME"
 
+# Wait for the service to pass its healthcheck before declaring success.
+# A build error or immediate crash is caught by set -Eeuo pipefail above;
+# this loop catches delayed crashes and unhealthy containers.
+MAX_WAIT="${DEPLOY_HEALTH_TIMEOUT:-120}"
+INTERVAL=3
+elapsed=0
+echo "Ожидание healthcheck '$SERVICE_NAME' (до ${MAX_WAIT}s)..."
+while true; do
+  container_id=$("${COMPOSE_CMD[@]}" ps -q "$SERVICE_NAME" 2>/dev/null || true)
+  if [[ -z "$container_id" ]]; then
+    echo "Ошибка: контейнер '$SERVICE_NAME' не найден после запуска"
+    exit 1
+  fi
+  health=$(docker inspect --format='{{.State.Health.Status}}' "$container_id" 2>/dev/null || echo "missing")
+  case "$health" in
+    healthy)
+      break
+      ;;
+    unhealthy|missing)
+      echo "Ошибка: сервис '$SERVICE_NAME' — healthcheck: '$health'"
+      "${COMPOSE_CMD[@]}" logs --tail=30 "$SERVICE_NAME" >&2 || true
+      exit 1
+      ;;
+  esac
+  if [[ $elapsed -ge $MAX_WAIT ]]; then
+    echo "Ошибка: healthcheck '$SERVICE_NAME' не прошёл за ${MAX_WAIT}s (последний статус: '$health')"
+    "${COMPOSE_CMD[@]}" logs --tail=30 "$SERVICE_NAME" >&2 || true
+    exit 1
+  fi
+  sleep "$INTERVAL"
+  elapsed=$((elapsed + INTERVAL))
+done
+
 echo "Готово: сервис '$SERVICE_NAME' обновлён в окружении '$ENVIRONMENT'"

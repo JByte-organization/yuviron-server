@@ -20,7 +20,7 @@
 # =============================================================================
 FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS base
 WORKDIR /repo
-RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
@@ -55,5 +55,9 @@ COPY --chown=10001:10001 --from=build /repo/apps/${APP_NAME}/dist /usr/share/ngi
 COPY nginx.conf /etc/nginx/nginx.conf
 
 EXPOSE 3000
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=5 \
+    CMD wget -qO /dev/null http://127.0.0.1:3000/health || exit 1
+
 USER 10001:10001
 CMD ["nginx", "-g", "daemon off;"]
