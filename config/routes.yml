@@ -26,6 +26,15 @@ routes:
     rate_limit_zone: api_general
     environments: [dev, prod]
 
+  clickhouse:
+    # ClickHouse HTTP interface — includes the built-in /play SQL UI.
+    # Access: https://clickhouse.dev.<domain>/play
+    # Protected by nginx basic auth (management route).
+    target: clickhouse:8123
+    host_strategy: subdomain
+    rate_limit_zone: api_general
+    environments: [dev]
+
   seq:
     target: seq:80
     host_strategy: subdomain

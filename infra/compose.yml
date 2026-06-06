@@ -33,6 +33,11 @@ x-dotnet-env: &dotnet-env
   AdSettings__CooldownMinutes: ${AD_COOLDOWN_MINUTES:-2}
   ArtistLimits__FreeUserMaxProfiles: ${FREE_USER_MAX_PROFILES:-1}
   ArtistLimits__PremiumUserMaxProfiles: ${PREMIUM_USER_MAX_PROFILES:-5}
+  ClickHouse__Host: clickhouse
+  ClickHouse__HttpPort: "8123"
+  ClickHouse__Database: yuviron_analytics
+  ClickHouse__User: yuviron_api_user
+  ClickHouse__Password: ${CLICKHOUSE_API_PASSWORD}
   CorsSettings__AllowedOrigins__0: ${CORS_ORIGIN_0}
   CorsSettings__AllowedOrigins__1: ${CORS_ORIGIN_1}
   CorsSettings__AllowedOrigins__2: ${CORS_ORIGIN_2}
@@ -199,6 +204,58 @@ services:
     mem_limit: ${RABBITMQ_MEM_LIMIT:-512m}
     memswap_limit: ${RABBITMQ_MEMSWAP_LIMIT:-512m}
     cpus: ${RABBITMQ_CPUS:-0.5}
+
+  clickhouse:
+    # LTS image — pin to a specific patch when it becomes available via digest.
+    # Check for newer LTS: https://hub.docker.com/r/clickhouse/clickhouse-server/tags?name=lts
+    image: clickhouse/clickhouse-server:24.8-lts
+    container_name: ${COMPOSE_PROJECT_NAME}-clickhouse
+    restart: ${RESTART_POLICY}
+    cap_drop:
+      - ALL
+    cap_add:
+      # ClickHouse drops from root to its own user on startup — these caps are
+      # required for chown of data directories and the privilege switch itself.
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      # Admin user — used by the init script and DBA tooling only.
+      CLICKHOUSE_DB: yuviron_analytics
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      # Passed to docker-entrypoint-initdb.d/01-init.sh for yuviron_api_user creation.
+      CLICKHOUSE_API_PASSWORD: ${CLICKHOUSE_API_PASSWORD}
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    expose:
+      - "8123"
+      - "9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+      - ./docker/clickhouse/config.d:/etc/clickhouse-server/config.d:ro
+      - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
+    networks:
+      - default
+    logging: *default-logging
+    healthcheck:
+      # /ping returns "Ok.\n" — grep -q avoids printing it to container logs.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q Ok."]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    mem_limit: ${CLICKHOUSE_MEM_LIMIT:-4g}
+    memswap_limit: ${CLICKHOUSE_MEMSWAP_LIMIT:-4g}
+    cpus: ${CLICKHOUSE_CPUS:-2.0}
 
   seq:
     image: datalust/seq:2025.2@sha256:868a12e93ec0b8c993767a7dd4cd6c8ebc441511c79e4cfac66c911f62d4db65
@@ -413,4 +470,6 @@ volumes:
   mysql_data:
   redis_data:
   rabbitmq_data:
+  clickhouse_data:
+  clickhouse_logs:
   nginx_media_cache:

@@ -407,6 +407,109 @@ def _bgsave_redis_before_snapshot(session: _BackupSession, env_name: str, contex
         _mark_warning(session, f"{env_name}:redis-bgsave-skipped")
 
 
+def _freeze_clickhouse_and_archive(
+    session: _BackupSession,
+    env_name: str,
+    context: ComposeContext,
+    project_name: str,
+    out_file: Path,
+) -> None:
+    """Create a consistent ClickHouse backup using SYSTEM FREEZE.
+
+    SYSTEM FREEZE creates hard-link copies of all MergeTree parts into
+    /var/lib/clickhouse/shadow/<name>/ without stopping the server. Only
+    the shadow directory is archived — this keeps backup size proportional
+    to active data and avoids copying indexes and other large volatile state.
+    SYSTEM UNFREEZE removes the shadow copies when archiving completes.
+
+    If the volume is missing the function returns silently (ClickHouse may
+    not be deployed in every environment). If the service is down or the
+    freeze fails, the function falls back to a live volume archive with a
+    warning so backup still completes.
+    """
+    clickhouse_service = os.getenv("CLICKHOUSE_SERVICE_NAME", "clickhouse")
+    volume_name = f"{project_name}_clickhouse_data"
+    container_name = f"{project_name}-clickhouse"
+
+    inspect = run(["docker", "volume", "inspect", volume_name], check=False, capture_output=True)
+    if inspect.returncode != 0:
+        session.logger.info(
+            f"Skipping ClickHouse backup for {env_name}: volume {volume_name} not found"
+        )
+        return  # Not a warning — clickhouse may not be deployed in all envs
+
+    if not _service_running(context, clickhouse_service):
+        session.logger.warn(
+            f"ClickHouse service not running for {env_name}; archiving volume without freeze"
+        )
+        _mark_warning(session, f"{env_name}:clickhouse-frozen-skipped-not-running")
+        _archive_named_volume(session, env_name, "clickhouse", volume_name, out_file)
+        return
+
+    freeze_name = f"backup_{session.timestamp_utc}"
+    admin_password = parse_env_file(context.runtime_env).get("CLICKHOUSE_ADMIN_PASSWORD", "")
+
+    session.logger.info(f"ClickHouse SYSTEM FREEZE ({freeze_name}) for {env_name}")
+    freeze_result = run(
+        [
+            "docker", "exec", container_name,
+            "clickhouse-client", "--password", admin_password,
+            "--query", f"SYSTEM FREEZE WITH NAME '{freeze_name}'",
+        ],
+        check=False, capture_output=True,
+    )
+    if freeze_result.returncode != 0:
+        err = (freeze_result.stderr or freeze_result.stdout or "").strip()
+        session.logger.warn(
+            f"SYSTEM FREEZE failed for {env_name}: {err} — falling back to live volume archive"
+        )
+        _mark_warning(session, f"{env_name}:clickhouse-freeze-failed")
+        _archive_named_volume(session, env_name, "clickhouse", volume_name, out_file)
+        return
+
+    try:
+        tar_image = _pick_tar_image()
+        uid, gid = os.getuid(), os.getgid()
+        shadow_path = f"shadow/{freeze_name}"
+        session.logger.info(f"Archiving ClickHouse shadow snapshot for {env_name} ({shadow_path})")
+        packed = run(
+            [
+                "docker", "run", "--rm",
+                "-v", f"{volume_name}:/source:ro",
+                "-v", f"{out_file.parent}:/backup",
+                tar_image,
+                "sh", "-c",
+                f"tar -czf /backup/{out_file.name} -C /source/{shadow_path} . "
+                f"&& chown {uid}:{gid} /backup/{out_file.name}",
+            ],
+            check=False, capture_output=True,
+        )
+        if packed.returncode != 0:
+            out_file.unlink(missing_ok=True)
+            details = (packed.stderr or packed.stdout or "").strip()
+            if details:
+                session.logger.error(f"docker run output: {details}")
+            raise CommandError(f"Failed to archive ClickHouse shadow for {env_name}")
+
+        if not out_file.is_file() or out_file.stat().st_size == 0:
+            out_file.unlink(missing_ok=True)
+            raise CommandError(f"ClickHouse shadow archive is empty: {out_file}")
+
+        _validate_tar(out_file)
+        _mark_component(session, env_name, "clickhouse")
+        session.logger.info(f"ClickHouse shadow archive created: {out_file}")
+    finally:
+        # Always unfreeze — even if archiving failed — to release the shadow copies.
+        run(
+            [
+                "docker", "exec", container_name,
+                "clickhouse-client", "--password", admin_password,
+                "--query", f"SYSTEM UNFREEZE WITH NAME '{freeze_name}'",
+            ],
+            check=False, capture_output=True,
+        )
+
+
 def _backup_env(session: _BackupSession, env_name: str) -> None:
     if not generated_exists(session.root_dir, env_name):
         session.logger.warn(f"Skipping {env_name} backup: generated config is missing")
@@ -438,6 +541,8 @@ def _backup_env(session: _BackupSession, env_name: str) -> None:
         _archive_named_volume(session, env_name, "redis", f"{project_name}_redis_data", env_dir / "volume_redis_data.tar.gz")
 
         _archive_named_volume(session, env_name, "rabbitmq", f"{project_name}_rabbitmq_data", env_dir / "volume_rabbitmq_data.tar.gz")
+
+        _freeze_clickhouse_and_archive(session, env_name, context, project_name, env_dir / "clickhouse_shadow.tar.gz")
     else:
         session.logger.warn(f"Could not resolve COMPOSE_PROJECT_NAME for {env_name}")
         _mark_warning(session, f"{env_name}:compose-project-empty")

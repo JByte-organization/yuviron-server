@@ -13,6 +13,8 @@
     "ASPIRE_OTLP_ENDPOINT_URL",
     "BASE_DOMAIN",
     "CERT_FILE",
+    "CLICKHOUSE_ADMIN_PASSWORD",
+    "CLICKHOUSE_API_PASSWORD",
     "COMPOSE_PROJECT_NAME",
     "ConnectionStrings__Default",
     "ConnectionStrings__Redis",
@@ -200,6 +202,28 @@
       "type": "string",
       "minLength": 1,
       "description": "Host path to the TLS certificate file (.pem) mounted into the nginx container. In per-route mode this is the default/fallback cert."
+    },
+    "CLICKHOUSE_ADMIN_PASSWORD": {
+      "type": "string",
+      "minLength": 16,
+      "description": "Password for the ClickHouse default (admin) user. Used by the clickhouse service and the init script. Rotate to revoke all admin access."
+    },
+    "CLICKHOUSE_API_PASSWORD": {
+      "type": "string",
+      "minLength": 16,
+      "description": "Password for yuviron_api_user — the restricted ClickHouse user used by the backend API (SELECT, INSERT, CREATE TABLE on yuviron_analytics only)."
+    },
+    "CLICKHOUSE_CPUS": {
+      "type": "string",
+      "description": "CPU quota for the ClickHouse container (e.g. '2.0'). Default: 2.0."
+    },
+    "CLICKHOUSE_MEM_LIMIT": {
+      "type": "string",
+      "description": "Memory limit for the ClickHouse container (e.g. '4g'). Default: 4g. Set based on available RAM — ClickHouse benefits from large caches."
+    },
+    "CLICKHOUSE_MEMSWAP_LIMIT": {
+      "type": "string",
+      "description": "Memory+swap limit for the ClickHouse container. Should equal CLICKHOUSE_MEM_LIMIT to disable swap."
     },
     "COMPOSE_PROJECT_NAME": {
       "type": "string",
