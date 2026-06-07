@@ -6,7 +6,7 @@
 #   Если сервис не стал healthy в timeout — выводит последние 30 строк логов.
 #
 # _check_service_healths() — вызывает _wait_for_service_health для каждого
-#   из REQUIRED_STACK_SERVICES с таймаутом 120с.
+#   из REQUIRED_STACK_SERVICES с таймаутом 180с (как в cmd_restart — см. _up.py).
 #
 # _check_backend_readiness() — выполняет wget внутри backend-контейнера
 #   к /health/ready чтобы проверить что .NET API полностью инициализировался.
@@ -69,7 +69,12 @@ def _check_service_healths(context: ComposeContext, services: set[str]) -> None:
     log_info("Waiting for core service health")
     for service in REQUIRED_STACK_SERVICES:
         if service in services:
-            _wait_for_service_health(context, service, timeout=120)
+            # 180s — то же значение и по той же причине, что в cmd_restart (см. _up.py):
+            # backend/media-worker имеют start_period=60s, и при более коротком таймауте
+            # эта проверка может истечь до первого health-пробника Docker, считая
+            # полностью исправный после ребилда сервис "не поднявшимся" и запуская
+            # ненужный rollback.
+            _wait_for_service_health(context, service, timeout=180)
 
 
 def _check_backend_readiness(context: ComposeContext, services: set[str]) -> None:

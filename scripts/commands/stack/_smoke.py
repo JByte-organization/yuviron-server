@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import time
 
 from checks.smoke_logic import smoke_expected_codes, smoke_route_path, smoke_status_allowed
 from core.compose_runner import create_compose_context, validate_compose_config
@@ -34,6 +35,15 @@ from ._common import (
     _warn_nonstandard_public_ports,
 )
 from ._health import _check_backend_readiness, _check_service_healths
+
+# nginx caches DNS resolution of upstream container hostnames for "resolver ... valid=30s"
+# (см. templates/01-global.conf.j2). Сразу после пересоздания backend/media-worker контейнера
+# (новый IP в docker-сети) nginx какое-то время проксирует на старый, уже не существующий IP,
+# и отдаёт 502/503 — это не реальная проблема, а гонка с истечением DNS-кэша. Поэтому такие
+# коды по проксируемым маршрутам стоит не валить сразу, а ретраить чуть дольше TTL резолвера.
+_NGINX_PROXY_RETRY_TIMEOUT = 40
+_NGINX_PROXY_RETRY_INTERVAL = 5
+_NGINX_TRANSIENT_PROXY_CODES = frozenset({"502", "503"})
 
 
 def _check_nginx_route_health(context, routes_file, https_port: str) -> None:
@@ -85,31 +95,49 @@ def _check_nginx_https(context, routes_file, https_port: str) -> None:
         expected = smoke_expected_codes(route_name)
         url = _https_route_url(route_host, https_port, path)
 
-        result = run(
-            [
-                "curl",
-                "-k",
-                "-sS",
-                "--resolve",
-                f"{route_host}:{https_port}:127.0.0.1",
-                "-o",
-                "/dev/null",
-                "-w",
-                "%{http_code}",
-                "--connect-timeout",
-                "5",
-                "--max-time",
-                "15",
-                url,
-            ],
-            capture_output=True,
-            check=False,
-        )
+        start_ts = time.time()
+        while True:
+            result = run(
+                [
+                    "curl",
+                    "-k",
+                    "-sS",
+                    "--resolve",
+                    f"{route_host}:{https_port}:127.0.0.1",
+                    "-o",
+                    "/dev/null",
+                    "-w",
+                    "%{http_code}",
+                    "--connect-timeout",
+                    "5",
+                    "--max-time",
+                    "15",
+                    url,
+                ],
+                capture_output=True,
+                check=False,
+            )
 
-        code = (result.stdout or "").strip()
-        if not code:
-            fail(f"No HTTP code returned for route '{route_name}' ({url})")
-        if not smoke_status_allowed(code, expected):
+            code = (result.stdout or "").strip()
+            if code and smoke_status_allowed(code, expected):
+                break
+
+            transient = (
+                bool(code)
+                and code in _NGINX_TRANSIENT_PROXY_CODES
+                and code not in expected
+                and time.time() - start_ts < _NGINX_PROXY_RETRY_TIMEOUT
+            )
+            if transient:
+                log_info(
+                    f"Route '{route_name}' returned HTTP {code} for {url} "
+                    f"(stale nginx upstream DNS cache after restart?) — retrying..."
+                )
+                time.sleep(_NGINX_PROXY_RETRY_INTERVAL)
+                continue
+
+            if not code:
+                fail(f"No HTTP code returned for route '{route_name}' ({url})")
             fail(
                 f"Route '{route_name}' returned unexpected HTTP status {code} for {url} "
                 f"(allowed: {' '.join(expected)})"
