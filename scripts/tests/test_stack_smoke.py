@@ -97,12 +97,14 @@ class StackSmokeTests(unittest.TestCase):
 
     def test_stack_up_prepares_host_storage_before_compose_up(self) -> None:
         run_compose_mock = MagicMock()
+        run_compose_mock.return_value.returncode = 0
         with (
             patch("commands.stack._up.create_compose_context", return_value=self.context),
             patch.object(stack.preflight_checks, "prepare_host_storage_layout") as prepare_mock,
             patch("commands.stack._up._prepare_frontend_swagger") as swagger_mock,
             patch("commands.stack._up._snapshot_rollback_images", return_value={}),
             patch("commands.stack._up.run_compose", run_compose_mock),
+            patch("commands.stack._common.run_compose", run_compose_mock),
             patch("commands.stack._migrate.run_compose", run_compose_mock),
         ):
             stack.cmd_up(self._up_args())
@@ -128,7 +130,7 @@ class StackSmokeTests(unittest.TestCase):
                 ),
                 call(self.context, "pull", "--ignore-buildable", check=False),
                 call(self.context, "build", "--pull=false"),
-                call(self.context, "up", "-d", "--remove-orphans"),
+                call(self.context, "up", "-d", "--remove-orphans", check=False),
             ],
             run_compose_mock.call_args_list,
         )
@@ -197,7 +199,9 @@ class StackSmokeTests(unittest.TestCase):
             patch("commands.stack._up._prepare_frontend_swagger") as swagger_mock,
             patch("commands.stack._up._snapshot_rollback_images", return_value={}),
             patch("commands.stack._up.run_compose") as run_compose_mock,
+            patch("commands.stack._common.run_compose", run_compose_mock),
         ):
+            run_compose_mock.return_value.returncode = 0
             stack.cmd_up(self._up_args(skip_migrate=True))
 
         swagger_mock.assert_called_once_with(self.context, self.root, dry_run=False)
@@ -205,7 +209,7 @@ class StackSmokeTests(unittest.TestCase):
             [
                 call(self.context, "pull", "--ignore-buildable", check=False),
                 call(self.context, "build", "--pull=false"),
-                call(self.context, "up", "-d", "--remove-orphans"),
+                call(self.context, "up", "-d", "--remove-orphans", check=False),
             ],
             run_compose_mock.call_args_list,
         )
@@ -217,7 +221,9 @@ class StackSmokeTests(unittest.TestCase):
             patch("commands.stack._up._prepare_frontend_swagger") as swagger_mock,
             patch("commands.stack._up._snapshot_rollback_images", return_value={}),
             patch("commands.stack._up.run_compose") as run_compose_mock,
+            patch("commands.stack._common.run_compose", run_compose_mock),
         ):
+            run_compose_mock.return_value.returncode = 0
             stack.cmd_up(self._up_args(skip_migrate=True, skip_swagger=True))
 
         swagger_mock.assert_not_called()
@@ -234,11 +240,13 @@ class StackSmokeTests(unittest.TestCase):
             patch("commands.stack._up._snapshot_rollback_images", return_value={}),
             patch("commands.stack._up._restart_unhealthy_services"),
             patch("commands.stack._up.run_compose") as run_compose_mock,
+            patch("commands.stack._common.run_compose", run_compose_mock),
         ):
+            run_compose_mock.return_value.returncode = 0
             stack.cmd_up(self._up_args(skip_migrate=True, no_build=True))
 
         swagger_mock.assert_not_called()
-        run_compose_mock.assert_called_once_with(self.context, "up", "-d", "--remove-orphans")
+        run_compose_mock.assert_called_once_with(self.context, "up", "-d", "--remove-orphans", check=False)
 
     def test_stack_up_build_services_limits_compose_build_targets(self) -> None:
         with (
@@ -247,7 +255,9 @@ class StackSmokeTests(unittest.TestCase):
             patch("commands.stack._up._prepare_frontend_swagger") as swagger_mock,
             patch("commands.stack._up._snapshot_rollback_images", return_value={}),
             patch("commands.stack._up.run_compose") as run_compose_mock,
+            patch("commands.stack._common.run_compose", run_compose_mock),
         ):
+            run_compose_mock.return_value.returncode = 0
             stack.cmd_up(self._up_args(
                 skip_migrate=True,
                 skip_swagger=True,
@@ -267,7 +277,9 @@ class StackSmokeTests(unittest.TestCase):
             patch("commands.stack._up._prepare_frontend_swagger") as swagger_mock,
             patch("commands.stack._up._snapshot_rollback_images", return_value={}),
             patch("commands.stack._up.run_compose") as run_compose_mock,
+            patch("commands.stack._common.run_compose", run_compose_mock),
         ):
+            run_compose_mock.return_value.returncode = 0
             stack.cmd_up(self._up_args(
                 skip_migrate=True,
                 skip_swagger=True,
@@ -278,6 +290,40 @@ class StackSmokeTests(unittest.TestCase):
         calls = [c.args[1:] for c in run_compose_mock.call_args_list]
         self.assertIn(("build", "--pull=false"), calls)
         self.assertIn(("up", "-d", "--remove-orphans"), calls)
+
+    def test_compose_up_retries_on_transient_failure_then_succeeds(self) -> None:
+        from commands.stack import _common
+
+        ok_result = SimpleNamespace(returncode=0)
+        fail_result = SimpleNamespace(returncode=1)
+        run_compose_mock = MagicMock(side_effect=[fail_result, fail_result, ok_result])
+
+        with (
+            patch.object(_common, "run_compose", run_compose_mock),
+            patch.object(_common.time, "sleep") as sleep_mock,
+        ):
+            _common._compose_up(self.context, "--remove-orphans")
+
+        self.assertEqual(
+            [call(self.context, "up", "-d", "--remove-orphans", check=False)] * 3,
+            run_compose_mock.call_args_list,
+        )
+        self.assertEqual(2, sleep_mock.call_count)
+
+    def test_compose_up_fails_after_exhausting_retries(self) -> None:
+        from commands.stack import _common
+
+        fail_result = SimpleNamespace(returncode=1)
+        run_compose_mock = MagicMock(return_value=fail_result)
+
+        with (
+            patch.object(_common, "run_compose", run_compose_mock),
+            patch.object(_common.time, "sleep"),
+        ):
+            with self.assertRaises(CommandError):
+                _common._compose_up(self.context, "--remove-orphans")
+
+        self.assertEqual(_common._COMPOSE_UP_ATTEMPTS, run_compose_mock.call_count)
 
     def test_prepare_frontend_swagger_starts_backend_and_writes_documents(self) -> None:
         runtime_env = self.root / "generated" / "dev" / "deploy.env"

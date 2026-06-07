@@ -6,6 +6,7 @@
 # =============================================================================
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from core.docker import ComposeContext, container_id_for_service, run_compose
@@ -53,6 +54,36 @@ def _service_container_id(context: ComposeContext, service: str) -> str:
 
 def _built_service_image_name(project_name: str, service: str) -> str:
     return f"{project_name}-{service}"
+
+
+# "docker compose up -d" сам ждёт healthcheck-зависимостей (depends_on: condition:
+# service_healthy). Под нагрузкой во время параллельного билда Docker иногда на
+# мгновение помечает только что стартовавший backend/media-worker "unhealthy"
+# (не выдержав retries в первые секунды) — и compose тут же прерывает up с кодом 1,
+# хотя секундами позже контейнер сам приходит в норму (это и видно в логах: наш
+# собственный _wait_for_service_health чуть позже репортит "is running/healthy" для
+# всех сервисов без проблем). Поэтому ретраим: повторный "up -d" идемпотентен —
+# он просто продолжает поднимать то, что не поднялось с первого раза.
+_COMPOSE_UP_ATTEMPTS = 3
+_COMPOSE_UP_RETRY_DELAY_SECONDS = 15
+
+
+def _compose_up(context: ComposeContext, *args: str) -> None:
+    last_returncode = 0
+    for attempt in range(1, _COMPOSE_UP_ATTEMPTS + 1):
+        result = run_compose(context, "up", "-d", *args, check=False)
+        if result.returncode == 0:
+            return
+        last_returncode = result.returncode
+        if attempt < _COMPOSE_UP_ATTEMPTS:
+            log_warn(
+                f"'docker compose up -d' exited with code {result.returncode} "
+                f"(attempt {attempt}/{_COMPOSE_UP_ATTEMPTS}) — likely a transient "
+                f"healthcheck race during startup, retrying in {_COMPOSE_UP_RETRY_DELAY_SECONDS}s..."
+            )
+            time.sleep(_COMPOSE_UP_RETRY_DELAY_SECONDS)
+
+    fail(f"'docker compose up -d' failed after {_COMPOSE_UP_ATTEMPTS} attempts (exit code {last_returncode})")
 
 
 def _https_route_url(route_host: str, https_port: str, path: str) -> str:

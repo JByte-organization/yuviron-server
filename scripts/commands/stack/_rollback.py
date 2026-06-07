@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from core.docker import ComposeContext, run_compose
 from core.ui import log_info, log_ok, log_warn
 
-from ._common import _built_service_image_name
+from ._common import _built_service_image_name, _compose_up
 from ._health import _wait_for_service_health
 
 # Таймаут ожидания healthy после rollback — консервативнее чем при обычном up,
@@ -95,7 +95,7 @@ def _restore_rollback_images(context: ComposeContext, snapshot: dict[str, str]) 
         )
         log_info(f"  Restored: {service} <- {rollback_tag}")
 
-    run_compose(context, "up", "-d", "--remove-orphans")
+    _compose_up(context, "--remove-orphans")
 
     # Ждём healthy для каждого откатившегося сервиса.
     # Ошибка при ожидании не останавливает процесс — логируем предупреждение

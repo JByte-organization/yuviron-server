@@ -40,7 +40,13 @@ from core.paths import resolve_root_dir
 from core.ui import log_info, log_ok, log_warn
 from core.validators import CommandError, resolve_prompted_environment
 
-from ._common import DEFAULT_ROOT, FRONTEND_SWAGGER_DIR, SWAGGER_DOCUMENTS, _load_compose_services
+from ._common import (
+    DEFAULT_ROOT,
+    FRONTEND_SWAGGER_DIR,
+    SWAGGER_DOCUMENTS,
+    _compose_up,
+    _load_compose_services,
+)
 from ._health import _check_service_healths, _wait_for_service_health
 from ._migrate import _run_migrator
 from ._rollback import _cleanup_rollback_images, _restore_rollback_images, _snapshot_rollback_images
@@ -187,7 +193,7 @@ def _cmd_up_locked(args: argparse.Namespace, environment: str, root_dir: Path) -
     try:
         if no_build:
             _restart_unhealthy_services(context)
-            run_compose(context, "up", "-d", "--remove-orphans")
+            _compose_up(context, "--remove-orphans")
         else:
             log_info("Pulling pre-built service images")
             run_compose(context, "pull", "--ignore-buildable", check=False)
@@ -195,7 +201,7 @@ def _cmd_up_locked(args: argparse.Namespace, environment: str, root_dir: Path) -
                 run_compose(context, "build", "--pull=false", *build_services)
             else:
                 run_compose(context, "build", "--pull=false")
-            run_compose(context, "up", "-d", "--remove-orphans")
+            _compose_up(context, "--remove-orphans")
         if snapshot:
             _check_service_healths(context, _load_compose_services(context))
             _cleanup_rollback_images(snapshot)
