@@ -23,8 +23,13 @@ run_sql() {
 run_sql "CREATE USER IF NOT EXISTS yuviron_api_user
     IDENTIFIED WITH sha256_password BY '${CLICKHOUSE_API_PASSWORD}'"
 
+# yuviron_api_user намеренно не получает грант CREATE DATABASE (см. ниже),
+# поэтому базу для аналитики создаём здесь, под admin-пользователем —
+# приложение (ClickHouseInitializer) лишь создаёт в ней таблицы.
+run_sql "CREATE DATABASE IF NOT EXISTS yuviron_analytics"
+
 # No DROP TABLE — analytics data survives deploys and rollbacks.
 # No access to system tables — prevents host inspection from application code.
 run_sql "GRANT SELECT, INSERT, CREATE TABLE ON yuviron_analytics.* TO yuviron_api_user"
 
-echo "[clickhouse-init] yuviron_api_user ready: SELECT, INSERT, CREATE TABLE on yuviron_analytics"
+echo "[clickhouse-init] yuviron_analytics database ready; yuviron_api_user granted SELECT, INSERT, CREATE TABLE"
