@@ -6,10 +6,11 @@
 # =============================================================================
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 
-from core.docker import ComposeContext, container_id_for_service, run_compose
+from core.docker import ComposeContext, container_id_for_service, run, run_compose
 from core.env import parse_routes_file
 from core.ui import log_info, log_ok, log_warn
 from core.validators import fail
@@ -64,8 +65,53 @@ def _built_service_image_name(project_name: str, service: str) -> str:
 # собственный _wait_for_service_health чуть позже репортит "is running/healthy" для
 # всех сервисов без проблем). Поэтому ретраим: повторный "up -d" идемпотентен —
 # он просто продолжает поднимать то, что не поднялось с первого раза.
-_COMPOSE_UP_ATTEMPTS = 3
-_COMPOSE_UP_RETRY_DELAY_SECONDS = 15
+#
+# Бюджет подобран с запасом над healthcheck'ом dotnet-сервисов
+# (start_period=60s, см. x-dotnet-worker-healthcheck в compose.yml): если
+# зависимость пересоздаётся посреди "up -d", её start_period начинается заново,
+# и одной короткой паузы может не хватить, чтобы дождаться следующего "тихого" окна.
+_COMPOSE_UP_ATTEMPTS = 4
+_COMPOSE_UP_RETRY_DELAY_SECONDS = 20
+
+
+def _log_unhealthy_service_diagnostics(context: ComposeContext) -> None:
+    """Показать состояние и последний health-probe всех нездоровых сервисов проекта.
+
+    Само сообщение compose о том, какая именно depends_on-зависимость "unhealthy"
+    и привела к прерыванию "up -d", тонет в потоке вывода сборки и не попадает
+    в итоговый лог CI — остаётся только generic "exit code 1". Без этой диагностики
+    невозможно понять, какой сервис мигает и почему (см. .State.Health.Log[].Output —
+    там лежит реальная причина, например текст ошибки от wget/curl внутри пробника).
+    """
+    result = run_compose(context, "ps", "-q", capture_output=True, check=False)
+    container_ids = [c for c in result.stdout.strip().splitlines() if c]
+    for cid in container_ids:
+        info = run(
+            ["docker", "inspect", "-f",
+             "{{.Name}}|{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}",
+             cid],
+            capture_output=True, check=False,
+        ).stdout.strip()
+        name, _, rest = info.lstrip("/").partition("|")
+        status, _, health = rest.partition("|")
+        if health in ("healthy", "none", ""):
+            continue
+
+        log_warn(f"  '{name}': status={status} health={health}")
+        health_json = run(
+            ["docker", "inspect", "-f", "{{json .State.Health}}", cid],
+            capture_output=True, check=False,
+        ).stdout.strip()
+        try:
+            health_data = json.loads(health_json) if health_json and health_json != "null" else None
+        except json.JSONDecodeError:
+            health_data = None
+        log_entries = (health_data or {}).get("Log") or []
+        if log_entries:
+            last = log_entries[-1]
+            output = (last.get("Output") or "").strip().splitlines()
+            summary = output[-1] if output else "<empty>"
+            log_warn(f"    last health probe (exit={last.get('ExitCode')}): {summary}")
 
 
 def _compose_up(context: ComposeContext, *args: str) -> None:
@@ -75,11 +121,24 @@ def _compose_up(context: ComposeContext, *args: str) -> None:
         if result.returncode == 0:
             return
         last_returncode = result.returncode
+        # Снимок диагностики снимаем СРАЗУ, пока сервис ещё помечен "unhealthy":
+        # к моменту провала "up -d" контейнер уже какое-то время как unhealthy
+        # (это и привело к прерыванию), но Docker продолжает гонять health-пробники
+        # в фоне независимо от compose, и за время паузы между попытками
+        # (_COMPOSE_UP_RETRY_DELAY_SECONDS) сервис обычно успевает сам выздороветь —
+        # тогда финальная диагностика после исчерпания ретраев увидит уже здоровую
+        # картину и ничего не покажет (см. реальный CI-лог: все сервисы стали
+        # "Healthy" к моменту "failed after 4 attempts", диагностика была пуста).
+        log_warn(
+            f"'docker compose up -d' exited with code {result.returncode} "
+            f"(attempt {attempt}/{_COMPOSE_UP_ATTEMPTS}) — inspecting container health "
+            "right now, before the flapping service has a chance to self-heal:"
+        )
+        _log_unhealthy_service_diagnostics(context)
         if attempt < _COMPOSE_UP_ATTEMPTS:
             log_warn(
-                f"'docker compose up -d' exited with code {result.returncode} "
-                f"(attempt {attempt}/{_COMPOSE_UP_ATTEMPTS}) — likely a transient "
-                f"healthcheck race during startup, retrying in {_COMPOSE_UP_RETRY_DELAY_SECONDS}s..."
+                f"likely a transient healthcheck race during startup, "
+                f"retrying in {_COMPOSE_UP_RETRY_DELAY_SECONDS}s..."
             )
             time.sleep(_COMPOSE_UP_RETRY_DELAY_SECONDS)
 

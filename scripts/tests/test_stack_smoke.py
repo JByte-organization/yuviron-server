@@ -300,6 +300,7 @@ class StackSmokeTests(unittest.TestCase):
 
         with (
             patch.object(_common, "run_compose", run_compose_mock),
+            patch.object(_common, "_log_unhealthy_service_diagnostics") as diagnostics_mock,
             patch.object(_common.time, "sleep") as sleep_mock,
         ):
             _common._compose_up(self.context, "--remove-orphans")
@@ -309,21 +310,56 @@ class StackSmokeTests(unittest.TestCase):
             run_compose_mock.call_args_list,
         )
         self.assertEqual(2, sleep_mock.call_count)
+        self.assertEqual(2, diagnostics_mock.call_count)
 
     def test_compose_up_fails_after_exhausting_retries(self) -> None:
         from commands.stack import _common
 
         fail_result = SimpleNamespace(returncode=1)
         run_compose_mock = MagicMock(return_value=fail_result)
+        diagnostics_mock = MagicMock()
 
         with (
             patch.object(_common, "run_compose", run_compose_mock),
+            patch.object(_common, "_log_unhealthy_service_diagnostics", diagnostics_mock),
             patch.object(_common.time, "sleep"),
         ):
             with self.assertRaises(CommandError):
                 _common._compose_up(self.context, "--remove-orphans")
 
         self.assertEqual(_common._COMPOSE_UP_ATTEMPTS, run_compose_mock.call_count)
+        # Диагностика снимается на КАЖДОЙ неудачной попытке (пока сервис ещё
+        # unhealthy), а не только в конце — иначе к финалу он может уже
+        # самовосстановиться и снимок окажется пустым (см. _compose_up).
+        self.assertEqual(_common._COMPOSE_UP_ATTEMPTS, diagnostics_mock.call_count)
+        diagnostics_mock.assert_called_with(self.context)
+
+    def test_log_unhealthy_service_diagnostics_reports_unhealthy_services(self) -> None:
+        from commands.stack import _common
+
+        ps_result = SimpleNamespace(returncode=0, stdout="container-1\ncontainer-2\n")
+        run_compose_mock = MagicMock(return_value=ps_result)
+
+        healthy_inspect = SimpleNamespace(returncode=0, stdout="/yuviron-dev-redis|running|healthy")
+        unhealthy_inspect = SimpleNamespace(returncode=0, stdout="/yuviron-dev-backend|running|unhealthy")
+        health_log_json = SimpleNamespace(
+            returncode=0,
+            stdout='{"Status":"unhealthy","Log":[{"ExitCode":1,"Output":"wget: server returned error: HTTP/1.1 503 Service Unavailable\\n"}]}',
+        )
+        run_mock = MagicMock(side_effect=[healthy_inspect, unhealthy_inspect, health_log_json])
+
+        with (
+            patch.object(_common, "run_compose", run_compose_mock),
+            patch.object(_common, "run", run_mock),
+            patch.object(_common, "log_warn") as log_warn_mock,
+        ):
+            _common._log_unhealthy_service_diagnostics(self.context)
+
+        messages = " | ".join(str(c.args[0]) for c in log_warn_mock.call_args_list)
+        self.assertIn("yuviron-dev-backend", messages)
+        self.assertIn("unhealthy", messages)
+        self.assertIn("HTTP/1.1 503 Service Unavailable", messages)
+        self.assertNotIn("yuviron-dev-redis", messages)
 
     def test_prepare_frontend_swagger_starts_backend_and_writes_documents(self) -> None:
         runtime_env = self.root / "generated" / "dev" / "deploy.env"
