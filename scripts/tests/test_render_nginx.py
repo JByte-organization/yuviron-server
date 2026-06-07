@@ -663,7 +663,7 @@ class RenderNginxTests(unittest.TestCase):
             SCRIPTS_ROOT / "templates",
         )
 
-        self.assertIn("max_size=10g", rendered)
+        self.assertIn("max_size=2g", rendered)
         self.assertIn("inactive=365d", rendered)
 
     def test_render_rejects_invalid_nginx_media_cache_max_size(self) -> None:

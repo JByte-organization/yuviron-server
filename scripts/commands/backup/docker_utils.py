@@ -3,20 +3,22 @@ from __future__ import annotations
 
 import time
 
-from core.docker import run_compose
+from core.docker import ComposeContext, run_compose
 from core.validators import CommandError
+
+from .core import BackupLogger
 
 REDIS_BGSAVE_POLL_INTERVAL = 1
 REDIS_BGSAVE_DEFAULT_TIMEOUT = 30
 
 
-def _service_exists(context: object, service_name: str) -> bool:
+def _service_exists(context: ComposeContext, service_name: str) -> bool:
     result = run_compose(context, "config", "--services", capture_output=True, check=False)
     services = {line.strip() for line in result.stdout.splitlines() if line.strip()}
     return service_name in services
 
 
-def _service_running(context: object, service_name: str) -> bool:
+def _service_running(context: ComposeContext, service_name: str) -> bool:
     result = run_compose(context, "ps", "--status", "running", "-q", service_name, capture_output=True, check=False)
     return any(line.strip() for line in result.stdout.splitlines())
 
@@ -29,7 +31,7 @@ def _redis_exec_cmd(service_name: str, redis_password: str, *redis_args: str) ->
     return cmd
 
 
-def _redis_lastsave(context: object, service_name: str, redis_password: str) -> int | None:
+def _redis_lastsave(context: ComposeContext, service_name: str, redis_password: str) -> int | None:
     """Return the LASTSAVE Unix timestamp from Redis, or None on failure."""
     result = run_compose(
         context,
@@ -46,10 +48,10 @@ def _redis_lastsave(context: object, service_name: str, redis_password: str) -> 
 
 
 def _trigger_redis_bgsave(
-    context: object,
+    context: ComposeContext,
     service_name: str,
     redis_password: str,
-    logger: object,
+    logger: BackupLogger,
     timeout: int = REDIS_BGSAVE_DEFAULT_TIMEOUT,
 ) -> bool:
     """Trigger BGSAVE on Redis and wait for the background save to finish.
@@ -95,7 +97,9 @@ def _trigger_redis_bgsave(
         time.sleep(REDIS_BGSAVE_POLL_INTERVAL)
 
 
-def _wait_for_mysql_ready(context: object, mysql_root_password: str, timeout_seconds: int, logger) -> None:
+def _wait_for_mysql_ready(
+    context: ComposeContext, mysql_root_password: str, timeout_seconds: int, logger: BackupLogger
+) -> None:
     # mysql_root_password принимается для обратной совместимости, но больше
     # не передаётся как аргумент -p в командную строку.
     # Пароль читается внутри контейнера из $MYSQL_ROOT_PASSWORD, который

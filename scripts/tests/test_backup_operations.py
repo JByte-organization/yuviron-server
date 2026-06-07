@@ -24,7 +24,14 @@ import sys
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
+from commands.backup._create import (
+    _archive_storage,
+    _BackupSession,
+    _dump_mysql,
+    _freeze_clickhouse_and_archive,
+)
 from commands.backup.core import (
+    BackupLogger,
     _stream_command_stdout_to_gzip,
     _stream_gzip_to_stdin,
     _validate_redis_persistence_archive,
@@ -355,3 +362,248 @@ class DeployEnvBackupWarningTests(unittest.TestCase):
             self.assertTrue(any("deploy.env" in w and "plaintext" in w for w in warnings),
                             f"Expected plaintext secret warning, got: {warnings}")
             self.assertTrue(any("plaintext secrets" in w or "plaintext" in w for w in warnings))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# _dump_mysql / _archive_storage / _freeze_clickhouse_and_archive
+# ──────────────────────────────────────────────────────────────────────────────
+
+class _CapturingLogger(BackupLogger):
+    """BackupLogger that records messages in memory instead of touching disk."""
+
+    def __init__(self) -> None:
+        self.lines: list[tuple[str, str]] = []
+
+    def _write(self, level: str, message: str) -> None:
+        self.lines.append((level, message))
+
+    @property
+    def warnings(self) -> list[str]:
+        return [msg for level, msg in self.lines if level == "WARN"]
+
+    @property
+    def infos(self) -> list[str]:
+        return [msg for level, msg in self.lines if level == "INFO"]
+
+
+def _make_session(root: Path, *, env_name: str = "dev", context: object | None = None) -> _BackupSession:
+    session = _BackupSession(
+        root_dir=root,
+        paths=MagicMock(),
+        logger=_CapturingLogger(),
+        backend_service_name="backend",
+        mysql_service_name="mysql",
+        redis_service_name="redis",
+        offsite_config=None,
+        backup_retention_days=14,
+        backup_project_name="test",
+        requested_envs=[env_name],
+        tmp_snapshot_dir=root / "tmp",
+        timestamp_utc="2026-06-06T12-00-00Z",
+    )
+    if context is not None:
+        session.compose_contexts[env_name] = context
+    return session
+
+
+class DumpMysqlTests(unittest.TestCase):
+
+    def _make_context(self, root: Path, env_name: str = "dev") -> MagicMock:
+        deploy_env = _minimal_env(root, env_name)
+        ctx = MagicMock()
+        ctx.runtime_env = deploy_env
+        ctx.build_compose_cmd = MagicMock(return_value=["docker", "compose", "exec"])
+        return ctx
+
+    def test_skips_when_credentials_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ctx = self._make_context(root)
+            ctx.runtime_env.write_text("COMPOSE_PROJECT_NAME=test-dev\n", encoding="utf-8")
+            session = _make_session(root, context=ctx)
+
+            with patch("commands.backup._create._stream_command_stdout_to_gzip") as stream_mock:
+                _dump_mysql(session, "dev", root / "mysql.sql.gz")
+
+            stream_mock.assert_not_called()
+            self.assertIn("dev:mysql-credentials-missing", session.backup_warnings)
+            self.assertEqual([], session.backup_components)
+
+    def test_skips_when_mysql_service_not_running(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ctx = self._make_context(root)
+            session = _make_session(root, context=ctx)
+
+            with (
+                patch("commands.backup._create._service_exists", return_value=True),
+                patch("commands.backup._create._service_running", return_value=False),
+                patch("commands.backup._create._stream_command_stdout_to_gzip") as stream_mock,
+            ):
+                _dump_mysql(session, "dev", root / "mysql.sql.gz")
+
+            stream_mock.assert_not_called()
+            self.assertIn("dev:mysql-service-not-running", session.backup_warnings)
+
+    def test_password_passed_via_env_not_cli(self) -> None:
+        """mysqldump must read the password from $MYSQL_ROOT_PASSWORD, never as a CLI arg.
+
+        A literal `-p<password>` would be visible to anyone running `ps aux` on the host
+        or inside the container — see the same fix already applied to ClickHouse freeze.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ctx = self._make_context(root)
+            session = _make_session(root, context=ctx)
+            out_file = root / "mysql.sql.gz"
+
+            def fake_stream(cmd, out):
+                out.write_bytes(gzip.compress(b"-- dump --"))
+                return 0, ""
+
+            with (
+                patch("commands.backup._create._service_exists", return_value=True),
+                patch("commands.backup._create._service_running", return_value=True),
+                patch("commands.backup._create._run_mysqlcheck", return_value=[]),
+                patch("commands.backup._create._stream_command_stdout_to_gzip", side_effect=fake_stream),
+            ):
+                _dump_mysql(session, "dev", out_file)
+
+            self.assertTrue(ctx.build_compose_cmd.called)
+            shell_cmd = ctx.build_compose_cmd.call_args[0][-1]
+            self.assertIn('MYSQL_PWD="$MYSQL_ROOT_PASSWORD"', shell_cmd)
+            self.assertNotIn("-ppw", shell_cmd)
+            self.assertNotIn("--password=pw", shell_cmd)
+            self.assertIn("dev:mysql", session.backup_components)
+
+
+class ArchiveStorageTests(unittest.TestCase):
+
+    def _make_context(self, root: Path, env_name: str = "dev") -> MagicMock:
+        deploy_env = _minimal_env(root, env_name)
+        ctx = MagicMock()
+        ctx.runtime_env = deploy_env
+        return ctx
+
+    def test_skips_when_storage_directory_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ctx = self._make_context(root)
+            ctx.runtime_env.write_text(
+                "COMPOSE_PROJECT_NAME=test-dev\nSTORAGE_PATH=storage/does-not-exist\n",
+                encoding="utf-8",
+            )
+            session = _make_session(root, context=ctx)
+
+            with patch("commands.backup._create.run") as run_mock:
+                _archive_storage(session, "dev", root / "storage.tar.gz")
+
+            run_mock.assert_not_called()
+            self.assertIn("dev:storage-directory-missing", session.backup_warnings)
+            self.assertEqual([], session.backup_components)
+
+    def test_archives_existing_storage_and_marks_component(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ctx = self._make_context(root)
+            session = _make_session(root, context=ctx)
+            out_file = root / "storage.tar.gz"
+
+            with (
+                patch("commands.backup._create.run", side_effect=_make_fake_run()),
+                patch("commands.backup._create._validate_tar"),
+            ):
+                _archive_storage(session, "dev", out_file)
+
+            self.assertIn("dev:storage", session.backup_components)
+            self.assertEqual([], session.backup_warnings)
+
+
+class FreezeClickhouseAndArchiveTests(unittest.TestCase):
+
+    def _run(self, root: Path, *, run_side_effect):
+        ctx = MagicMock()
+        session = _make_session(root, context=ctx)
+        out_file = root / "clickhouse_shadow.tar.gz"
+
+        with (
+            patch("commands.backup._create.run", side_effect=run_side_effect) as run_mock,
+            patch("commands.backup._create._service_running", return_value=True),
+            patch("commands.backup._create._pick_tar_image", return_value="alpine:3.20"),
+            patch("commands.backup._create._validate_tar"),
+        ):
+            try:
+                _freeze_clickhouse_and_archive(session, "dev", ctx, "test-dev", out_file)
+                error: Exception | None = None
+            except Exception as exc:  # noqa: BLE001 - re-raised to caller for assertion
+                error = exc
+
+        return session, run_mock, error
+
+    def _exec_calls(self, run_mock: MagicMock) -> list[list[str]]:
+        return [list(call.args[0]) for call in run_mock.call_args_list if call.args[0][:2] == ["docker", "exec"]]
+
+    def test_skips_when_volume_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            def fake_run(cmd, **kw):
+                if cmd[:3] == ["docker", "volume", "inspect"]:
+                    return MagicMock(returncode=1, stdout="", stderr="not found")
+                return MagicMock(returncode=0, stdout="", stderr="")
+
+            session, run_mock, error = self._run(root, run_side_effect=fake_run)
+
+        self.assertIsNone(error)
+        self.assertEqual([], session.backup_components)
+        exec_calls = self._exec_calls(run_mock)
+        self.assertEqual([], exec_calls, "must not touch ClickHouse when its volume does not exist")
+
+    def test_unfreezes_even_when_archiving_raises(self) -> None:
+        """SYSTEM UNFREEZE must run in `finally` so frozen parts are released on failure too."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            def fake_run(cmd, **kw):
+                if cmd[:3] == ["docker", "volume", "inspect"]:
+                    return MagicMock(returncode=0, stdout="", stderr="")
+                if cmd[:2] == ["docker", "run"]:
+                    # Archiving the shadow snapshot fails.
+                    return MagicMock(returncode=1, stdout="", stderr="tar failed")
+                return MagicMock(returncode=0, stdout="", stderr="")
+
+            session, run_mock, error = self._run(root, run_side_effect=fake_run)
+
+        self.assertIsInstance(error, CommandError)
+        exec_calls = self._exec_calls(run_mock)
+        freeze_calls = [c for c in exec_calls if "SYSTEM FREEZE" in c[-1]]
+        unfreeze_calls = [c for c in exec_calls if "SYSTEM UNFREEZE" in c[-1]]
+        self.assertEqual(1, len(freeze_calls), "expected exactly one SYSTEM FREEZE")
+        self.assertEqual(1, len(unfreeze_calls), "SYSTEM UNFREEZE must still run after archiving fails")
+        for cmd in freeze_calls + unfreeze_calls:
+            self.assertIn('--password "$CLICKHOUSE_PASSWORD"', cmd[-1])
+
+    def test_falls_back_to_volume_archive_when_freeze_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            def fake_run(cmd, **kw):
+                if cmd[:3] == ["docker", "volume", "inspect"]:
+                    return MagicMock(returncode=0, stdout="", stderr="")
+                if cmd[:2] == ["docker", "exec"] and "SYSTEM FREEZE" in cmd[-1]:
+                    return MagicMock(returncode=1, stdout="", stderr="freeze failed")
+                if cmd[:2] == ["docker", "run"] and isinstance(cmd[-1], str) and "tar -czf" in cmd[-1]:
+                    # _archive_named_volume packs via `sh -c "tar -czf /backup/<name> ..."`
+                    # with out_file.parent bind-mounted as /backup.
+                    _make_valid_tar_gz(root / "clickhouse_shadow.tar.gz")
+                return MagicMock(returncode=0, stdout="", stderr="")
+
+            with patch("commands.backup._create._validate_redis_persistence_archive"):
+                session, run_mock, error = self._run(root, run_side_effect=fake_run)
+
+        self.assertIsNone(error)
+        self.assertIn("dev:clickhouse-freeze-failed", session.backup_warnings)
+        self.assertIn("dev:volume-clickhouse", session.backup_components)
+        exec_calls = self._exec_calls(run_mock)
+        unfreeze_calls = [c for c in exec_calls if "SYSTEM UNFREEZE" in c[-1]]
+        self.assertEqual([], unfreeze_calls, "fallback path archives the live volume — no freeze took place to release")

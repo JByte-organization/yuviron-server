@@ -98,7 +98,9 @@ def _run_command(
             timeout=timeout,
         )
     except subprocess.TimeoutExpired as exc:
-        return subprocess.CompletedProcess(cmd, 124, exc.stdout or "", exc.stderr or f"Timed out after {timeout}s")
+        stdout = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        stderr = exc.stderr.decode() if isinstance(exc.stderr, bytes) else (exc.stderr or f"Timed out after {timeout}s")
+        return subprocess.CompletedProcess(cmd, 124, stdout, stderr)
 
 
 def _command_details(result: subprocess.CompletedProcess[str]) -> str:
@@ -330,7 +332,7 @@ def _check_dns_resolution(ctx: PreflightContext, report: DoctorReport) -> str:
             report.error("dns", f"{host} does not resolve: {exc}")
             continue
 
-        ips = sorted({item[4][0] for item in answers})
+        ips = sorted({str(item[4][0]) for item in answers})
         if not ips:
             report.error("dns", f"{host} resolved without IP addresses")
             continue

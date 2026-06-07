@@ -38,27 +38,9 @@ check_untyped_defs = true
 # tests/ is excluded — mypy is for source, pytest covers tests
 exclude = ["^\\.venv/", "^tests/"]
 
-# Legacy files that use duck-typed ctx/context: object patterns.
-# Grandfathered until each file gets a proper Protocol or dataclass.
+# Legacy file built around duck-typed PreflightContext-like ctx: object params.
+# Grandfathered until it gets a proper Protocol/dataclass typing pass (165 errors).
 [[tool.mypy.overrides]]
-module = [
-    "checks.preflight_checks",
-    "core.render_nginx",
-    "commands.backup._verify",
-    "commands.backup.docker_utils",
-    "commands.backup._shared",
-    "core.nginx_tls_policy",
-    "core.nginx_csp",
-    "core.config_loader",
-    "core.tls",
-    "core.nginx_route",
-    "core.env_validation",
-    "commands.tools._rotation",
-    "commands.doctor",
-    "commands.tools._monitoring",
-    "commands.stack._common",
-    "commands.security",
-    "core.ui",
-    "core.env",
-]
+module = ["checks.preflight_checks"]
 ignore_errors = true
+

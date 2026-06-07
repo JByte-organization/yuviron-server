@@ -20,7 +20,9 @@ import os
 import shutil
 import sys
 from pathlib import Path
+from types import ModuleType
 
+yaml: ModuleType | None
 try:
     import yaml
 except ImportError:  # PyYAML is optional for routes hint rendering.

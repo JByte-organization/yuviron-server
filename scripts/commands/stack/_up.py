@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -34,6 +35,7 @@ from checks import preflight_checks
 from core.compose_runner import create_compose_context
 from core.docker import ComposeContext, run, run_compose
 from core.env import parse_env_file
+from core.nginx_route import DEFAULT_NGINX_MEDIA_CACHE_MAX_SIZE
 from core.paths import resolve_root_dir
 from core.ui import log_info, log_ok, log_warn
 from core.validators import CommandError, resolve_prompted_environment
@@ -81,6 +83,26 @@ def _deploy_lock(root_dir: Path, environment: str) -> Iterator[None]:
                 f"If no other deploy is active, remove the lock: {lock_path}"
             )
         yield
+
+
+def _warn_if_media_cache_default_risky(root_dir: Path, runtime_values: dict[str, str]) -> None:
+    """Warn when NGINX_MEDIA_CACHE_MAX_SIZE falls back to its default on a small disk.
+
+    The media cache is a proxy_cache_path with max_size — nginx will happily fill
+    up to that limit. Left at the default on a VPS with little free space, it can
+    starve the rest of the stack (MySQL, ClickHouse, logs) of disk.
+    """
+    if runtime_values.get("NGINX_MEDIA_CACHE_MAX_SIZE", "").strip():
+        return
+
+    free_gb = shutil.disk_usage(root_dir).free / (1024 ** 3)
+    if free_gb < 20:
+        log_warn(
+            f"NGINX_MEDIA_CACHE_MAX_SIZE is not set — using default "
+            f"'{DEFAULT_NGINX_MEDIA_CACHE_MAX_SIZE}', but only {free_gb:.1f} GiB free disk space "
+            f"remains on {root_dir}. Set NGINX_MEDIA_CACHE_MAX_SIZE in .env to a value that fits "
+            f"your disk to avoid the media cache filling it up."
+        )
 
 
 def _restart_unhealthy_services(context: ComposeContext) -> None:
@@ -131,6 +153,7 @@ def _cmd_up_locked(args: argparse.Namespace, environment: str, root_dir: Path) -
         context.profiles = ("observability",)
     runtime_values = parse_env_file(context.runtime_env)
     preflight_checks.prepare_host_storage_layout(root_dir, runtime_values)
+    _warn_if_media_cache_default_risky(root_dir, runtime_values)
     no_build = getattr(args, "no_build", False)
     skip_swagger = getattr(args, "skip_swagger", False)
     build_services: list[str] = list(getattr(args, "build_services", None) or [])

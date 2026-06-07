@@ -31,8 +31,10 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
+yaml: ModuleType | None
 try:
     import yaml
 except ImportError:  # pragma: no cover - generate-config already requires PyYAML.

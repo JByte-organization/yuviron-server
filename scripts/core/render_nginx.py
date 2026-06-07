@@ -81,7 +81,7 @@ def _render_template(template_text: str, context: dict) -> str:
     return template.render(**context)
 
 
-def _env_value(env_values: Mapping[str, str] | None, key: str, default: str) -> object:
+def _env_value(env_values: Mapping[str, str] | None, key: str, default: str) -> str:
     if env_values is None:
         return default
     return env_values.get(key, default)
