@@ -35,8 +35,24 @@ def frontend_resource_env_prefix(app: FrontendApp) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "_", app.service_name).strip("_").upper()
 
 
+def _quote_env_value(value: str) -> str:
+    """Обернуть значение в двойные кавычки и экранировать \\, " и $.
+
+    deploy.env читают и docker compose (--env-file), и bash напрямую
+    (см. _write_healthcheck_alert_wrapper: "set -a; source deploy.env; set +a").
+    Без кавычек bash при source разбивает значения с пробелами/спецсимволами
+    на отдельные "слова" (например, NGINX_CONTENT_SECURITY_POLICY со значением
+    "default-src 'self'; script-src 'self' blob:" превращается в попытку
+    выполнить команды "self:" и "script-src" — мусор в логах cron, и следующие
+    переменные могут не установиться). Экранирование \\, " и $ одинаково
+    разворачивается и docker compose, и bash (см. _unquote_env_value в env.py).
+    """
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
+    return f'"{escaped}"'
+
+
 def render_env_file(env_map: Dict[str, str]) -> str:
-    return "\n".join(f"{key}={value}" for key, value in env_map.items()) + "\n"
+    return "\n".join(f"{key}={_quote_env_value(value)}" for key, value in env_map.items()) + "\n"
 
 
 def render_apps_env(selected_apps: List[FrontendApp], optional_apps: List[FrontendApp]) -> str:

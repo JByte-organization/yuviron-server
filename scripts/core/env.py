@@ -47,11 +47,35 @@ from .paths import compose_relative_path
 from .validators import fail, require_file
 
 
+_DOUBLE_QUOTED_VALUE_RE = re.compile(r'^"(.*)"$', re.DOTALL)
+_SINGLE_QUOTED_VALUE_RE = re.compile(r"^'(.*)'$", re.DOTALL)
+_DOUBLE_QUOTE_ESCAPE_RE = re.compile(r'\\(["\\$])')
+
+
+def _unquote_env_value(value: str) -> str:
+    """Снять кавычки render_env_file() и обратить экранирование (dotenv-стиль).
+
+    render_env_file() оборачивает значения в двойные кавычки и экранирует
+    \\, " и $, чтобы файл одинаково читался и через "bash -c 'set -a; source ...'"
+    (см. _write_healthcheck_alert_wrapper), и через "docker compose --env-file"
+    — без кавычек bash при source спотыкается о пробелы/спецсимволы в значении
+    (например, в NGINX_CONTENT_SECURITY_POLICY). Без парного снятия кавычек
+    здесь значения возвращались бы с лишними кавычками внутри.
+    """
+    if match := _DOUBLE_QUOTED_VALUE_RE.match(value):
+        return _DOUBLE_QUOTE_ESCAPE_RE.sub(r"\1", match.group(1))
+    if match := _SINGLE_QUOTED_VALUE_RE.match(value):
+        return match.group(1)
+    return value
+
+
 def parse_env_file(path: Path) -> dict[str, str]:
     """Прочитать KEY=VALUE файл и вернуть словарь.
 
     Пропускает пустые строки, комментарии (#) и строки без знака равенства.
-    Файл может не существовать — тогда возвращается пустой словарь.
+    Значения в кавычках (как пишет render_env_file()) разворачиваются —
+    см. _unquote_env_value(). Файл может не существовать — тогда возвращается
+    пустой словарь.
     """
     values: dict[str, str] = {}
     if not path.is_file():
@@ -65,7 +89,7 @@ def parse_env_file(path: Path) -> dict[str, str]:
         key = key.strip()
         if not key:
             continue
-        values[key] = value.strip()
+        values[key] = _unquote_env_value(value.strip())
 
     return values
 
