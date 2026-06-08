@@ -31,9 +31,11 @@ import re
 import shutil
 import stat
 from pathlib import Path
+from typing import Protocol
 
+from commands.backup.core import _ALPINE_IMAGE
 from core.compose_runner import validate_compose_config
-from core.docker import ensure_docker_network, ensure_shared_network, run, run_compose
+from core.docker import ComposeContext, ensure_docker_network, ensure_shared_network, run, run_compose
 from core.env import (
     ensure_generated_basic_auth_file,
     generated_exists,
@@ -56,6 +58,55 @@ from core.tls import (
 from core.ui import log_info, log_ok, log_warn
 from core.validators import ensure_command, fail
 
+
+class _PreflightContext(Protocol):
+    """Структурный интерфейс PreflightContext (см. commands/stack/_preflight.py).
+
+    Описан здесь как Protocol, а не импортирован напрямую — _preflight.py сам
+    импортирует checks.preflight_checks, прямой импорт PreflightContext отсюда
+    создал бы цикл. Содержит только атрибуты/методы, которые реально читают
+    функции этого модуля; при добавлении новых обращений к ctx.* дополните и его.
+    """
+
+    root_dir: Path
+    infra_dir: Path
+    edge_dir: Path
+    env_dir: Path
+    generated_dir: Path
+    certs_dir: Path
+    environment: str
+    strict_generated: bool
+    allow_regenerate: bool
+    compose_context: ComposeContext | None
+    preflight_started_containers: dict[str, str]
+    runtime_env: Path | None
+    runtime_values: dict[str, str]
+    manifest_values: dict[str, str]
+    routes: list[tuple[str, str, str]]
+    required_env_vars: tuple[str, ...]
+
+    compose_file: Path
+    env_file: Path
+    stack_env_file: Path
+    routes_file: Path
+    manifest_file: Path
+    generated_nginx_conf: Path
+    apps_file: Path
+    frontends_compose_file: Path
+
+    edge_dockerfile: Path
+    dotnet_dockerfile: Path
+    frontend_next_dockerfile: Path
+    frontend_static_dockerfile: Path
+
+    frontend_root: Path
+    frontend_package_json: Path
+
+    def assert_file(self, path: Path) -> None: ...
+    def assert_dir(self, path: Path) -> None: ...
+    def ensure_compose_context(self) -> ComposeContext: ...
+
+
 # ---------------------------------------------------------------------------
 # preflight_core — host, env, storage, network checks
 # ---------------------------------------------------------------------------
@@ -69,7 +120,7 @@ REQUIRED_STORAGE_DIRS = ("avatars", "banners", "covers", "seq", "temp", "tracks"
 DEFAULT_STORAGE_DIR_MODE = "0755"
 
 
-def _resolve_regeneration_value(ctx: object, key: str, *value_maps: dict[str, str]) -> str:
+def _resolve_regeneration_value(ctx: _PreflightContext, key: str, *value_maps: dict[str, str]) -> str:
     manifest_values = getattr(ctx, "manifest_values", {})
     value = manifest_values.get(key, "").strip()
     if value:
@@ -82,7 +133,7 @@ def _resolve_regeneration_value(ctx: object, key: str, *value_maps: dict[str, st
     return ""
 
 
-def _resolve_regeneration_inputs(ctx: object) -> tuple[str, str, str]:
+def _resolve_regeneration_inputs(ctx: _PreflightContext) -> tuple[str, str, str]:
     deploy_values = parse_env_file(ctx.env_file)
     stack_values = parse_env_file(ctx.stack_env_file)
     apps_values = parse_env_file(ctx.apps_file)
@@ -112,7 +163,7 @@ def _resolve_regeneration_inputs(ctx: object) -> tuple[str, str, str]:
     return domain, app_keys, extra_routes
 
 
-def regenerate_preflight_generated(ctx: object) -> None:
+def regenerate_preflight_generated(ctx: _PreflightContext) -> None:
     domain, app_keys, extra_routes = _resolve_regeneration_inputs(ctx)
     log_info(
         f"Regenerating generated config for {ctx.environment}: "
@@ -133,7 +184,7 @@ def regenerate_preflight_generated(ctx: object) -> None:
     )
 
 
-def check_required_paths(ctx: object) -> None:
+def check_required_paths(ctx: _PreflightContext) -> None:
     log_info("Checking required files and directories")
 
     ctx.assert_dir(ctx.root_dir)
@@ -165,7 +216,7 @@ def check_required_paths(ctx: object) -> None:
     log_ok("Required files and directories are present")
 
 
-def check_tools(ctx: object) -> None:
+def check_tools(ctx: _PreflightContext) -> None:
     log_info("Checking required tools")
 
     for tool in ("docker", "awk", "sed", "sha256sum"):
@@ -174,7 +225,7 @@ def check_tools(ctx: object) -> None:
     log_ok("Required tools are available")
 
 
-def check_docker_access(ctx: object) -> None:
+def check_docker_access(ctx: _PreflightContext) -> None:
     log_info("Checking Docker access")
     docker_info = run(["docker", "info"], check=False, capture_output=True)
     if docker_info.returncode != 0:
@@ -182,7 +233,7 @@ def check_docker_access(ctx: object) -> None:
     log_ok("Docker daemon is available")
 
 
-def check_internet_connectivity(ctx: object) -> None:
+def check_internet_connectivity(ctx: _PreflightContext) -> None:
     log_info("Checking internet connectivity and DNS resolution")
     # curl is used instead of ping: ICMP is commonly blocked by cloud/VPS firewalls.
     # PREFLIGHT_CONNECTIVITY_URL can be overridden for restricted networks (CN, corporate proxies).
@@ -200,7 +251,7 @@ def check_internet_connectivity(ctx: object) -> None:
     log_ok("Internet connectivity and DNS resolution are working")
 
 
-def ensure_preflight_generated(ctx: object) -> None:
+def ensure_preflight_generated(ctx: _PreflightContext) -> None:
     ensure_generated_basic_auth_file(ctx.root_dir, ctx.environment)
     if generated_exists(ctx.root_dir, ctx.environment):
         return
@@ -222,7 +273,7 @@ def ensure_preflight_generated(ctx: object) -> None:
     fail(f"Generated config is missing for {ctx.environment}. Run ./scripts/init.py or set ALLOW_REGENERATE=1.")
 
 
-def load_env_file(ctx: object) -> None:
+def load_env_file(ctx: _PreflightContext) -> None:
     runtime_resolver = getattr(ctx, "resolve_runtime_env_file", None)
     if callable(runtime_resolver):
         runtime_env = runtime_resolver()
@@ -242,7 +293,7 @@ def load_env_file(ctx: object) -> None:
     log_ok("Env file loaded")
 
 
-def check_runtime_files(ctx: object) -> None:
+def check_runtime_files(ctx: _PreflightContext) -> None:
     log_info("Checking runtime files from generated env")
     ensure_generated_basic_auth_file(ctx.root_dir, ctx.environment)
 
@@ -279,7 +330,7 @@ def check_runtime_files(ctx: object) -> None:
     log_ok("Runtime files exist")
 
 
-def check_required_env_vars(ctx: object) -> None:
+def check_required_env_vars(ctx: _PreflightContext) -> None:
     log_info("Checking required env vars")
 
     missing: list[str] = []
@@ -294,7 +345,7 @@ def check_required_env_vars(ctx: object) -> None:
     log_ok("Required env vars are present")
 
 
-def check_env_policy(ctx: object) -> None:
+def check_env_policy(ctx: _PreflightContext) -> None:
     log_info("Checking env safety policy")
 
     strict = bool(getattr(ctx, "strict", False))
@@ -443,7 +494,8 @@ def _chown_storage_dir_via_docker(path: Path, uid: int, gid: int) -> bool:
 
     Зачем Docker, а не sudo:
       - Docker — уже обязательная зависимость проекта.
-      - alpine:3.20 уже используется в backup/operations.py как helper-образ.
+      - _ALPINE_IMAGE (с пином по SHA256) уже используется в backup/core.py
+        как helper-образ — переиспользуем его же для воспроизводимости.
       - Внутри контейнера работаем как root (--user 0:0), что позволяет chown
         на любой uid без прав на хосте.
       - Пользователю не нужен sudo для первоначальной настройки storage.
@@ -457,7 +509,7 @@ def _chown_storage_dir_via_docker(path: Path, uid: int, gid: int) -> bool:
                 "docker", "run", "--rm",
                 "--user", "0:0",
                 "-v", f"{path}:/target",
-                "alpine:3.20",
+                _ALPINE_IMAGE,
                 "chown", f"{uid}:{gid}", "/target",
             ],
             check=False,
@@ -514,7 +566,7 @@ def prepare_host_storage_layout(root_dir: Path, env_values: dict[str, str]) -> N
     _ensure_seq_storage_directory(seq_storage_dir, mode, env_values)
 
 
-def check_storage_writable(ctx: object) -> None:
+def check_storage_writable(ctx: _PreflightContext) -> None:
     log_info("Checking storage layout and host-side permissions")
 
     prepare_host_storage_layout(ctx.root_dir, ctx.runtime_values)
@@ -533,7 +585,7 @@ def _is_container_running(container_name: str) -> bool:
     )
 
 
-def check_backend_storage_permissions(ctx: object) -> None:
+def check_backend_storage_permissions(ctx: _PreflightContext) -> None:
     if bool(getattr(ctx, "dry_run", False)):
         log_warn("Dry-run preflight skips backend in-container storage permission check")
         return
@@ -587,19 +639,22 @@ def check_backend_storage_permissions(ctx: object) -> None:
     log_ok("Backend container can write/read/delete storage files")
 
 
-def check_disk_space(ctx: object) -> None:
+def check_disk_space(ctx: _PreflightContext) -> None:
     log_info("Checking free disk space")
 
     min_disk_kb = int(os.getenv("MIN_DISK_KB", "2097152"))
     free_kb = shutil.disk_usage(ctx.root_dir).free // 1024
 
     if free_kb < min_disk_kb:
-        fail(f"Less than 2 GiB free disk space left on volume containing {ctx.root_dir}")
+        fail(
+            f"Less than {min_disk_kb // 1024 // 1024} GiB free disk space "
+            f"left on volume containing {ctx.root_dir}"
+        )
 
     log_ok("Sufficient disk space detected")
 
 
-def check_shared_network(ctx: object) -> None:
+def check_shared_network(ctx: _PreflightContext) -> None:
     network = ctx.runtime_values.get("SHARED_NETWORK", "")
     if not network:
         fail("SHARED_NETWORK is missing from runtime env")
@@ -607,7 +662,7 @@ def check_shared_network(ctx: object) -> None:
     ensure_docker_network(network)
 
 
-def check_routes_file(ctx: object) -> None:
+def check_routes_file(ctx: _PreflightContext) -> None:
     log_info("Validating routes file")
 
     if not ctx.routes_file.is_file() or ctx.routes_file.stat().st_size == 0:
@@ -651,7 +706,7 @@ def _assert_hash_equals(file_path: Path, expected: str, label: str, *, hint: str
         fail("\n".join(details))
 
 
-def _check_generator_dependency_hashes(ctx: object, *, hint: str = "") -> None:
+def _check_generator_dependency_hashes(ctx: _PreflightContext, *, hint: str = "") -> None:
     for file_path in sorted((ctx.root_dir / "scripts" / "core").glob("*.py")):
         token = _manifest_token(file_path.name)
         key = f"SOURCE_CORE_{token}_SHA256"
@@ -667,7 +722,7 @@ def _check_generator_dependency_hashes(ctx: object, *, hint: str = "") -> None:
             _assert_hash_equals(file_path, expected, "generator template dependency", hint=hint)
 
 
-def load_manifest_file(ctx: object) -> None:
+def load_manifest_file(ctx: _PreflightContext) -> None:
     log_info(f"Loading manifest file: {ctx.manifest_file}")
     if not ctx.manifest_file.is_file():
         fail(f"Manifest file not found: {ctx.manifest_file}")
@@ -676,7 +731,7 @@ def load_manifest_file(ctx: object) -> None:
     log_ok("Manifest file loaded")
 
 
-def check_generated_freshness(ctx: object) -> None:
+def check_generated_freshness(ctx: _PreflightContext) -> None:
     log_info("Checking generated files freshness")
 
     regenerate_hint = f"Regenerate generated config: ./scripts/init.py --env {ctx.environment} --no-up"
@@ -793,7 +848,7 @@ def _service_from_upstream(route_name: str, upstream: str) -> str:
     return service
 
 
-def _route_upstream_services(ctx: object) -> list[tuple[str, str, str]]:
+def _route_upstream_services(ctx: _PreflightContext) -> list[tuple[str, str, str]]:
     return [
         (route_name, route_upstream, _service_from_upstream(route_name, route_upstream))
         for route_name, _route_host, route_upstream in ctx.routes
@@ -813,7 +868,7 @@ def _unique_services(route_services: list[tuple[str, str, str]]) -> list[str]:
     return services
 
 
-def _load_compose_services(ctx: object) -> set[str]:
+def _load_compose_services(ctx: _PreflightContext) -> set[str]:
     compose = ctx.ensure_compose_context()
     # COMPOSE_PROFILES=* activates all profiles so profile-gated services
     # (e.g. observability) are included in the reachability check.
@@ -830,7 +885,7 @@ def _load_compose_services(ctx: object) -> set[str]:
     }
 
 
-def _check_route_upstreams_exist(ctx: object, route_services: list[tuple[str, str, str]]) -> None:
+def _check_route_upstreams_exist(ctx: _PreflightContext, route_services: list[tuple[str, str, str]]) -> None:
     log_info("Checking route upstream services against compose config")
 
     compose_services = _load_compose_services(ctx)
@@ -853,17 +908,17 @@ def _check_route_upstreams_exist(ctx: object, route_services: list[tuple[str, st
     log_ok("Route upstream services exist in compose config")
 
 
-def _print_service_logs_on_failure(ctx: object, service: str) -> None:
+def _print_service_logs_on_failure(ctx: _PreflightContext, service: str) -> None:
     compose = ctx.ensure_compose_context()
     log_info(f"Last logs for failed service: {service}")
     run_compose(compose, "logs", "--no-color", "--tail=200", service, check=False)
 
 
-def check_compose_config(ctx: object) -> None:
+def check_compose_config(ctx: _PreflightContext) -> None:
     validate_compose_config(ctx.ensure_compose_context())
 
 
-def _running_project_containers(ctx: object) -> dict[str, str]:
+def _running_project_containers(ctx: _PreflightContext) -> dict[str, str]:
     compose = ctx.ensure_compose_context()
     result = run(
         [
@@ -886,7 +941,7 @@ def _running_project_containers(ctx: object) -> dict[str, str]:
     return containers
 
 
-def check_nginx_config(ctx: object) -> None:
+def check_nginx_config(ctx: _PreflightContext) -> None:
     log_info("Validating generated nginx config file")
 
     ctx.assert_file(ctx.generated_nginx_conf)
