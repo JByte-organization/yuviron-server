@@ -195,11 +195,22 @@ def cmd_backup_restore(args: argparse.Namespace) -> int:
         run_compose(context, "up", "-d", "--remove-orphans")
 
         logger.info("Waiting for core services to become healthy")
+        # 300s — clickhouse's healthcheck alone (start_period=60s, interval=10s,
+        # retries=20, см. infra/compose.yml) needs up to ~260s in the worst case
+        # on a cold start; 120s was tighter than even that single service's budget.
+        unhealthy_services: list[str] = []
         for service in REQUIRED_STACK_SERVICES:
             try:
-                _wait_for_service_health(context, service, timeout=120)
+                _wait_for_service_health(context, service, timeout=300)
             except Exception as exc:
                 logger.warn(f"Service '{service}' did not become healthy after restore: {exc}")
+                unhealthy_services.append(service)
+
+        if unhealthy_services:
+            raise CommandError(
+                "Restore finished, but these services never became healthy: "
+                + ", ".join(unhealthy_services)
+            )
 
     logger.info(f"Restore completed successfully for {environment}")
     return 0
