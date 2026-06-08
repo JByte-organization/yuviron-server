@@ -80,6 +80,8 @@ x-dotnet-service-defaults: &dotnet-service-defaults
       condition: service_healthy
     rabbitmq:
       condition: service_healthy
+    clickhouse:
+      condition: service_healthy
   networks:
     - default
 
