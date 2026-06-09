@@ -81,6 +81,7 @@ jobs:
             tests.test_backend_workflows \
             tests.test_python_requirements \
             tests.test_healthcheck_alert \
+            tests.test_appsettings \
             tests.test_docker_events_watcher \
             tests.test_env_quoting \
             tests.test_stack_restart \
