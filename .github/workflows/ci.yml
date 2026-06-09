@@ -81,6 +81,8 @@ jobs:
             tests.test_backend_workflows \
             tests.test_python_requirements \
             tests.test_healthcheck_alert \
+            tests.test_docker_events_watcher \
+            tests.test_env_quoting \
             tests.test_stack_restart \
             -v
 
@@ -197,6 +199,31 @@ jobs:
       - name: Clean up CI images
         if: always()
         run: docker rmi yuviron-backend:ci yuviron-media-worker:ci 2>/dev/null || true
+
+  notify-failure:
+    name: Notify on CI failure
+    runs-on: ubuntu-latest
+    if: failure()
+    needs: [unit-tests, e2e-dry-run, image-scan, image-scan-built]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Send failure email
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          ALERTS_EMAIL: ${{ secrets.ALERTS_EMAIL }}
+        run: |
+          python3 scripts/tools/monitoring/ci_notify.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --branch "$GITHUB_REF_NAME" \
+            --sha "$GITHUB_SHA" \
+            --actor "$GITHUB_ACTOR" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --workflow "$GITHUB_WORKFLOW"
 
   ci-summary:
     name: CI gate — warn on skipped self-hosted jobs
