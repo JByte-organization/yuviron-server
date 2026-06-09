@@ -22,7 +22,7 @@
 
 set -euo pipefail
 
-PROJECT_DIR="/opt/yuviron-server"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 # Команды, которые будут добавлены в crontab
 BACKUP_CMD="cd $PROJECT_DIR && ./scripts/cli.py backup create >> ./backups/logs/cron-backup.log 2>&1"
 RESTORE_CMD="cd $PROJECT_DIR && ./scripts/cli.py backup verify >> ./backups/logs/cron-restore-test.log 2>&1"
