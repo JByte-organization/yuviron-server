@@ -10,10 +10,15 @@
 
 ### Что покрывается
 
-* MySQL (дампы базы)
-* storage (файлы)
-* единые архивы
-* тест восстановления
+| Компонент | Покрывается | Метод |
+|---|---|---|
+| MySQL | ✅ | Логический дамп (`mysqldump`) |
+| storage (файлы) | ✅ | `tar.gz` bind-mount директории |
+| Redis | ✅ | Снимок named volume |
+| RabbitMQ | ✅ | Снимок named volume |
+| ClickHouse | ⚠️ частично | Shadow backup (`FREEZE`) — **ручное восстановление** |
+
+> **ClickHouse:** архив содержит data parts из shadow-директории (`BACKUP FREEZE`), но **не содержит** DDL (CREATE TABLE) и метаданные. `backup restore` намеренно не восстанавливает ClickHouse автоматически — подробнее см. [раздел ниже](#clickhouse-ограничения).
 
 ### Переменные окружения
 
@@ -137,6 +142,48 @@ BACKUP_RESTORE_TEST_AFTER_CREATE=0
 Полное деструктивное восстановление окружения: останавливает compose-стек, восстанавливает MySQL dump, storage и named volumes (`mysql_data`, `redis_data`, `rabbitmq_data`) из указанного архива. Флаг `--force` обязателен - команда не запустится без явного подтверждения намерения. `--env` и `--archive` можно не передавать: CLI спросит интерактивно.
 
 Перед полным restore рекомендуется проверить архив через `backup verify --full`.
+
+---
+
+### ClickHouse — ограничения
+
+> **⚠️ ClickHouse НЕ восстанавливается автоматически через `backup restore`.**
+
+`backup create` сохраняет ClickHouse через `ALTER TABLE ... FREEZE`, результат кладётся в `clickhouse_shadow.tar.gz` внутри архива. Shadow backup содержит **только data parts** (файлы MergeTree-партиций) — без DDL и системных метаданных. Автоматическое восстановление не реализовано намеренно: без CREATE TABLE воссоздать таблицы невозможно, а частичный `ATTACH` без схемы приведёт к ошибке.
+
+**Что означает при restore:**
+- MySQL, Redis, RabbitMQ, storage — восстанавливаются полностью.
+- ClickHouse — стартует **с пустыми таблицами** (структура сохраняется, данные теряются).
+- `clickhouse_shadow.tar.gz` остаётся в архиве для ручного восстановления.
+
+**Ручное восстановление ClickHouse после `backup restore`:**
+
+1. Убедись, что ClickHouse запущен и таблицы созданы (DDL применяется при старте сервиса через миграции или init-скрипты):
+
+   ```bash
+   docker exec -it <project>-clickhouse-1 clickhouse-client
+   SHOW TABLES FROM analytics;
+   ```
+
+2. Извлеки shadow backup из архива:
+
+   ```bash
+   tar -xzf backups/archives/<archive>.tar.gz --wildcards '*/clickhouse_shadow.tar.gz' -O \
+     | tar -xzf - -C /tmp/ch-restore/
+   ```
+
+3. Для каждой таблицы скопируй parts в `detached/` и прикрепи:
+
+   ```bash
+   # Пример для таблицы analytics.events
+   docker cp /tmp/ch-restore/<part_dir>/ <project>-clickhouse-1:/var/lib/clickhouse/data/analytics/events/detached/
+   docker exec -it <project>-clickhouse-1 clickhouse-client \
+     --query "ALTER TABLE analytics.events ATTACH PARTITION <partition_id>"
+   ```
+
+4. Проверь количество строк после каждой таблицы.
+
+**RPO для аналитики:** данные ClickHouse можно потерять, если DDL не зафиксирован в репозитории или init-скрипте. Убедись, что все CREATE TABLE хранятся в `infra/clickhouse/` или аналогичной директории.
 
 ---
 
