@@ -41,7 +41,7 @@ echo "🔐 Generating hash..."
 
 # Запускаем утилиту хэширования внутри официального Seq-контейнера.
 # printf используется вместо echo чтобы не добавлять лишний \n в конце.
-HASH=$(printf '%s' "$PASSWORD" | docker run --rm -i datalust/seq:latest config hash)
+HASH=$(printf '%s' "$PASSWORD" | docker run --rm -i datalust/seq:2025.2@sha256:868a12e93ec0b8c993767a7dd4cd6c8ebc441511c79e4cfac66c911f62d4db65 config hash)
 
 echo
 echo "✅ Hash generated:"
