@@ -161,8 +161,8 @@ BACKUP_RESTORE_TEST_AFTER_CREATE=0
 1. Убедись, что ClickHouse запущен и таблицы созданы (DDL применяется при старте сервиса через миграции или init-скрипты):
 
    ```bash
-   docker exec -it <project>-clickhouse-1 clickhouse-client
-   SHOW TABLES FROM analytics;
+   docker exec -it <project>-clickhouse clickhouse-client
+   SHOW TABLES FROM yuviron_analytics;
    ```
 
 2. Извлеки shadow backup из архива:
@@ -175,10 +175,10 @@ BACKUP_RESTORE_TEST_AFTER_CREATE=0
 3. Для каждой таблицы скопируй parts в `detached/` и прикрепи:
 
    ```bash
-   # Пример для таблицы analytics.events
-   docker cp /tmp/ch-restore/<part_dir>/ <project>-clickhouse-1:/var/lib/clickhouse/data/analytics/events/detached/
-   docker exec -it <project>-clickhouse-1 clickhouse-client \
-     --query "ALTER TABLE analytics.events ATTACH PARTITION <partition_id>"
+   # Пример для таблицы yuviron_analytics.events
+   docker cp /tmp/ch-restore/<part_dir>/ <project>-clickhouse:/var/lib/clickhouse/data/yuviron_analytics/events/detached/
+   docker exec -it <project>-clickhouse clickhouse-client \
+     --query "ALTER TABLE yuviron_analytics.events ATTACH PARTITION <partition_id>"
    ```
 
 4. Проверь количество строк после каждой таблицы.
