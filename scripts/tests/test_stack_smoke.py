@@ -26,7 +26,12 @@ class StackSmokeTests(unittest.TestCase):
             "STORAGE_PATH=storage/dev\nSEQ_STORAGE_PATH=storage/dev/seq\n",
             encoding="utf-8",
         )
-        self.context = SimpleNamespace(runtime_env=runtime_env, environment="dev")
+        self.context = SimpleNamespace(runtime_env=runtime_env, environment="dev", root_dir=self.root)
+
+        # ensure_shared_network would call docker network inspect/create — not appropriate in unit tests.
+        self._network_patcher = patch("commands.stack._common.ensure_shared_network")
+        self._network_patcher.start()
+        self.addCleanup(self._network_patcher.stop)
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
