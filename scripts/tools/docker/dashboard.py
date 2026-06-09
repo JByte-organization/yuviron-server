@@ -17,7 +17,9 @@
 # =============================================================================
 from __future__ import annotations
 
+import io
 import json
+import shutil
 import subprocess
 import sys
 import time
@@ -59,8 +61,22 @@ ICONS: dict[str, str] = {
 # =========================
 
 
-def clear() -> None:
-    print("\033[2J\033[H", end="", flush=True)
+def _render_frame(containers: list[dict[str, str]], stats: dict[str, dict[str, str]]) -> str:
+    """Capture render() output as a string and trim to terminal height."""
+    buf = io.StringIO()
+    saved = sys.stdout
+    sys.stdout = buf
+    try:
+        render(containers, stats)
+    finally:
+        sys.stdout = saved
+
+    term_h = shutil.get_terminal_size((80, 24)).lines
+    lines = buf.getvalue().split("\n")
+    # Never overflow the terminal — would cause the viewport to scroll down.
+    if len(lines) > term_h:
+        lines = lines[:term_h - 1]
+    return "\n".join(lines)
 
 
 def run(command: list[str]) -> str:
@@ -182,10 +198,12 @@ def render(containers: list[dict[str, str]], stats: dict[str, dict[str, str]]) -
     for container in containers:
         grouped[container["project"]].append(container)
 
+    box_width = 62
+    title = "DOCKER INFRA DASHBOARD"
     print(f"{BOLD}{WHITE}")
-    print("╔══════════════════════════════════════════════════════════════╗")
-    print("║                 DOCKER INFRA DASHBOARD                     ║")
-    print("╚══════════════════════════════════════════════════════════════╝")
+    print(f"╔{'═' * box_width}╗")
+    print(f"║{title.center(box_width)}║")
+    print(f"╚{'═' * box_width}╝")
     print(f"{RESET}")
 
     for project in sorted(grouped.keys()):
@@ -241,20 +259,28 @@ def render(containers: list[dict[str, str]], stats: dict[str, dict[str, str]]) -
 # =========================
 
 if __name__ == "__main__":
+    last_frame = ""
     try:
-        print("\033[?25l", end="")
+        sys.stdout.write("\033[?1049h\033[?25l")  # enter alternate screen, hide cursor
+        sys.stdout.flush()
 
         while True:
             containers = get_containers()
             stats = get_docker_stats()
 
-            clear()
-            render(containers, stats)
+            last_frame = _render_frame(containers, stats)
+            # \033[H  — cursor to (1,1), no scroll
+            # \033[J  — erase from cursor to end (removes leftover lines from previous frame)
+            sys.stdout.write("\033[H" + last_frame + "\033[J")
+            sys.stdout.flush()
 
             time.sleep(REFRESH_INTERVAL)
 
     except KeyboardInterrupt:
-        print(f"\n{RED}Stopped.{RESET}")
+        pass
 
     finally:
-        print("\033[?25h", end="")
+        sys.stdout.write("\033[?1049l\033[?25h")  # exit alternate screen, show cursor
+        sys.stdout.flush()
+        if last_frame:
+            print(last_frame)
