@@ -45,14 +45,14 @@ def build_ci_failure_email(
     subject = f"🔴 [CI FAILED] {repo} — {branch} ({short_sha})"
 
     text_body = "\n".join([
-        f"CI pipeline failed.",
-        f"",
+        "CI pipeline failed.",
+        "",
         f"Repository: {repo}",
         f"Workflow:   {workflow}",
         f"Branch:     {branch}",
         f"Commit:     {sha}",
         f"Triggered by: {actor}",
-        f"",
+        "",
         f"View run: {run_url}",
     ])
 
