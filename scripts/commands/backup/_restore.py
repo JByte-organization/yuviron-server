@@ -17,7 +17,7 @@ from core.env import (
 from core.paths import resolve_root_dir, resolve_runtime_path
 from core.validators import fail
 
-from commands.stack._common import REQUIRED_STACK_SERVICES
+from commands.stack._common import REQUIRED_STACK_SERVICES, _compose_up
 from commands.stack._health import _wait_for_service_health
 
 from .core import (
@@ -192,7 +192,7 @@ def cmd_backup_restore(args: argparse.Namespace) -> int:
             logger.info("MySQL dump not found, skipping logical DB restore")
 
         logger.info("Starting full environment")
-        run_compose(context, "up", "-d", "--remove-orphans")
+        _compose_up(context, "--remove-orphans")
 
         logger.info("Waiting for core services to become healthy")
         # 300s — clickhouse's healthcheck alone (start_period=60s, interval=10s,
