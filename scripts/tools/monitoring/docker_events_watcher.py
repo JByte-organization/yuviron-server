@@ -213,7 +213,7 @@ def _stream_events(root_dir: Path, env: str, args: argparse.Namespace, smtp_pass
         if rc != 0:
             stderr = proc.stderr.read() if proc.stderr else ""
             raise RuntimeError(f"docker events exited {rc}: {stderr.strip()}")
-    except:
+    except BaseException:
         proc.terminate()
         proc.wait()
         raise
