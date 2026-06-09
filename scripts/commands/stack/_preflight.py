@@ -265,7 +265,7 @@ class PreflightContext:
             f"{project}-nginx:latest",
             f"{project}-backend:latest",
             "nginx:alpine",
-            "datalust/seq:2025.2",
+            "datalust/seq:2025.2@sha256:868a12e93ec0b8c993767a7dd4cd6c8ebc441511c79e4cfac66c911f62d4db65",
         ]
 
 

@@ -51,19 +51,26 @@ def _hls_qualities() -> list[int]:
     return [int(q.strip()) for q in raw.split(",") if q.strip()]
 
 
-def _api_config(is_prod: bool) -> dict:
-    cors = [
-        "https://yuviron.com",
-        "https://backoffice.yuviron.com",
-        "https://admin.yuviron.com",
-    ]
-    if not is_prod:
-        cors += [
-            "https://dev.yuviron.com",
-            "https://dev-backoffice.yuviron.com",
-            "https://dev-admin.yuviron.com",
-            "http://localhost:3000",
+def _cors_origins(is_prod: bool, base_domain: str) -> list[str]:
+    if not base_domain:
+        return []
+    if is_prod:
+        return [
+            f"https://{base_domain}",
+            f"https://backoffice.{base_domain}",
+            f"https://admin.{base_domain}",
         ]
+    return [
+        f"https://dev.{base_domain}",
+        f"https://dev-backoffice.{base_domain}",
+        f"https://dev-admin.{base_domain}",
+        "http://localhost:3000",
+    ]
+
+
+def _api_config(is_prod: bool) -> dict:
+    base_domain = _opt("BASE_DOMAIN", "")
+    cors = _cors_origins(is_prod, base_domain)
 
     default_cooldown = "15" if is_prod else "2"
     return {
