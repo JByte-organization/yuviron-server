@@ -61,7 +61,7 @@ for required_file in "$COMPOSE_FILE" "$FRONTENDS_COMPOSE_FILE" "$DEPLOY_ENV_FILE
   fi
 done
 
-PROJECT_NAME="$(awk -F= '$1 == "COMPOSE_PROJECT_NAME" { print substr($0, index($0, "=") + 1) }' "$DEPLOY_ENV_FILE" | tail -n 1)"
+PROJECT_NAME="$(awk -F= '$1 == "COMPOSE_PROJECT_NAME" { print substr($0, index($0, "=") + 1) }' "$DEPLOY_ENV_FILE" | tail -n 1 | tr -d '"')"
 if [[ -z "$PROJECT_NAME" ]]; then
   echo "Ошибка: COMPOSE_PROJECT_NAME не найден в $DEPLOY_ENV_FILE"
   exit 1

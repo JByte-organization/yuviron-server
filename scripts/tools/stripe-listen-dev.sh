@@ -35,7 +35,7 @@ if [[ ! -f "$DEPLOY_ENV_FILE" ]]; then
     exit 1
 fi
 
-read_deploy_env() { grep "^$1=" "$DEPLOY_ENV_FILE" | cut -d= -f2- | tail -n1; }
+read_deploy_env() { grep "^$1=" "$DEPLOY_ENV_FILE" | cut -d= -f2- | tail -n1 | tr -d '"'; }
 
 BASE_DOMAIN="$(read_deploy_env BASE_DOMAIN)"
 PROJECT_NAME="$(read_deploy_env COMPOSE_PROJECT_NAME)"
