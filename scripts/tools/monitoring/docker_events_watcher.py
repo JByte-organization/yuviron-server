@@ -185,33 +185,38 @@ def _stream_events(root_dir: Path, env: str, args: argparse.Namespace, smtp_pass
 
     _log("Watching docker events (die / health_status / start)...")
 
-    assert proc.stdout is not None
-    for line in proc.stdout:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    try:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
 
-        name = _container_name(event)
+            name = _container_name(event)
 
-        if is_recovery(event):
-            _ha._clear_cooldown(root_dir, name)
-            _log(f"RECOVERED: {name}")
-            continue
+            if is_recovery(event):
+                _ha._clear_cooldown(root_dir, name)
+                _log(f"RECOVERED: {name}")
+                continue
 
-        reason = classify_event(event, root_dir, env)
-        if reason is None:
-            continue
+            reason = classify_event(event, root_dir, env)
+            if reason is None:
+                continue
 
-        _dispatch_alert(name, reason, root_dir, env, args, smtp_password)
+            _dispatch_alert(name, reason, root_dir, env, args, smtp_password)
 
-    rc = proc.wait()
-    if rc != 0:
-        stderr = proc.stderr.read() if proc.stderr else ""
-        raise RuntimeError(f"docker events exited {rc}: {stderr.strip()}")
+        rc = proc.wait()
+        if rc != 0:
+            stderr = proc.stderr.read() if proc.stderr else ""
+            raise RuntimeError(f"docker events exited {rc}: {stderr.strip()}")
+    except:
+        proc.terminate()
+        proc.wait()
+        raise
 
 
 def run(args: argparse.Namespace) -> int:

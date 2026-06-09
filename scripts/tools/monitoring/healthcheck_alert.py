@@ -13,7 +13,8 @@ scripts/tools/monitoring/healthcheck_alert.py — Email-алерты при па
   - Иначе → runtime crash (контейнер упал сам по себе в продакшене)
 
 Cooldown (ALERT_COOLDOWN = 30 минут): не отправляет повторный алерт для того же
-контейнера пока не пройдёт 30 минут. Cooldown хранится в JSON-файле на диске.
+контейнера пока не пройдёт 30 минут. Cooldown хранится как пустой файл-маркер
+.tmp/monitoring/alert-sent-<container> — актуальность определяется через mtime.
 
 SMTP_PASSWORD передаётся через переменную окружения (не аргумент командной строки).
 
