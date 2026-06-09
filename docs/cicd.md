@@ -141,6 +141,37 @@ Vulnerability scanning работает на четырёх уровнях.
 
 ---
 
+## Email-нотификации при провале CI
+
+При падении любого job в `ci.yml` (unit-tests, e2e-dry-run, image-scan, image-scan-built) автоматически отправляется письмо на `ALERTS_EMAIL` с деталями провала.
+
+**Как работает:**
+
+В `ci.yml` есть job `notify-failure` с условием `if: failure()`, который зависит от всех четырёх основных jobs. При провале любого из них вызывается `scripts/tools/monitoring/ci_notify.py`, который:
+- Строит стилизованное HTML-письмо с репозиторием, веткой, SHA, именем автора и прямой ссылкой на упавший run
+- Читает SMTP-конфигурацию из переменных окружения (GitHub Secrets)
+- При отсутствии SMTP-секретов завершается с кодом 0, не ломая workflow
+
+**Требуемые GitHub Secrets** (Settings → Secrets and variables → Actions):
+
+| Secret | Значение |
+|---|---|
+| `SMTP_HOST` | `smtp.gmail.com` |
+| `SMTP_PORT` | `587` |
+| `SMTP_USER` | email-адрес отправителя |
+| `SMTP_PASSWORD` | app-пароль (не пароль аккаунта) |
+| `ALERTS_EMAIL` | email-адрес получателя |
+
+**Письмо содержит:**
+- Репозиторий и ветку
+- Короткий SHA коммита
+- Кто запустил пайплайн
+- Кнопку «View failed run →» с прямой ссылкой на GitHub Actions run
+
+Нотификации не дублируют друг друга: один провал → одно письмо, независимо от того, сколько jobs упало.
+
+---
+
 ## GitHub Actions и self-hosted runner
 
 В инфраструктуре используется **self-hosted runner**, который запускается на сервере.

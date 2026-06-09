@@ -464,6 +464,56 @@ Email-тело указывает причину: **deploy error** (если `st
 
 ---
 
+### Real-time events watcher (systemd-сервис)
+
+Cron-алертинг выше проверяет состояние каждые 5 минут. Events watcher подписывается на поток событий Docker и отправляет письмо **в момент** падения контейнера, без задержки.
+
+**Логика срабатывания:**
+
+| Событие | Условие | Действие |
+|---|---|---|
+| `die` | exit code ≠ 0, нет активного деплоя | 🔴 alert «Runtime crash» |
+| `die` | exit code ≠ 0, деплой активен (маркер < 15 мин) | подавляется (ожидаемо при `compose down`) |
+| `die` | exit code = 0 | игнорируется (штатная остановка) |
+| `health_status=unhealthy` | любое время | 🟡 alert «Deploy error» или 🔴 «Runtime crash» |
+| `health_status=healthy`, `start` | — | сброс 30-минутного cooldown |
+
+При старте watcher немедленно проверяет уже unhealthy контейнеры и шлёт алерты, если они были в этом состоянии до запуска.
+
+**Установка (одноразово, требует sudo):**
+
+```bash
+./scripts/tools/setup-events-watcher.sh dev
+./scripts/tools/setup-events-watcher.sh prod
+```
+
+Скрипт:
+1. Генерирует `generated/<env>/events-watcher.sh` (bash-wrapper, sources `deploy.env` перед запуском Python-демона)
+2. Устанавливает systemd unit `yuviron-events-watcher@<env>.service`
+3. Включает и запускает сервис
+
+**Управление сервисом:**
+
+```bash
+sudo systemctl status yuviron-events-watcher@dev
+sudo systemctl stop   yuviron-events-watcher@dev
+sudo systemctl start  yuviron-events-watcher@dev
+
+# Пересоздать wrapper после изменения env и перезапустить:
+./scripts/tools/setup-events-watcher.sh dev
+```
+
+**Лог:** `logs/<env>/monitoring/events-watcher.log`
+
+**Отличие от cron-healthcheck:**
+
+- cron `*/5 * * * *` — резервный поллинг; обнаруживает случаи, когда Docker события были пропущены (рестарт watcher-а, docker daemon restart)
+- events watcher — моментальная нотификация по событию
+
+Рекомендуется держать **оба** механизма активными одновременно.
+
+---
+
 ### Мониторинг контейнеров
 
 Одноразовый снимок состояния всех запущенных контейнеров, сгруппированных по compose-проекту:
