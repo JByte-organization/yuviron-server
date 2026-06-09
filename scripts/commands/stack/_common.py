@@ -10,7 +10,7 @@ import json
 import time
 from pathlib import Path
 
-from core.docker import ComposeContext, container_id_for_service, run, run_compose
+from core.docker import ComposeContext, container_id_for_service, ensure_shared_network, run, run_compose
 from core.env import parse_routes_file
 from core.ui import log_info, log_ok, log_warn
 from core.validators import fail
@@ -117,6 +117,15 @@ def _log_unhealthy_service_diagnostics(context: ComposeContext) -> None:
 def _compose_up(context: ComposeContext, *args: str) -> None:
     last_returncode = 0
     for attempt in range(1, _COMPOSE_UP_ATTEMPTS + 1):
+        # Recreate the shared network right before each attempt — it is declared
+        # external in compose.yml so docker compose up fails immediately if it's
+        # gone (e.g. removed by docker network prune during a long build, or after
+        # the rollback's compose down clears the project state).
+        ensure_shared_network(
+            context.environment,
+            root_dir=context.root_dir,
+            generated_dir=context.root_dir / "generated",
+        )
         result = run_compose(context, "up", "-d", *args, check=False)
         if result.returncode == 0:
             return

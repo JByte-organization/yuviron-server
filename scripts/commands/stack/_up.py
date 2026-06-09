@@ -220,6 +220,10 @@ def cmd_down(args: argparse.Namespace) -> int:
     root_dir = resolve_root_dir(DEFAULT_ROOT, args.project_root)
 
     context = create_compose_context(root_dir, environment, ensure_generated=False)
+    # Include all defined profiles so profile-gated containers (seq, aspire-dashboard)
+    # are also stopped — without this they stay running and keep the project network
+    # alive, causing "Resource is still in use" on the next 'stack down'.
+    context.profiles = ("observability",)
     run_compose(context, "down", "--remove-orphans")
     return 0
 
