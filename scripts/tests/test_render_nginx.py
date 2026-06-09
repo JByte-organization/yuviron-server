@@ -347,7 +347,8 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("add_header 'Access-Control-Allow-Origin' $cors_api_origin always;", content)
         self.assertIn("add_header 'Access-Control-Allow-Credentials' 'true' always;", content)
         self.assertIn("Authorization", content)
-        self.assertIn("X-CSRF-Protection", content)
+        self.assertIn("X-CSRF-Token", content)
+        self.assertIn("X-Device-Fingerprint", content)
 
     def test_render_proxy_read_timeout_defaults_to_60s(self) -> None:
         rendered = render_nginx_conf_modular(
