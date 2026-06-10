@@ -109,35 +109,28 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin v0.71.0
+
       - name: Scan dotnet/aspnet:9.0 base image (informational)
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: 'mcr.microsoft.com/dotnet/aspnet:9.0'
-          format: 'table'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '0'
-          ignore-unfixed: 'true'
+        run: |
+          trivy image --exit-code 0 --severity CRITICAL,HIGH --ignore-unfixed \
+            --format table mcr.microsoft.com/dotnet/aspnet:9.0
 
       - name: Scan nginx:alpine base image (informational)
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: 'nginx:alpine'
-          format: 'table'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '0'
-          ignore-unfixed: 'true'
+        run: |
+          trivy image --exit-code 0 --severity CRITICAL,HIGH --ignore-unfixed \
+            --format table nginx:alpine
 
       - name: Build edge nginx image
         run: docker build -t yuviron-edge:ci -f infra/edge/Dockerfile infra/edge/
 
       - name: Scan built edge nginx image
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: 'yuviron-edge:ci'
-          format: 'table'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '1'
-          ignore-unfixed: 'true'
+        run: |
+          trivy image --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed \
+            --format table yuviron-edge:ci
 
   image-scan-built:
     name: Scan built application images
@@ -167,15 +160,16 @@ jobs:
             -f infra/docker/dotnet/Dockerfile \
             .
 
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin v0.71.0
+
       - name: Scan built backend image
         if: steps.check-src.outputs.available == 'true'
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: 'yuviron-backend:ci'
-          format: 'table'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '1'
-          ignore-unfixed: 'true'
+        run: |
+          trivy image --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed \
+            --format table yuviron-backend:ci
 
       - name: Build media-worker image
         if: steps.check-src.outputs.available == 'true'
@@ -189,13 +183,9 @@ jobs:
 
       - name: Scan built media-worker image
         if: steps.check-src.outputs.available == 'true'
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: 'yuviron-media-worker:ci'
-          format: 'table'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '1'
-          ignore-unfixed: 'true'
+        run: |
+          trivy image --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed \
+            --format table yuviron-media-worker:ci
 
       - name: Clean up CI images
         if: always()
