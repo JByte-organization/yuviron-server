@@ -8,7 +8,7 @@
 #   1. Запустить "prebuild" compose-контекст (mysql + redis + rabbitmq + backend)
 #      на временных портах чтобы не конфликтовать с работающим стеком
 #   2. Дождаться healthy состояния бэкенда (таймаут 180 секунд)
-#   3. Скачать swagger.json для каждого API (admin, client)
+#   3. Скачать swagger.json для каждого API (admin, client, artist)
 #      через wget внутри backend-контейнера на localhost:5073
 #   4. Записать файлы в src/yuviron-frontend/packages/api/openapi/
 #   5. Остановить временный стек

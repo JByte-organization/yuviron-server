@@ -46,6 +46,7 @@ FRONTEND_SWAGGER_DIR = Path("src") / "yuviron-frontend" / "packages" / "api" / "
 SWAGGER_DOCUMENTS = {
     "admin": "/swagger/admin/swagger.json",     # Swagger для Admin API
     "client": "/swagger/client/swagger.json",   # Swagger для Client API
+    "artist": "/swagger/artist/swagger.json",   # Swagger для Artist API
 }
 
 
