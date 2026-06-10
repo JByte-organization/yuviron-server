@@ -111,8 +111,10 @@ jobs:
 
       - name: Install Trivy
         run: |
+          mkdir -p "$RUNNER_TEMP/bin"
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
-            | sh -s -- -b /usr/local/bin v0.71.0
+            | sh -s -- -b "$RUNNER_TEMP/bin" v0.71.0
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Scan dotnet/aspnet:9.0 base image (informational)
         run: |
@@ -162,8 +164,10 @@ jobs:
 
       - name: Install Trivy
         run: |
+          mkdir -p "$RUNNER_TEMP/bin"
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
-            | sh -s -- -b /usr/local/bin v0.71.0
+            | sh -s -- -b "$RUNNER_TEMP/bin" v0.71.0
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Scan built backend image
         if: steps.check-src.outputs.available == 'true'
