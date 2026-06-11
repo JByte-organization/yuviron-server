@@ -93,8 +93,9 @@ class ClassifyEventTests(unittest.TestCase):
 
 
 class IsRecoveryTests(unittest.TestCase):
-    def test_start_event_is_recovery(self):
-        self.assertTrue(dew.is_recovery(_make_start_event("svc")))
+    def test_start_event_is_not_recovery(self):
+        # start alone does not clear cooldown — avoids spam in crash-restart loops
+        self.assertFalse(dew.is_recovery(_make_start_event("svc")))
 
     def test_healthy_event_is_recovery(self):
         self.assertTrue(dew.is_recovery(_make_health_event("svc", "healthy")))
@@ -117,6 +118,58 @@ class ContainerNameTests(unittest.TestCase):
 
     def test_empty_event_returns_unknown(self):
         self.assertEqual(dew._container_name({}), "unknown")
+
+
+class CrashLoopAntiSpamTests(unittest.TestCase):
+    """Crash-restart loop must produce only one alert per cooldown window.
+
+    Before the fix, a `start` event cleared the cooldown, so every crash in a
+    restart loop re-triggered an alert (inbox spam).  Now only
+    `health_status: healthy` clears the cooldown.
+    """
+
+    def _args(self):
+        import argparse
+        return argparse.Namespace(smtp_host="", smtp_user="", smtp_port="587", alerts_email="")
+
+    def test_crash_loop_sends_only_one_alert(self):
+        """die → start → die: second alert is suppressed (cooldown intact)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self._args()
+
+            # First crash → alert fires, cooldown marker created.
+            dew._dispatch_alert("svc", "exited with code 1", root, "dev", args, "")
+            self.assertTrue(ha._is_in_cooldown(root, "svc"))
+
+            # Container restarts (start event) → is_recovery returns False → cooldown stays.
+            self.assertFalse(dew.is_recovery(_make_start_event("svc")))
+            self.assertTrue(ha._is_in_cooldown(root, "svc"))
+
+            # Second crash → _dispatch_alert exits early; marker mtime unchanged.
+            marker = ha._cooldown_path(root, "svc")
+            mtime_before = marker.stat().st_mtime
+            dew._dispatch_alert("svc", "exited with code 1", root, "dev", args, "")
+            self.assertEqual(marker.stat().st_mtime, mtime_before)
+
+    def test_genuine_recovery_clears_cooldown(self):
+        """die → health_status:healthy → die: second alert fires after real recovery."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self._args()
+
+            # First crash → cooldown set.
+            dew._dispatch_alert("svc", "exited with code 1", root, "dev", args, "")
+            self.assertTrue(ha._is_in_cooldown(root, "svc"))
+
+            # Genuine recovery: health_status:healthy → clear cooldown.
+            self.assertTrue(dew.is_recovery(_make_health_event("svc", "healthy")))
+            ha._clear_cooldown(root, "svc")
+            self.assertFalse(ha._is_in_cooldown(root, "svc"))
+
+            # Next crash after recovery → alert fires again.
+            dew._dispatch_alert("svc", "exited with code 1", root, "dev", args, "")
+            self.assertTrue(ha._is_in_cooldown(root, "svc"))
 
 
 class CiNotifyEmailTests(unittest.TestCase):

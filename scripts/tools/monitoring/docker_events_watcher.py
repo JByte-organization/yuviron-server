@@ -11,9 +11,9 @@ containers are supposed to die during `compose down`.  Unhealthy events always f
 because they mean a container failed to pass its healthcheck, whether during a fresh
 deploy or at runtime.
 
-Recoveries (healthy event, container restart after a crash) clear the 30-minute
-cooldown so the next failure triggers a fresh alert without needing to wait out the
-cooldown period.
+Recoveries (health_status: healthy) clear the 30-minute cooldown so the next failure
+triggers a fresh alert.  A bare container restart (`start` event) does NOT clear the
+cooldown — this avoids alert spam when a container is in a crash-restart loop.
 
 Designed to run as a systemd service:
     systemctl start yuviron-events-watcher@dev
@@ -83,11 +83,14 @@ def classify_event(event: dict, root_dir: Path, env: str) -> str | None:
 
 
 def is_recovery(event: dict) -> bool:
-    """True when the event indicates a container has recovered."""
-    action = event.get("Action", "")
-    if action == _START:
-        return True
-    if action == _HEALTH_STATUS:
+    """True when the event indicates a container has genuinely recovered.
+
+    Only `health_status: healthy` counts as recovery.  A bare `start` event (container
+    restarted after a crash) does NOT clear the cooldown — if the container immediately
+    crashes again the next die event would re-trigger an alert, creating spam in crash
+    loops.  The cooldown expires naturally (30 min) once the crash loop stops.
+    """
+    if event.get("Action") == _HEALTH_STATUS:
         status = event.get("Actor", {}).get("Attributes", {}).get("healthStatus", "")
         return status == _HEALTHY
     return False
@@ -176,14 +179,13 @@ def _stream_events(root_dir: Path, env: str, args: argparse.Namespace, smtp_pass
             "--filter", "type=container",
             "--filter", "event=die",
             "--filter", "event=health_status",
-            "--filter", "event=start",
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
 
-    _log("Watching docker events (die / health_status / start)...")
+    _log("Watching docker events (die / health_status)...")
 
     try:
         assert proc.stdout is not None
