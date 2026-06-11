@@ -1,15 +1,17 @@
 """Tools commands — thin registration module.
 
 All command implementations live in the sub-modules:
-  _docker.py     — cleanup, docker-clean, docker-status, docker-dashboard, docker-install
+  _docker.py    — cleanup, docker-clean, docker-status, docker-dashboard, docker-install
+  _init_env.py  — gen-secrets (fill env/<env>.env with generated secrets)
   _monitoring.py — setup-monitoring, healthcheck-alert, setup-healthcheck-cron, send-test-alert
-  _rotation.py   — rotate-htpasswd, rotate-aspire-tokens, rotate-smtp, rotate-stripe, rotation-status
-  _setup.py      — setup-cron, setup-certs-cron, setup-logrotate, setup-completion
+  _rotation.py  — rotate-htpasswd, rotate-aspire-tokens, rotate-smtp, rotate-stripe, rotation-status
+  _setup.py     — setup-cron, setup-certs-cron, setup-logrotate, setup-completion
 """
 from __future__ import annotations
 
 import argparse
 
+from ._init_env import cmd_gen_secrets
 from ._docker import (
     DOCKER_CLEAN_MODES,
     cmd_cleanup,
@@ -199,3 +201,16 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     )
     setup_completion_parser.add_argument("--project-root", dest="project_root")
     setup_completion_parser.set_defaults(handler=cmd_setup_completion)
+
+    gen_secrets_parser = tools_sub.add_parser(
+        "gen-secrets",
+        help="Fill env/<env>.env with generated secrets (passwords, tokens, SEQ hash)",
+    )
+    gen_secrets_parser.add_argument("environment", nargs="?", help="dev or prod")
+    gen_secrets_parser.add_argument("--project-root", dest="project_root")
+    gen_secrets_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Regenerate all auto-gen secrets even if already set (leaves external API keys untouched)",
+    )
+    gen_secrets_parser.set_defaults(handler=cmd_gen_secrets)

@@ -1,4 +1,5 @@
 """Tools commands public API."""
+from ._init_env import cmd_gen_secrets  # noqa: F401
 from ._docker import (  # noqa: F401
     DEFAULT_ROOT,
     DOCKER_CLEAN_MODES,
