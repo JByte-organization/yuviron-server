@@ -45,6 +45,28 @@ if [[ ! -f "$PYTHON" ]]; then
     exit 1
 fi
 
+# ── Fix seq storage ownership (uid=10002 required by compose.yml) ────────────
+# seq runs as user 10002:10002. If storage/seq/ was ever written by another
+# user (e.g. the deploy user), seq fails with "Permission denied" on startup.
+# Resolve once here so a fresh install always works.
+
+_read_env_value() { grep -m1 "^$1=" "$DEPLOY_ENV" | cut -d= -f2- | tr -d '"'; }
+
+SEQ_UID_VAL="$(_read_env_value SEQ_UID)"
+SEQ_GID_VAL="$(_read_env_value SEQ_GID)"
+SEQ_STORAGE_RAW="$(_read_env_value SEQ_STORAGE_PATH)"
+# SEQ_STORAGE_PATH is relative to the infra/ dir (../storage/…); resolve from ROOT_DIR
+SEQ_STORAGE_ABS="$(cd "$ROOT_DIR" && realpath -m "$SEQ_STORAGE_RAW" 2>/dev/null || echo "")"
+
+SEQ_UID_VAL="${SEQ_UID_VAL:-10002}"
+SEQ_GID_VAL="${SEQ_GID_VAL:-10002}"
+
+if [[ -n "$SEQ_STORAGE_ABS" ]]; then
+    echo "→ Ensuring seq storage ownership ${SEQ_UID_VAL}:${SEQ_GID_VAL} at $SEQ_STORAGE_ABS"
+    mkdir -p "$SEQ_STORAGE_ABS"
+    sudo chown -R "${SEQ_UID_VAL}:${SEQ_GID_VAL}" "$SEQ_STORAGE_ABS"
+fi
+
 # ── Generate bash wrapper ─────────────────────────────────────────────────────
 
 LOG_DIR="$ROOT_DIR/logs/$ENVIRONMENT/monitoring"
