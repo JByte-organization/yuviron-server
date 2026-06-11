@@ -254,10 +254,20 @@ def main(argv: list[str] | None = None) -> int:
     show_summary(environment, domain)
 
     if not args.no_certs:
-        if confirm("Сгенерировать TLS-сертификаты?"):
+        if environment == "prod":
+            print_section("Сертификаты")
+            log_info("Prod: сертификаты Let's Encrypt нельзя получить до запуска nginx.")
+            log_info("После запуска стека выполните:")
+            log_info(f"  ./scripts/cli.py certs generate --env prod --domain {domain} --provider letsencrypt --email <your@email>")
+        elif confirm("Сгенерировать TLS-сертификаты?"):
             print_section("Сертификаты")
             run(
-                [str(ROOT_DIR / "scripts" / "cli.py"), "certs", "generate", "--env", environment, "--domain", domain],
+                [
+                    str(ROOT_DIR / "scripts" / "cli.py"), "certs", "generate",
+                    "--env", environment,
+                    "--domain", domain,
+                    "--provider", "mkcert",
+                ],
                 cwd=ROOT_DIR,
                 env=_cli_env(),
             )
