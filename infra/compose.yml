@@ -313,6 +313,10 @@ services:
       Dashboard__Frontend__BrowserToken: ${ASPIRE_FRONTEND_BROWSER_TOKEN}
       DASHBOARD__OTLP__AUTHMODE: ApiKey
       DASHBOARD__OTLP__PRIMARYAPIKEY: ${ASPIRE_OTLP_API_KEY}
+      # Cap in-memory telemetry storage to prevent OOM when backend sends burst logs on startup.
+      Dashboard__TelemetryLimits__MaxLogCount: "2000"
+      Dashboard__TelemetryLimits__MaxTraceCount: "1000"
+      Dashboard__TelemetryLimits__MaxMetricsCount: "1000"
     expose:
       - "18888"
       - "18889"
