@@ -197,13 +197,13 @@ services:
         hard: 65536
     healthcheck:
       # check_running verifies the rabbit application is up (not just the Erlang node).
-      # check_local_alarms catches memory/disk alarms before connections start blocking,
-      # which causes Docker to restart the container early rather than letting a
-      # reconnect storm accumulate stale connections and push memory higher.
+      # check_local_alarms catches memory/disk alarms before connections start blocking.
+      # timeout/interval are 30s because every rabbitmq-diagnostics invocation takes ~10s
+      # to initialise the Erlang distribution connection — both commands together need ~20s.
       test: ["CMD-SHELL", "rabbitmq-diagnostics check_running && rabbitmq-diagnostics check_local_alarms"]
-      interval: 10s
-      timeout: 10s
-      retries: 20
+      interval: 30s
+      timeout: 30s
+      retries: 10
       start_period: 60s
     mem_limit: ${RABBITMQ_MEM_LIMIT:-512m}
     memswap_limit: ${RABBITMQ_MEMSWAP_LIMIT:-512m}
