@@ -109,30 +109,35 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install Trivy
-        run: |
-          mkdir -p "$RUNNER_TEMP/bin"
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
-            | sh -s -- -b "$RUNNER_TEMP/bin" v0.71.0
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-
       - name: Scan dotnet/aspnet:9.0 base image (informational)
-        run: |
-          trivy image --exit-code 0 --severity CRITICAL,HIGH --ignore-unfixed \
-            --format table mcr.microsoft.com/dotnet/aspnet:9.0
+        uses: aquasecurity/trivy-action@0.31.0
+        with:
+          image-ref: mcr.microsoft.com/dotnet/aspnet:9.0
+          format: table
+          exit-code: '0'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
 
       - name: Scan nginx:alpine base image (informational)
-        run: |
-          trivy image --exit-code 0 --severity CRITICAL,HIGH --ignore-unfixed \
-            --format table nginx:alpine
+        uses: aquasecurity/trivy-action@0.31.0
+        with:
+          image-ref: nginx:alpine
+          format: table
+          exit-code: '0'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
 
       - name: Build edge nginx image
         run: docker build -t yuviron-edge:ci -f infra/edge/Dockerfile infra/edge/
 
       - name: Scan built edge nginx image
-        run: |
-          trivy image --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed \
-            --format table yuviron-edge:ci
+        uses: aquasecurity/trivy-action@0.31.0
+        with:
+          image-ref: yuviron-edge:ci
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
 
   image-scan-built:
     name: Scan built application images
@@ -162,17 +167,14 @@ jobs:
             -f infra/docker/dotnet/Dockerfile \
             .
 
-      - name: Install Trivy
-        run: |
-          mkdir -p "$RUNNER_TEMP/bin"
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
-            | sh -s -- -b "$RUNNER_TEMP/bin" v0.71.0
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-
       - name: Scan built backend image
         if: steps.check-src.outputs.available == 'true'
         run: |
-          trivy image --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed \
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v /tmp/trivy-cache:/root/.cache/trivy \
+            aquasec/trivy:0.70.0 image \
+            --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed \
             --format table yuviron-backend:ci
 
       - name: Build media-worker image
@@ -188,7 +190,11 @@ jobs:
       - name: Scan built media-worker image
         if: steps.check-src.outputs.available == 'true'
         run: |
-          trivy image --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed \
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v /tmp/trivy-cache:/root/.cache/trivy \
+            aquasec/trivy:0.70.0 image \
+            --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed \
             --format table yuviron-media-worker:ci
 
       - name: Clean up CI images
