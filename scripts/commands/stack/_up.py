@@ -46,6 +46,7 @@ from ._common import (
     SWAGGER_DOCUMENTS,
     _compose_up,
     _load_compose_services,
+    _service_container_id,
 )
 from ._health import _check_service_healths, _wait_for_service_health
 from ._migrate import _run_migrator
@@ -262,4 +263,14 @@ def cmd_restart(args: argparse.Namespace) -> int:
         _wait_for_service_health(context, service, timeout=180)
 
     log_ok(f"{'Rebuilt and restarted' if rebuild else 'Restarted'}: {' '.join(services)}")
+
+    # When a container is recreated it gets a new IP. Nginx holds the old DNS entry
+    # for `resolver valid=` seconds. A graceful reload forces immediate re-resolution
+    # without dropping in-flight connections — critical for rollback smoke tests.
+    if "nginx" not in services:
+        nginx_cid = _service_container_id(context, "nginx")
+        if nginx_cid:
+            log_info("Reloading nginx to flush upstream DNS cache")
+            run(["docker", "exec", nginx_cid, "nginx", "-s", "reload"], check=False)
+
     return 0
