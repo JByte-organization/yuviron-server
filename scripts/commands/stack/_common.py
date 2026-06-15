@@ -32,7 +32,7 @@ NGINX_MEDIA_ROUTE_NAME = "i"                              # имя маршру�
 BACKEND_SERVICE = "backend"   # имя сервиса .NET API в docker compose
 
 # Сервисы, которые обязаны присутствовать в compose-конфиге (проверяется в smoke/preflight)
-REQUIRED_STACK_SERVICES = ("mysql", "redis", "rabbitmq", "nginx", BACKEND_SERVICE, "clickhouse")
+REQUIRED_STACK_SERVICES = ("mysql", "redis", "rabbitmq", "nginx", BACKEND_SERVICE, "clickhouse", "media-worker")
 
 # Matches ASPNETCORE_HTTP_PORTS in infra/compose.yml
 SWAGGER_BACKEND_BASE_URL = "http://127.0.0.1:5073"   # URL бэкенда для скачивания swagger.json
