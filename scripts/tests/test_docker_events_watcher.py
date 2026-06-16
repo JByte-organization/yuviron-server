@@ -18,18 +18,24 @@ import healthcheck_alert as ha
 import docker_events_watcher as dew
 
 
-def _make_die_event(name: str, exit_code: str) -> dict:
-    return {
-        "Action": "die",
-        "Actor": {"Attributes": {"name": name, "exitCode": exit_code}},
-    }
+_COMPOSE_ATTRS = {
+    "com.docker.compose.project": "yuviron-dev",
+    "com.docker.compose.oneoff": "False",
+}
 
 
-def _make_health_event(name: str, status: str) -> dict:
-    return {
-        "Action": "health_status",
-        "Actor": {"Attributes": {"name": name, "healthStatus": status}},
-    }
+def _make_die_event(name: str, exit_code: str, extra_attrs: dict | None = None) -> dict:
+    attrs: dict[str, str] = {"name": name, "exitCode": exit_code, **_COMPOSE_ATTRS}
+    if extra_attrs is not None:
+        attrs.update(extra_attrs)
+    return {"Action": "die", "Actor": {"Attributes": attrs}}
+
+
+def _make_health_event(name: str, status: str, extra_attrs: dict | None = None) -> dict:
+    attrs: dict[str, str] = {"name": name, "healthStatus": status, **_COMPOSE_ATTRS}
+    if extra_attrs is not None:
+        attrs.update(extra_attrs)
+    return {"Action": "health_status", "Actor": {"Attributes": attrs}}
 
 
 def _make_start_event(name: str) -> dict:
@@ -88,8 +94,40 @@ class ClassifyEventTests(unittest.TestCase):
 
     def test_unrelated_action_returns_none(self):
         with tempfile.TemporaryDirectory() as tmp:
-            event = {"Action": "create", "Actor": {"Attributes": {"name": "svc"}}}
+            event = {"Action": "create", "Actor": {"Attributes": {"name": "svc", **_COMPOSE_ATTRS}}}
             self.assertIsNone(dew.classify_event(event, Path(tmp), "dev"))
+
+    def test_no_compose_labels_die_ignored(self):
+        """Containers without compose labels (e.g. restore-test via docker run) must be ignored."""
+        with tempfile.TemporaryDirectory() as tmp:
+            event = {"Action": "die", "Actor": {"Attributes": {"name": "restore-test-dev-123", "exitCode": "1"}}}
+            self.assertIsNone(dew.classify_event(event, Path(tmp), "dev"))
+
+    def test_no_compose_labels_health_status_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            event = {"Action": "health_status", "Actor": {"Attributes": {"name": "restore-test-dev-123", "healthStatus": "unhealthy"}}}
+            self.assertIsNone(dew.classify_event(event, Path(tmp), "dev"))
+
+    def test_oneoff_die_ignored(self):
+        """docker compose run containers (oneoff=True) must be ignored."""
+        with tempfile.TemporaryDirectory() as tmp:
+            event = _make_die_event("yuviron-dev-nginx-run-abc", "1", {"com.docker.compose.oneoff": "True"})
+            self.assertIsNone(dew.classify_event(event, Path(tmp), "dev"))
+
+    def test_oneoff_health_status_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            event = _make_health_event("yuviron-dev-nginx-run-abc", "unhealthy", {"com.docker.compose.oneoff": "True"})
+            self.assertIsNone(dew.classify_event(event, Path(tmp), "dev"))
+
+    def test_wrong_compose_project_die_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            event = _make_die_event("other-backend", "1", {"com.docker.compose.project": "other-proj"})
+            self.assertIsNone(dew.classify_event(event, Path(tmp), "dev", compose_project="yuviron-dev"))
+
+    def test_matching_compose_project_die_returns_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = dew.classify_event(_make_die_event("backend", "1"), Path(tmp), "dev", compose_project="yuviron-dev")
+            self.assertIsNotNone(result)
 
 
 class IsRecoveryTests(unittest.TestCase):

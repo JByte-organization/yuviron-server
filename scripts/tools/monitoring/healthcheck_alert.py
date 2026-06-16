@@ -68,16 +68,54 @@ def _docker_ps() -> list[dict]:
     return containers
 
 
-def _unhealthy(containers: list[dict]) -> list[str]:
+def _parse_labels(raw: str) -> dict[str, str]:
+    """Parse Docker label string 'k=v,k2=v2,...' into a dict."""
+    if not raw:
+        return {}
+    result: dict[str, str] = {}
+    for pair in raw.split(","):
+        if "=" in pair:
+            k, _, v = pair.partition("=")
+            result[k.strip()] = v.strip()
+    return result
+
+
+def _unhealthy(containers: list[dict], compose_project: str | None = None) -> list[str]:
     result = []
     for c in containers:
         status = c.get("Status", "")
+        labels = _parse_labels(c.get("Labels", ""))
+
+        # Skip containers not managed by Docker Compose (e.g. backup restore-test containers
+        # created via plain `docker run` — they have no compose labels).
+        if "com.docker.compose.project" not in labels:
+            continue
+        # Skip one-off containers started via `docker compose run` (e.g. preflight nginx -t).
+        if labels.get("com.docker.compose.oneoff") == "True":
+            continue
+        # If a specific project is given, ignore containers from other projects.
+        if compose_project and labels.get("com.docker.compose.project") != compose_project:
+            continue
+
         # "(unhealthy)" — Docker healthcheck failed.
         # "Restarting" — container is in a crash-restart loop (covers services with
         # healthcheck disabled, such as aspire-dashboard in a distroless image).
         if "(unhealthy)" in status or status.startswith("Restarting"):
             result.append(c["Names"])
     return result
+
+
+def _read_compose_project(root_dir: Path, env: str) -> str | None:
+    """Read COMPOSE_PROJECT_NAME from the generated deploy.env for filtering."""
+    deploy_env = root_dir / "generated" / env / "deploy.env"
+    if not deploy_env.is_file():
+        return None
+    for line in deploy_env.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith("COMPOSE_PROJECT_NAME="):
+            value = line[len("COMPOSE_PROJECT_NAME="):].strip().strip('"').strip("'")
+            return value or None
+    return None
 
 
 # ─── Cooldown / deploy marker ─────────────────────────────────────────────────
@@ -277,7 +315,8 @@ def run(args: argparse.Namespace) -> int:
 
     containers = _docker_ps()
     all_names = {c["Names"] for c in containers}
-    unhealthy = _unhealthy(containers)
+    compose_project = _read_compose_project(root_dir, args.env)
+    unhealthy = _unhealthy(containers, compose_project)
 
     cooldown_dir = root_dir / ".tmp" / "monitoring"
     if cooldown_dir.exists():

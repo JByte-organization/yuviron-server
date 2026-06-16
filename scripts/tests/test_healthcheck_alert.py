@@ -18,28 +18,60 @@ if str(_MONITORING_DIR) not in sys.path:
 import healthcheck_alert as ha
 
 
+# ─── _parse_labels ────────────────────────────────────────────────────────────
+
+class ParseLabelsTests(unittest.TestCase):
+    def test_parses_single_label(self) -> None:
+        self.assertEqual({"k": "v"}, ha._parse_labels("k=v"))
+
+    def test_parses_multiple_labels(self) -> None:
+        result = ha._parse_labels("a=1,b=2")
+        self.assertEqual({"a": "1", "b": "2"}, result)
+
+    def test_empty_string_returns_empty_dict(self) -> None:
+        self.assertEqual({}, ha._parse_labels(""))
+
+    def test_label_with_equals_in_value(self) -> None:
+        result = ha._parse_labels("com.docker.compose.config-hash=abc=def")
+        self.assertEqual("abc=def", result.get("com.docker.compose.config-hash"))
+
+
 # ─── _unhealthy ───────────────────────────────────────────────────────────────
 
+_COMPOSE_LABELS = (
+    "com.docker.compose.project=yuviron-dev,"
+    "com.docker.compose.oneoff=False"
+)
+_ONEOFF_LABELS = (
+    "com.docker.compose.project=yuviron-dev,"
+    "com.docker.compose.oneoff=True"
+)
+
+
+def _c(name: str, status: str, labels: str = _COMPOSE_LABELS) -> dict:
+    return {"Names": name, "Status": status, "Labels": labels}
+
+
 class UnhealthyDetectionTests(unittest.TestCase):
-    """#19 — _unhealthy() must catch restart loops, not only Docker-healthcheck failures."""
+    """_unhealthy() must catch restart loops, not only Docker-healthcheck failures."""
 
     def test_unhealthy_status_detected(self) -> None:
-        self.assertEqual(["backend"], ha._unhealthy([{"Names": "backend", "Status": "Up 2 hours (unhealthy)"}]))
+        self.assertEqual(["backend"], ha._unhealthy([_c("backend", "Up 2 hours (unhealthy)")]))
 
     def test_restarting_status_detected(self) -> None:
-        self.assertEqual(["aspire"], ha._unhealthy([{"Names": "aspire", "Status": "Restarting (1) 5 seconds ago"}]))
+        self.assertEqual(["aspire"], ha._unhealthy([_c("aspire", "Restarting (1) 5 seconds ago")]))
 
     def test_healthy_running_not_flagged(self) -> None:
-        self.assertEqual([], ha._unhealthy([{"Names": "nginx", "Status": "Up 3 hours (healthy)"}]))
+        self.assertEqual([], ha._unhealthy([_c("nginx", "Up 3 hours (healthy)")]))
 
     def test_plain_up_not_flagged(self) -> None:
-        self.assertEqual([], ha._unhealthy([{"Names": "mysql", "Status": "Up 10 minutes"}]))
+        self.assertEqual([], ha._unhealthy([_c("mysql", "Up 10 minutes")]))
 
     def test_mixed_returns_only_bad_ones(self) -> None:
         containers = [
-            {"Names": "ok", "Status": "Up 1 hour (healthy)"},
-            {"Names": "bad1", "Status": "Up 30 minutes (unhealthy)"},
-            {"Names": "bad2", "Status": "Restarting (3) 2 seconds ago"},
+            _c("ok", "Up 1 hour (healthy)"),
+            _c("bad1", "Up 30 minutes (unhealthy)"),
+            _c("bad2", "Restarting (3) 2 seconds ago"),
         ]
         result = ha._unhealthy(containers)
         self.assertIn("bad1", result)
@@ -48,6 +80,27 @@ class UnhealthyDetectionTests(unittest.TestCase):
 
     def test_empty_list_returns_empty(self) -> None:
         self.assertEqual([], ha._unhealthy([]))
+
+    def test_no_compose_labels_skipped(self) -> None:
+        """Containers without compose labels (e.g. restore-test) must be ignored."""
+        c = {"Names": "restore-test-dev-2026-06-16-09-30-44-432716", "Status": "Up 5 minutes (unhealthy)", "Labels": ""}
+        self.assertEqual([], ha._unhealthy([c]))
+
+    def test_oneoff_container_skipped(self) -> None:
+        """docker compose run containers (oneoff=True) must be ignored."""
+        self.assertEqual([], ha._unhealthy([_c("yuviron-dev-nginx-run-abc123", "Up 1 minute (unhealthy)", _ONEOFF_LABELS)]))
+
+    def test_compose_project_filter_excludes_other_projects(self) -> None:
+        """Containers from a different compose project must be ignored when project is specified."""
+        other = _c("other-proj-backend", "Up 1 hour (unhealthy)",
+                   "com.docker.compose.project=other-proj,com.docker.compose.oneoff=False")
+        self.assertEqual([], ha._unhealthy([other], compose_project="yuviron-dev"))
+
+    def test_compose_project_filter_includes_matching_project(self) -> None:
+        self.assertEqual(
+            ["yuviron-dev-backend"],
+            ha._unhealthy([_c("yuviron-dev-backend", "Up 1 hour (unhealthy)")], compose_project="yuviron-dev"),
+        )
 
 
 # ─── build_alert_email ────────────────────────────────────────────────────────

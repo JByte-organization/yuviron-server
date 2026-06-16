@@ -57,13 +57,24 @@ def _container_name(event: dict) -> str:
     return attrs.get("name") or event.get("id", "unknown")[:12]
 
 
-def classify_event(event: dict, root_dir: Path, env: str) -> str | None:
+def classify_event(event: dict, root_dir: Path, env: str, compose_project: str | None = None) -> str | None:
     """Return alert reason string, or None if the event should be ignored.
 
     Pure function for testability — does not send email or touch disk.
     """
     action = event.get("Action", "")
     attrs = event.get("Actor", {}).get("Attributes", {})
+
+    # Skip containers not managed by Docker Compose (e.g. restore-test containers
+    # created via plain `docker run` — their events have no compose labels).
+    if "com.docker.compose.project" not in attrs:
+        return None
+    # Skip one-off containers started via `docker compose run` (e.g. preflight nginx -t).
+    if attrs.get("com.docker.compose.oneoff") == "True":
+        return None
+    # If a specific project is given, ignore containers from other projects.
+    if compose_project and attrs.get("com.docker.compose.project") != compose_project:
+        return None
 
     if action == _DIE:
         exit_code = attrs.get("exitCode", "0")
@@ -146,24 +157,23 @@ def _dispatch_alert(
 
 # ─── Startup state check ──────────────────────────────────────────────────────
 
-def _check_current_state(root_dir: Path, env: str, args: argparse.Namespace, smtp_password: str) -> None:
+def _check_current_state(root_dir: Path, env: str, args: argparse.Namespace, smtp_password: str, compose_project: str | None = None) -> None:
     """Send alerts for containers that are already unhealthy when the watcher starts."""
     result = subprocess.run(
         ["docker", "ps", "--format", "{{json .}}"],
         capture_output=True, text=True, check=False,
     )
+    containers = []
     for line in result.stdout.splitlines():
         line = line.strip()
         if not line:
             continue
         try:
-            c = json.loads(line)
+            containers.append(json.loads(line))
         except json.JSONDecodeError:
             continue
-        status = c.get("Status", "")
-        name = c.get("Names", "unknown")
-        if "(unhealthy)" in status or status.startswith("Restarting"):
-            _dispatch_alert(name, "unhealthy at watcher startup", root_dir, env, args, smtp_password)
+    for name in _ha._unhealthy(containers, compose_project):
+        _dispatch_alert(name, "unhealthy at watcher startup", root_dir, env, args, smtp_password)
 
 
 # ─── Event stream ─────────────────────────────────────────────────────────────
@@ -171,7 +181,7 @@ def _check_current_state(root_dir: Path, env: str, args: argparse.Namespace, smt
 _RECONNECT_DELAY = 15
 
 
-def _stream_events(root_dir: Path, env: str, args: argparse.Namespace, smtp_password: str) -> None:
+def _stream_events(root_dir: Path, env: str, args: argparse.Namespace, smtp_password: str, compose_project: str | None = None) -> None:
     proc = subprocess.Popen(
         [
             "docker", "events",
@@ -205,7 +215,7 @@ def _stream_events(root_dir: Path, env: str, args: argparse.Namespace, smtp_pass
                 _log(f"RECOVERED: {name}")
                 continue
 
-            reason = classify_event(event, root_dir, env)
+            reason = classify_event(event, root_dir, env, compose_project)
             if reason is None:
                 continue
 
@@ -225,16 +235,17 @@ def run(args: argparse.Namespace) -> int:
     root_dir = Path(args.root).resolve()
     env = args.env
     smtp_password = os.environ.get("SMTP_PASSWORD", "")
+    compose_project = _ha._read_compose_project(root_dir, env)
 
     log_dir = root_dir / "logs" / env / "monitoring"
     log_dir.mkdir(parents=True, exist_ok=True)
 
     _log(f"Starting events watcher for '{env}' (root: {root_dir})")
-    _check_current_state(root_dir, env, args, smtp_password)
+    _check_current_state(root_dir, env, args, smtp_password, compose_project)
 
     while True:
         try:
-            _stream_events(root_dir, env, args, smtp_password)
+            _stream_events(root_dir, env, args, smtp_password, compose_project)
         except KeyboardInterrupt:
             _log("Stopped.")
             break
