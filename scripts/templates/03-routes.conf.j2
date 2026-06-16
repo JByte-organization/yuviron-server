@@ -292,9 +292,12 @@
         access_log /dev/stdout main;
         error_log  /dev/stderr warn;
 
+        # Defers upstream DNS resolution to request time (nginx -t passes without running services)
+        set $upstream_tailscale_backend backend;
+
         location / {
             proxy_request_buffering off;
-            proxy_pass http://backend:5073/api/webhooks/;
+            proxy_pass http://$upstream_tailscale_backend:5073/api/webhooks/;
             include /etc/nginx/proxy-params.conf;
             proxy_set_header X-Forwarded-Proto https;
         }
