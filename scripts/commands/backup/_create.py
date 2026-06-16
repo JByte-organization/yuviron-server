@@ -266,6 +266,7 @@ def _archive_named_volume(
     logical_name: str,
     volume_name: str,
     out_file: Path,
+    soft_read_errors: bool = False,
 ) -> None:
     inspect = run(["docker", "volume", "inspect", volume_name], check=False, capture_output=True)
     if inspect.returncode != 0:
@@ -276,6 +277,17 @@ def _archive_named_volume(
     tar_image = _pick_tar_image()
     uid, gid = os.getuid(), os.getgid()
     session.logger.info(f"Archiving named volume {volume_name} for {env_name} (image: {tar_image})")
+
+    # soft_read_errors: ClickHouse live archive — parts may disappear mid-tar due to merges.
+    # Capture tar exit code explicitly so chown always runs regardless.
+    if soft_read_errors:
+        tar_cmd = (
+            f"tar --ignore-failed-read -czf /backup/{out_file.name} -C /source . ; "
+            f"rc=$?; chown {uid}:{gid} /backup/{out_file.name}; exit $rc"
+        )
+    else:
+        tar_cmd = f"tar -czf /backup/{out_file.name} -C /source . && chown {uid}:{gid} /backup/{out_file.name}"
+
     packed = run(
         [
             "docker", "run", "--rm",
@@ -283,18 +295,25 @@ def _archive_named_volume(
             "-v", f"{out_file.parent}:/backup",
             tar_image,
             "sh", "-c",
-            f"tar -czf /backup/{out_file.name} -C /source . && chown {uid}:{gid} /backup/{out_file.name}",
+            tar_cmd,
         ],
         check=False,
         capture_output=True,
     )
 
-    if packed.returncode != 0:
+    # exit 1 from tar means "some files changed/missing" — acceptable for live ClickHouse volumes.
+    ok = packed.returncode == 0 or (soft_read_errors and packed.returncode == 1)
+    if not ok:
         out_file.unlink(missing_ok=True)
         details = (packed.stderr or packed.stdout or "").strip()
         if details:
             session.logger.error(f"docker run output: {details}")
         raise CommandError(f"Failed to archive volume {volume_name} for {env_name}")
+
+    if soft_read_errors and packed.returncode == 1:
+        session.logger.warn(
+            f"Volume {volume_name} archived with warnings (some parts changed during tar — normal for live ClickHouse)"
+        )
 
     if not out_file.is_file() or out_file.stat().st_size == 0:
         out_file.unlink(missing_ok=True)
@@ -417,18 +436,19 @@ def _freeze_clickhouse_and_archive(
     project_name: str,
     out_file: Path,
 ) -> None:
-    """Create a consistent ClickHouse backup using SYSTEM FREEZE.
+    """Create a consistent ClickHouse backup using per-table ALTER TABLE FREEZE.
 
-    SYSTEM FREEZE creates hard-link copies of all MergeTree parts into
-    /var/lib/clickhouse/shadow/<name>/ without stopping the server. Only
-    the shadow directory is archived — this keeps backup size proportional
-    to active data and avoids copying indexes and other large volatile state.
-    SYSTEM UNFREEZE removes the shadow copies when archiving completes.
+    ClickHouse 24+ removed the global SYSTEM FREEZE command. Instead, each
+    MergeTree table is frozen individually via ALTER TABLE t FREEZE WITH NAME.
+    This creates hard-link copies of all active parts into
+    /var/lib/clickhouse/shadow/<name>/ without stopping the server.
 
-    If the volume is missing the function returns silently (ClickHouse may
-    not be deployed in every environment). If the service is down or the
-    freeze fails, the function falls back to a live volume archive with a
-    warning so backup still completes.
+    SYSTEM UNFREEZE WITH NAME removes the shadow copies when archiving completes.
+
+    If the volume is missing the function returns silently (ClickHouse may not
+    be deployed in every environment). If the service is down or the freeze
+    fails, the function falls back to a live volume archive with a warning so
+    backup still completes.
     """
     clickhouse_service = os.getenv("CLICKHOUSE_SERVICE_NAME", "clickhouse")
     volume_name = f"{project_name}_clickhouse_data"
@@ -446,30 +466,72 @@ def _freeze_clickhouse_and_archive(
             f"ClickHouse service not running for {env_name}; archiving volume without freeze"
         )
         _mark_warning(session, f"{env_name}:clickhouse-frozen-skipped-not-running")
-        _archive_named_volume(session, env_name, "clickhouse", volume_name, out_file)
+        _archive_named_volume(session, env_name, "clickhouse", volume_name, out_file, soft_read_errors=True)
         return
 
-    freeze_name = f"backup_{session.timestamp_utc}"
+    # ClickHouse URL-encodes freeze names on disk (hyphens → %2D), so strip them
+    # to keep the shadow path predictable for tar.
+    freeze_name = f"backup_{session.timestamp_utc.replace('-', '')}"
 
-    session.logger.info(f"ClickHouse SYSTEM FREEZE ({freeze_name}) for {env_name}")
-    # Password is passed via the container's own CLICKHOUSE_PASSWORD env var (set in compose
-    # environment) so it never appears in process args visible to `ps aux` on the host.
-    freeze_result = run(
+    # ClickHouse 24+ dropped the global SYSTEM FREEZE; enumerate MergeTree tables and
+    # freeze each one. Password flows through the container's own env var so it never
+    # appears in `ps aux` on the host.
+    list_query = (
+        "SELECT database || '.' || name "
+        "FROM system.tables "
+        "WHERE engine LIKE '%MergeTree%' "
+        "AND database NOT IN ('system', 'information_schema', 'INFORMATION_SCHEMA')"
+    )
+    tables_result = run(
         [
             "docker", "exec", container_name,
             "sh", "-c",
             f"clickhouse-client --password \"$CLICKHOUSE_PASSWORD\""
-            f" --query \"SYSTEM FREEZE WITH NAME '{freeze_name}'\"",
+            f" --query \"{list_query}\"",
         ],
         check=False, capture_output=True,
     )
-    if freeze_result.returncode != 0:
-        err = (freeze_result.stderr or freeze_result.stdout or "").strip()
-        session.logger.warn(
-            f"SYSTEM FREEZE failed for {env_name}: {err} — falling back to live volume archive"
-        )
+
+    freeze_ok = tables_result.returncode == 0
+    tables: list[str] = []
+    if freeze_ok:
+        tables = [t.strip() for t in (tables_result.stdout or "").splitlines() if t.strip()]
+        session.logger.info(f"ClickHouse FREEZE ({freeze_name}) for {env_name}: {len(tables)} table(s)")
+        for table in tables:
+            r = run(
+                [
+                    "docker", "exec", container_name,
+                    "sh", "-c",
+                    f"clickhouse-client --password \"$CLICKHOUSE_PASSWORD\""
+                    f" --query \"ALTER TABLE {table} FREEZE WITH NAME '{freeze_name}'\"",
+                ],
+                check=False, capture_output=True,
+            )
+            if r.returncode != 0:
+                err = (r.stderr or r.stdout or "").strip()
+                session.logger.warn(f"ALTER TABLE {table} FREEZE failed for {env_name}: {err}")
+                freeze_ok = False
+                break
+
+    if not freeze_ok:
+        err = (tables_result.stderr or tables_result.stdout or "").strip()
+        msg = f"ClickHouse FREEZE failed for {env_name}"
+        if err:
+            msg += f": {err}"
+        session.logger.warn(f"{msg} — falling back to live volume archive")
         _mark_warning(session, f"{env_name}:clickhouse-freeze-failed")
-        _archive_named_volume(session, env_name, "clickhouse", volume_name, out_file)
+        # Release any shadow copies that did get created before the failure.
+        if tables:
+            run(
+                [
+                    "docker", "exec", container_name,
+                    "sh", "-c",
+                    f"clickhouse-client --password \"$CLICKHOUSE_PASSWORD\""
+                    f" --query \"SYSTEM UNFREEZE WITH NAME '{freeze_name}'\"",
+                ],
+                check=False, capture_output=True,
+            )
+        _archive_named_volume(session, env_name, "clickhouse", volume_name, out_file, soft_read_errors=True)
         return
 
     try:
@@ -606,6 +668,10 @@ def _run_mysqlcheck(
     result = run(check_cmd, check=False, capture_output=True)
     stdout = (result.stdout or "").strip()
     stderr = (result.stderr or "").strip()
+
+    # exit 127 = command not found; treat as "not installed", not as an integrity failure.
+    if result.returncode == 127:
+        return [f"mysqlcheck not available in container (exit 127){': ' + stderr if stderr else ''}"]
 
     problems = [line.strip() for line in stdout.splitlines() if line.strip()]
 

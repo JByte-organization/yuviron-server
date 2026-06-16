@@ -570,15 +570,19 @@ class FreezeClickhouseAndArchiveTests(unittest.TestCase):
                 if cmd[:2] == ["docker", "run"]:
                     # Archiving the shadow snapshot fails.
                     return MagicMock(returncode=1, stdout="", stderr="tar failed")
+                # Table listing query
+                if cmd[:2] == ["docker", "exec"] and "system.tables" in cmd[-1]:
+                    return MagicMock(returncode=0, stdout="default.listening_events\n", stderr="")
+                # All other docker exec calls (ALTER TABLE FREEZE, SYSTEM UNFREEZE) succeed.
                 return MagicMock(returncode=0, stdout="", stderr="")
 
             session, run_mock, error = self._run(root, run_side_effect=fake_run)
 
         self.assertIsInstance(error, CommandError)
         exec_calls = self._exec_calls(run_mock)
-        freeze_calls = [c for c in exec_calls if "SYSTEM FREEZE" in c[-1]]
+        freeze_calls = [c for c in exec_calls if "ALTER TABLE" in c[-1] and "FREEZE" in c[-1]]
         unfreeze_calls = [c for c in exec_calls if "SYSTEM UNFREEZE" in c[-1]]
-        self.assertEqual(1, len(freeze_calls), "expected exactly one SYSTEM FREEZE")
+        self.assertGreater(len(freeze_calls), 0, "expected at least one ALTER TABLE FREEZE")
         self.assertEqual(1, len(unfreeze_calls), "SYSTEM UNFREEZE must still run after archiving fails")
         for cmd in freeze_calls + unfreeze_calls:
             self.assertIn('--password "$CLICKHOUSE_PASSWORD"', cmd[-1])
@@ -590,10 +594,11 @@ class FreezeClickhouseAndArchiveTests(unittest.TestCase):
             def fake_run(cmd, **kw):
                 if cmd[:3] == ["docker", "volume", "inspect"]:
                     return MagicMock(returncode=0, stdout="", stderr="")
-                if cmd[:2] == ["docker", "exec"] and "SYSTEM FREEZE" in cmd[-1]:
-                    return MagicMock(returncode=1, stdout="", stderr="freeze failed")
-                if cmd[:2] == ["docker", "run"] and isinstance(cmd[-1], str) and "tar -czf" in cmd[-1]:
-                    # _archive_named_volume packs via `sh -c "tar -czf /backup/<name> ..."`
+                # Fail the table-listing query so freeze is skipped entirely.
+                if cmd[:2] == ["docker", "exec"] and "system.tables" in cmd[-1]:
+                    return MagicMock(returncode=1, stdout="", stderr="connection refused")
+                if cmd[:2] == ["docker", "run"] and isinstance(cmd[-1], str) and "tar" in cmd[-1]:
+                    # _archive_named_volume packs via `sh -c "tar ... /backup/<name> ..."`
                     # with out_file.parent bind-mounted as /backup.
                     _make_valid_tar_gz(root / "clickhouse_shadow.tar.gz")
                 return MagicMock(returncode=0, stdout="", stderr="")
@@ -606,4 +611,4 @@ class FreezeClickhouseAndArchiveTests(unittest.TestCase):
         self.assertIn("dev:volume-clickhouse", session.backup_components)
         exec_calls = self._exec_calls(run_mock)
         unfreeze_calls = [c for c in exec_calls if "SYSTEM UNFREEZE" in c[-1]]
-        self.assertEqual([], unfreeze_calls, "fallback path archives the live volume — no freeze took place to release")
+        self.assertEqual([], unfreeze_calls, "fallback path — listing failed so no freeze took place to release")
