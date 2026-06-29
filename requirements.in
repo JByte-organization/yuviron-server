@@ -1,0 +1,10 @@
+# Прямые зависимости проекта.
+# Транзитивные зависимости зафиксированы в requirements.lock.
+# Для обновления lock-файла:
+#   pip install pip-tools && pip-compile requirements.in -o requirements.lock
+PyYAML==6.0.2
+Jinja2==3.1.6
+jsonschema==4.10.3
+bcrypt==4.3.0
+mypy==1.16.0
+types-PyYAML==6.0.12.20250516

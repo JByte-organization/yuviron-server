@@ -1,0 +1,60 @@
+routes:
+  api:
+    target: backend:5073
+    client_max_body_size: 50m
+    has_auth_endpoints: true
+    rate_limit_zone: api_general
+    upload_locations: [media, upload, uploads, files, file, webhooks]
+    upload_client_max_body_size: 50m
+    upload_rate_limit_zone: api_upload
+    upload_rate_limit_burst: 2
+    environments: [dev, prod]
+
+  client:
+    app: client
+    client_max_body_size: 5m
+    rate_limit_zone: api_general
+    environments: [dev, prod]
+
+  admin:
+    app: admin
+    rate_limit_zone: api_general
+    environments: [dev, prod]
+
+  backoffice:
+    app: backoffice
+    rate_limit_zone: api_general
+    environments: [dev, prod]
+
+  clickhouse:
+    # ClickHouse HTTP interface — includes the built-in /play SQL UI.
+    # Access: https://clickhouse.dev.<domain>/play
+    # Protected by nginx basic auth (management route).
+    target: clickhouse:8123
+    host_strategy: subdomain
+    rate_limit_zone: api_general
+    environments: [dev]
+
+  seq:
+    target: seq:80
+    host_strategy: subdomain
+    rate_limit_zone: api_general
+    environments: [dev]
+
+  aspire:
+    target: aspire-dashboard:18888
+    host_strategy: subdomain
+    rate_limit_zone: api_general
+    environments: [dev]
+
+  rabbitmq:
+    target: rabbitmq:15672
+    host_strategy: subdomain
+    rate_limit_zone: api_general
+    environments: [dev]
+
+  i:
+    target: backend:5073
+    host_strategy: subdomain
+    environments: [dev, prod]
+    media_proxy: true

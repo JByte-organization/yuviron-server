@@ -1,0 +1,15 @@
+<clickhouse>
+    <logger>
+        <!--
+            ClickHouse defaults to 'debug' which produces several hundred MB/day of
+            logs under even modest load. 'information' keeps operational visibility
+            without overwhelming the log volume.
+        -->
+        <level>information</level>
+        <console>1</console>
+        <log>/var/log/clickhouse-server/clickhouse-server.log</log>
+        <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
+        <size>100M</size>
+        <count>5</count>
+    </logger>
+</clickhouse>

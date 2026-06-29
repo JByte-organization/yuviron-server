@@ -1,0 +1,264 @@
+name: CI
+# =============================================================================
+# .github/workflows/ci.yml — Основной CI pipeline для инфраструктурных скриптов.
+#
+# Запускается: при push и pull request в ветки main и dev.
+#
+# Jobs:
+#   unit-tests:
+#     - Устанавливает Python зависимости в venv
+#     - Аудит уязвимостей в зависимостях (pip-audit)
+#     - Запускает все unit-тесты из scripts/tests/
+#     - Проверяет что нет конфликтов сигнатур (security audit)
+#
+# Дополнительные workflow:
+#   shellcheck.yml — проверка bash-скриптов через ShellCheck
+# =============================================================================
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Python dependencies
+        run: |
+          python3 -m venv .venv
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          .venv/bin/pip install -r requirements.lock
+          .venv/bin/pip install pip-audit==2.9.0 ruff==0.11.13
+
+      - name: Lint with ruff
+        run: |
+          cd scripts
+          ruff check .
+
+      - name: Type-check with mypy
+        run: |
+          cd scripts
+          mypy core/ commands/ checks/ --config-file pyproject.toml
+
+      - name: Audit Python dependencies
+        run: pip-audit -r requirements.lock
+
+      - name: Run unit tests
+        run: |
+          cd scripts
+          python3 -m unittest \
+            tests.test_models \
+            tests.test_paths \
+            tests.test_findings \
+            tests.test_env_validation \
+            tests.test_config_loader_routes \
+            tests.test_config_loader_stack_ports \
+            tests.test_render_nginx \
+            tests.test_compose_generator \
+            tests.test_dns_generate \
+            tests.test_htpasswd \
+            tests.test_core_preflight \
+            tests.test_preflight_nginx \
+            tests.test_preflight_generated \
+            tests.test_security_audit \
+            tests.test_generate_config \
+            tests.test_smoke_logic \
+            tests.test_stack_smoke \
+            tests.test_doctor \
+            tests.test_certs_generate \
+            tests.test_certs_reload \
+            tests.test_backup_restore_test \
+            tests.test_backup_docker_utils \
+            tests.test_backup_operations \
+            tests.test_rotation \
+            tests.test_tools_docker_clean \
+            tests.test_backend_workflows \
+            tests.test_python_requirements \
+            tests.test_healthcheck_alert \
+            tests.test_appsettings \
+            tests.test_docker_events_watcher \
+            tests.test_env_quoting \
+            tests.test_stack_restart \
+            -v
+
+  e2e-dry-run:
+    name: E2E dry-run (Docker)
+    runs-on: [self-hosted, yuviron]
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run E2E dry-run
+        env:
+          YUVIRON_RUN_DOCKER_E2E: "1"
+        run: |
+          cd scripts
+          python3 -m unittest tests.test_stack_e2e_dry_run -v
+
+  image-scan:
+    name: Image vulnerability scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Scan dotnet/aspnet:9.0 base image (informational)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: mcr.microsoft.com/dotnet/aspnet:9.0
+          format: table
+          exit-code: '0'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Scan nginx:alpine base image (informational)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: nginx:alpine
+          format: table
+          exit-code: '0'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Build edge nginx image
+        run: docker build -t yuviron-edge:ci -f infra/edge/Dockerfile infra/edge/
+
+      - name: Scan built edge nginx image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: yuviron-edge:ci
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+  image-scan-built:
+    name: Scan built application images
+    runs-on: [self-hosted, yuviron]
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check backend source availability
+        id: check-src
+        run: |
+          if [ -d "src/yuviron-backend/src/Yuviron.Api" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Backend source not found in checkout; .NET image scan skipped. Add source as a submodule or ensure src/ is present on the runner."
+          fi
+
+      - name: Build backend image
+        if: steps.check-src.outputs.available == 'true'
+        run: |
+          docker build \
+            --target backend \
+            --build-arg RUNTIME_PACKAGES="wget ffmpeg" \
+            -t yuviron-backend:ci \
+            -f infra/docker/dotnet/Dockerfile \
+            .
+
+      - name: Scan built backend image
+        if: steps.check-src.outputs.available == 'true'
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v /tmp/trivy-cache:/root/.cache/trivy \
+            aquasec/trivy:0.70.0 image \
+            --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed \
+            --format table yuviron-backend:ci
+
+      - name: Build media-worker image
+        if: steps.check-src.outputs.available == 'true'
+        run: |
+          docker build \
+            --target media-worker \
+            --build-arg RUNTIME_PACKAGES="wget ffmpeg" \
+            -t yuviron-media-worker:ci \
+            -f infra/docker/dotnet/Dockerfile \
+            .
+
+      - name: Scan built media-worker image
+        if: steps.check-src.outputs.available == 'true'
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v /tmp/trivy-cache:/root/.cache/trivy \
+            aquasec/trivy:0.70.0 image \
+            --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed \
+            --format table yuviron-media-worker:ci
+
+      - name: Clean up CI images
+        if: always()
+        run: docker rmi yuviron-backend:ci yuviron-media-worker:ci 2>/dev/null || true
+
+  notify-failure:
+    name: Notify on CI failure
+    runs-on: ubuntu-latest
+    if: failure()
+    needs: [unit-tests, e2e-dry-run, image-scan, image-scan-built]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Send failure email
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          ALERTS_EMAIL: ${{ secrets.ALERTS_EMAIL }}
+        run: |
+          python3 scripts/tools/monitoring/ci_notify.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --branch "$GITHUB_REF_NAME" \
+            --sha "$GITHUB_SHA" \
+            --actor "$GITHUB_ACTOR" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --workflow "$GITHUB_WORKFLOW"
+
+  ci-summary:
+    name: CI gate — warn on skipped self-hosted jobs
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [unit-tests, e2e-dry-run, image-scan, image-scan-built]
+
+    steps:
+      - name: Check self-hosted job outcomes
+        env:
+          E2E_RESULT: ${{ needs.e2e-dry-run.result }}
+          SCAN_BUILT_RESULT: ${{ needs.image-scan-built.result }}
+        run: |
+          skipped=()
+          [[ "$E2E_RESULT"      == "skipped" ]] && skipped+=("e2e-dry-run")
+          [[ "$SCAN_BUILT_RESULT" == "skipped" ]] && skipped+=("image-scan-built")
+
+          if [[ ${#skipped[@]} -gt 0 ]]; then
+            echo "::warning::Self-hosted jobs skipped: ${skipped[*]}. Ensure [self-hosted, yuviron] runner is online."
+            {
+              echo "## ⚠️ Self-hosted jobs were skipped"
+              echo ""
+              echo "The following jobs require a \`[self-hosted, yuviron]\` runner that was not available:"
+              echo ""
+              for job in "${skipped[@]}"; do
+                echo "- \`$job\`"
+              done
+              echo ""
+              echo "These jobs cover:"
+              echo "- **e2e-dry-run**: full stack init → preflight → up dry-run cycle with real Docker"
+              echo "- **image-scan-built**: Trivy CVE scan of built backend and media-worker images"
+              echo ""
+              echo "Start the self-hosted runner on the server to include these checks."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "All self-hosted jobs ran (or failed explicitly)."
+          fi

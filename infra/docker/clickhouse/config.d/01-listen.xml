@@ -1,0 +1,10 @@
+<clickhouse>
+    <!--
+        Listen on all interfaces so other containers on the Docker network can reach
+        ClickHouse via its service name (e.g. clickhouse:8123). The ports are not
+        published to the host in compose.yml, so external access is blocked at the
+        network level — only containers on the same Docker network can connect.
+    -->
+    <listen_host>0.0.0.0</listen_host>
+    <listen_backlog>4096</listen_backlog>
+</clickhouse>

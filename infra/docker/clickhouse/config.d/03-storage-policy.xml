@@ -1,0 +1,32 @@
+<clickhouse>
+    <!--
+        Storage policy for MergeTree analytics tables.
+
+        Current layout: single-tier hot storage (SSD).
+        The ssd_hot disk uses a subdirectory of the data volume so it does not
+        conflict with ClickHouse's built-in <path> (the root data directory).
+        MergeTree tables should declare: SETTINGS storage_policy = 'ssd_hot'
+
+        To add cold-tier storage in the future (S3 or a separate HDD mount):
+          1. Add an <ssd_cold> disk (type: s3 or local, pointing to cold storage).
+          2. Add a <cold> volume to the <ssd_hot> policy below.
+          3. Set <max_data_part_size_bytes> on <hot> to control the tier boundary.
+        MergeTree will then move aged parts automatically based on TTL or size.
+    -->
+    <storage_configuration>
+        <disks>
+            <ssd_hot>
+                <path>/var/lib/clickhouse/ssd_hot/</path>
+            </ssd_hot>
+        </disks>
+        <policies>
+            <ssd_hot>
+                <volumes>
+                    <hot>
+                        <disk>ssd_hot</disk>
+                    </hot>
+                </volumes>
+            </ssd_hot>
+        </policies>
+    </storage_configuration>
+</clickhouse>

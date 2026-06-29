@@ -1,0 +1,68 @@
+# =============================================================================
+# scripts/core/compose_runner.py — Фабрика ComposeContext и валидация compose.
+#
+# create_compose_context() — главная точка входа: принимает (root_dir, env_name)
+# и возвращает готовый ComposeContext со всеми путями и именем проекта.
+# Если ensure_generated=True — гарантирует что generated/<env>/ существует.
+#
+# validate_compose_config() — запускает "docker compose config" и проверяет
+# что все переменные раскрываются без ошибок.
+# =============================================================================
+from __future__ import annotations
+
+from pathlib import Path
+
+from .docker import ComposeContext, run_compose
+from .env import (
+    _read_project_name,
+    ensure_generated_basic_auth_file,
+    ensure_generated_env,
+    resolve_config_value,
+    resolve_frontends_compose,
+    resolve_runtime_env,
+)
+from .ui import log_info, log_ok
+from .validators import ensure_command, fail
+
+
+def validate_compose_config(context: ComposeContext) -> None:
+    """Проверить синтаксис compose-файлов и раскрытие переменных.
+
+    Запускает "docker compose config" — если есть ошибки в YAML или
+    переменные без значений, команда упадёт с ошибкой.
+    """
+    log_info("Validating compose config")
+    run_compose(context, "config", capture_output=True)
+    log_ok("Compose config is valid")
+
+
+def create_compose_context(root_dir: Path, env_name: str, *, ensure_generated: bool = False) -> ComposeContext:
+    ensure_command("docker")
+
+    compose_file = root_dir / "infra" / "compose.yml"
+    if not compose_file.is_file():
+        fail(f"Compose file not found: {compose_file}")
+
+    tmp_dir = root_dir / ".tmp" / "runtime"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    if ensure_generated:
+        ensure_generated_env(root_dir, env_name)
+    else:
+        ensure_generated_basic_auth_file(root_dir, env_name)
+
+    runtime_env = resolve_runtime_env(root_dir, env_name, tmp_dir)
+    frontends_compose = resolve_frontends_compose(root_dir, env_name)
+    compose_project_name = resolve_config_value(root_dir, env_name, "COMPOSE_PROJECT_NAME", f"{_read_project_name(root_dir)}-{env_name}")
+
+    if not compose_project_name:
+        fail(f"COMPOSE_PROJECT_NAME is empty for {env_name}")
+
+    return ComposeContext(
+        root_dir=root_dir,
+        environment=env_name,
+        runtime_env=runtime_env,
+        compose_file=compose_file,
+        frontends_compose=frontends_compose,
+        compose_project_name=compose_project_name,
+    )

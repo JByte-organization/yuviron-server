@@ -1,0 +1,169 @@
+# =============================================================================
+# scripts/core/docker.py — Утилиты для запуска Docker и Docker Compose.
+#
+# ComposeContext — датакласс с параметрами одного запуска docker compose.
+#   Хранит: путь к compose.yml, env-файл, имя проекта, профили.
+#   Метод build_compose_cmd() строит полную команду с --env-file, -f, -p.
+#
+# run()          — обёртка над subprocess.run() с единообразной обработкой ошибок.
+# run_compose()  — запустить команду внутри compose-контекста.
+#
+# ensure_docker_network() — создать Docker network если не существует.
+#   Используется для shared-сети между backend и frontend (compose_project_shared).
+# =============================================================================
+from __future__ import annotations
+
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path
+
+from .env import parse_env_file, read_env_value
+from .ui import BOLD, RESET, log_info, log_ok
+from .validators import fail, require_file
+
+
+@dataclass
+class ComposeContext:
+    """Параметры одного запуска docker compose.
+
+    root_dir           — корень проекта (рабочая директория для команды)
+    environment        — "dev" или "prod"
+    runtime_env        — путь к deploy.env (передаётся как --env-file)
+    compose_file       — infra/compose.yml (основной файл)
+    frontends_compose  — generated/<env>/compose.frontends.yml (overlay с фронтендами)
+    compose_project_name — имя проекта (-p, задаёт префикс контейнеров)
+    profiles           — активные docker compose профили (например "observability")
+    """
+    root_dir: Path
+    environment: str
+    runtime_env: Path
+    compose_file: Path
+    frontends_compose: Path
+    compose_project_name: str
+    profiles: tuple[str, ...] = ()
+
+    def build_compose_cmd(self, *args: str) -> list[str]:
+        profile_flags: list[str] = []
+        for profile in self.profiles:
+            profile_flags.extend(["--profile", profile])
+        return [
+            "docker",
+            "compose",
+            "--env-file",
+            str(self.runtime_env),
+            "-f",
+            str(self.compose_file),
+            "-f",
+            str(self.frontends_compose),
+            "-p",
+            self.compose_project_name,
+            *profile_flags,
+            *args,
+        ]
+
+
+def run(
+    cmd: list[str],
+    *,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+    capture_output: bool = False,
+    check: bool = True,
+    text: bool = True,
+    timeout: int | None = None,
+) -> subprocess.CompletedProcess:
+    result = subprocess.run(
+        cmd,
+        cwd=str(cwd) if cwd else None,
+        env=env,
+        capture_output=capture_output,
+        text=text,
+        check=False,
+        timeout=timeout,
+    )
+
+    if check and result.returncode != 0:
+        command_text = " ".join(cmd)
+        if capture_output:
+            details = (result.stderr or result.stdout or "").strip()
+            if details:
+                fail(f"Command failed ({result.returncode}): {command_text}\n{details}")
+        fail(f"Command failed ({result.returncode}): {command_text}")
+
+    return result
+
+
+def run_compose(
+    context: ComposeContext,
+    *args: str,
+    capture_output: bool = False,
+    check: bool = True,
+    text: bool = True,
+    timeout: int | None = None,
+) -> subprocess.CompletedProcess:
+    return run(
+        context.build_compose_cmd(*args),
+        cwd=context.root_dir,
+        capture_output=capture_output,
+        check=check,
+        text=text,
+        timeout=timeout,
+    )
+
+
+def container_id_for_service(project_name: str, service: str) -> str:
+    """Return the running container ID for a compose project/service pair, or '' if not found."""
+    result = subprocess.run(
+        [
+            "docker", "ps", "-q",
+            "--filter", f"label=com.docker.compose.project={project_name}",
+            "--filter", f"label=com.docker.compose.service={service}",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    for line in result.stdout.splitlines():
+        value = line.strip()
+        if value:
+            return value
+    return ""
+
+
+def ensure_docker_network(name: str) -> None:
+    inspect = subprocess.run(
+        ["docker", "network", "inspect", name],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if inspect.returncode == 0:
+        log_ok(f"Docker network exists: {BOLD}{name}{RESET}")
+        return
+
+    log_info(f"Creating Docker network: {name}")
+    created = subprocess.run(
+        ["docker", "network", "create", name],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if created.returncode != 0:
+        fail(f"Failed to create Docker network: {name}")
+    log_ok(f"Docker network created: {BOLD}{name}{RESET}")
+
+
+def ensure_shared_network(env_name: str, *, root_dir: Path, generated_dir: Path) -> None:
+    deploy_env_file = generated_dir / env_name / "deploy.env"
+    require_file(deploy_env_file)
+
+    deploy_env = parse_env_file(deploy_env_file)
+    shared_network = deploy_env.get("SHARED_NETWORK", "")
+    if not shared_network:
+        fail(f"SHARED_NETWORK не задан в {deploy_env_file}")
+
+    ensure_docker_network(shared_network)
+
+
+def read_var_from_env_file(path: Path, name: str) -> str:
+    return read_env_value(path, name)

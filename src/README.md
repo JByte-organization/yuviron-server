@@ -1,54 +1,70 @@
 # Source code
 
-В этой директории находятся исходные проекты **Yuviron**, которые используются инфраструктурой сервера для сборки Docker образов.
+В этой директории находятся исходные проекты **Yuviron**, которые используются инфраструктурой сервера для сборки Docker-образов.
 
-Каждый сервис хранится в **отдельном Git-репозитории**, а папка `src` используется как рабочая директория, из которой инфраструктура собирает контейнеры.
+Каждый сервис хранится в **отдельном Git-репозитории**, а папка `src` используется как build context при сборке контейнеров.
 
 ---
 
 ## Проекты
 
-### Backend
+### Backend (`src/yuviron-backend`)
 
-API сервер проекта.
+.NET 9 API-сервер и фоновый обработчик медиа.
 
-**Repository**
+**Repository:** https://github.com/JByte-organization/yuviron-backend
 
-https://github.com/JByte-organization/yuviron-backend
+**Dockerfile:** `infra/docker/dotnet/Dockerfile`
 
-Используется для сборки Docker образа:
+Один multi-stage Dockerfile собирает три образа в зависимости от target:
+
+| Target | Сервис | Порт |
+|---|---|---|
+| `backend` | Yuviron.Api — основной HTTP API | 5073 |
+| `media-worker` | Yuviron.MediaWorker — фоновая обработка медиафайлов | 5074 |
+| `migrator` | EF Core migrator — запускается как одноразовый контейнер | — |
+
+Имена контейнеров в dev-окружении:
 
 ```
-infra/docker/backend/Dockerfile
+<COMPOSE_PROJECT_NAME>-backend
+<COMPOSE_PROJECT_NAME>-media-worker
+<COMPOSE_PROJECT_NAME>-migrator
 ```
 
-Контейнер, который запускается в dev окружении:
-
-```
-yuviron-dev-backend
-```
+`COMPOSE_PROJECT_NAME` задаётся автоматически при генерации конфига и по умолчанию равен `<project_name>-<env>` (например `yuviron-dev`).
 
 ---
 
-### Frontend
+### Frontend (`src/yuviron-frontend`)
 
-Web интерфейс приложения.
+Next.js монорепозиторий с несколькими приложениями (Turborepo + pnpm).
 
-**Repository**
+**Repository:** https://github.com/JByte-organization/yuviron-frontend
 
-https://github.com/JByte-organization/yuviron-frontend
+**Dockerfile для Next.js приложений:** `infra/docker/frontend-next/Dockerfile`
 
-Используется для сборки Docker образа:
+Один Dockerfile собирает любое из приложений через build arg `APP_NAME`:
+
+| `APP_NAME` | Приложение | Описание |
+|---|---|---|
+| `client-app` | Клиентское приложение | Публичный интерфейс |
+| `admin` | Admin панель | Управление платформой |
+| `backoffice` | Backoffice | Внутренние операции |
+
+**Dockerfile для статических приложений:** `infra/docker/frontend-static/Dockerfile`
+
+Используется для приложений которые собираются в статику (без SSR).
+
+Имена контейнеров в dev-окружении:
 
 ```
-infra/docker/frontend/Dockerfile
+<COMPOSE_PROJECT_NAME>-client-app
+<COMPOSE_PROJECT_NAME>-admin
+<COMPOSE_PROJECT_NAME>-backoffice
 ```
 
-Контейнер, который запускается в dev окружении:
-
-```
-yuviron-dev-frontend
-```
+Список запущенных приложений определяется при генерации конфига через `--apps`.
 
 ---
 
@@ -56,28 +72,29 @@ yuviron-dev-frontend
 
 ```
 src/
-├── yuviron-backend
-└── yuviron-frontend
+├── yuviron-backend/    — .NET 9 backend (API + MediaWorker)
+└── yuviron-frontend/   — Next.js монорепозиторий (Turborepo)
+    ├── apps/
+    │   ├── client-app/
+    │   ├── admin/
+    │   └── backoffice/
+    └── packages/       — shared: api-client, ui, store, typescript-config
 ```
 
 ---
 
 ## Как используется эта директория
 
-Папка `src` используется инфраструктурой проекта для сборки Docker образов.
+Все Dockerfile-ы находятся в `infra/docker/` и используют `src/` как часть build context.
 
-Dockerfile находятся в директории:
+Сборка происходит автоматически при `./scripts/cli.py stack up` — Docker Compose собирает образы из исходников.
 
-```
-infra/docker/
-```
-
-Во время сборки Docker контейнеров используется код из:
-
-```
-src/yuviron-backend
-src/yuviron-frontend
-```
+| Dockerfile | Build context |
+|---|---|
+| `infra/docker/dotnet/Dockerfile` | корень проекта (`..`) |
+| `infra/docker/frontend-next/Dockerfile` | `src/yuviron-frontend/` |
+| `infra/docker/frontend-static/Dockerfile` | `src/yuviron-frontend/` |
+| `infra/edge/Dockerfile` | `infra/edge/` |
 
 ---
 
@@ -85,32 +102,22 @@ src/yuviron-frontend
 
 В этой директории хранится **только исходный код сервисов**.
 
-Инфраструктура проекта находится в:
-
-```
-infra/
-```
-
-Reverse proxy и внешний nginx находятся в:
-
-```
-edge/
-```
+- Инфраструктура (compose, Dockerfile-ы, nginx): `infra/`
+- Edge nginx (reverse proxy): `infra/edge/`
+- Скрипты управления: `scripts/`
+- Сгенерированные runtime-конфиги: `generated/`
 
 ---
 
 ## Обновление исходников
 
-Чтобы обновить код сервисов, необходимо обновить соответствующие Git-репозитории.
-
-Пример:
-
-```
-cd src/yuviron-backend
-git pull
-
-cd ../yuviron-frontend
-git pull
+```bash
+cd src/yuviron-backend && git pull
+cd ../yuviron-frontend && git pull
 ```
 
-После обновления исходников необходимо пересобрать контейнеры.
+После обновления пересобрать контейнеры:
+
+```bash
+./scripts/cli.py stack up dev
+```
