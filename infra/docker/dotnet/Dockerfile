@@ -13,11 +13,18 @@
 #                  CMD: /usr/local/bin/yuviron-migrator (migrator.sh)
 #
 # Стадии сборки:
+#   dotnet-ef-tool — устанавливает dotnet-ef CLI; не зависит от исходников,
+#                  поэтому кэшируется до смены версии SDK/тула, а не до смены кода
 #   source       — копирует только .csproj файлы (для кэша NuGet restore)
 #   restore      — dotnet restore + копирует весь исходный код
-#   publish-api  — dotnet publish Yuviron.Api → /app/publish
-#   publish-worker — dotnet publish Yuviron.MediaWorker → /app/publish
-#   migrator     — устанавливает dotnet-ef CLI + собирает для миграций
+#   build        — dotnet build Yuviron.Api + Yuviron.MediaWorker один раз;
+#                  publish-api/publish-worker/migrator наследуют от неё, чтобы
+#                  не пересобирать общий граф Domain/Application/Infrastructure
+#                  трижды (раньше отдельный "dotnet build" в migrator дублировал
+#                  publish-api и добавлял ~2.5 минуты на каждый деплой)
+#   publish-api  — dotnet publish Yuviron.Api --no-build → /app/publish
+#   publish-worker — dotnet publish Yuviron.MediaWorker --no-build → /app/publish
+#   migrator     — переиспользует build-стадию, добавляет dotnet-ef CLI
 #   runtime-base — mcr.microsoft.com/dotnet/aspnet (без SDK) + runtime-packages.txt
 #   backend      — runtime-base + артефакты publish-api
 #   media-worker — runtime-base + артефакты publish-worker
@@ -28,6 +35,11 @@
 #   - NuGet кэш через BuildKit mount (не попадает в слои образа)
 # =============================================================================
 ARG DOTNET_VERSION=9.0
+
+FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS dotnet-ef-tool
+
+RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
+    dotnet tool install --tool-path /usr/local/dotnet-tools dotnet-ef --version 9.*
 
 FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS source
 
@@ -47,41 +59,43 @@ RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
 
 COPY src/yuviron-backend/ ./
 
-FROM restore AS publish-api
+FROM restore AS build
+
+RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
+    dotnet build src/Yuviron.Api/Yuviron.Api.csproj -c Release --no-restore \
+    && dotnet build src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj -c Release --no-restore
+
+FROM build AS publish-api
 
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
     dotnet publish src/Yuviron.Api/Yuviron.Api.csproj \
     -c Release \
     -o /app/publish \
-    --no-restore \
+    --no-build \
     /p:UseAppHost=false
 
-FROM restore AS publish-worker
+FROM build AS publish-worker
 
 RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
     dotnet publish src/Yuviron.MediaWorker/Yuviron.MediaWorker.csproj \
     -c Release \
     -o /app/publish \
-    --no-restore \
+    --no-build \
     /p:UseAppHost=false
 
-FROM restore AS migrator
+FROM build AS migrator
 
 ARG DOTNET_APP_UID=10001
 ARG DOTNET_APP_GID=10001
 ARG MIGRATOR_STARTUP_PROJECT=src/Yuviron.Api/Yuviron.Api.csproj
 ARG MIGRATOR_CONFIGURATION=Release
 
-RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
-    dotnet tool install --tool-path /usr/local/dotnet-tools dotnet-ef --version 9.*
+COPY --from=dotnet-ef-tool /usr/local/dotnet-tools /usr/local/dotnet-tools
 
 ENV PATH="${PATH}:/usr/local/dotnet-tools"
 ENV DOTNET_NOLOGO=1
 ENV DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
-
-RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
-    dotnet build ./${MIGRATOR_STARTUP_PROJECT} -c ${MIGRATOR_CONFIGURATION} --no-restore
 
 COPY infra/docker/dotnet/migrator.sh /usr/local/bin/yuviron-migrator
 
