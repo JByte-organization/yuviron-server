@@ -341,6 +341,49 @@ class RenderNginxTests(unittest.TestCase):
         self.assertIn("try_files /nonexistent $cors_api_auth_route;", rendered)
         self.assertIn("return 204;", rendered)
 
+    def test_client_route_proxies_public_entity_share_paths_to_backend(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [
+                NginxRoute("api", "api.example.com", "backend:5073", "50m"),
+                NginxRoute("client", "app.example.com", "client-app:3000", "5m"),
+            ],
+            SCRIPTS_ROOT / "templates",
+        )
+
+        self.assertIn("set $upstream_client_share backend:5073;", rendered)
+        self.assertIn("location ~* ^/(album|artist|track|sl)(/|$) {", rendered)
+        self.assertIn("proxy_pass http://$upstream_client_share;", rendered)
+
+        # The share-path location must be declared before the catch-all "location /"
+        # so nginx's regex-vs-prefix precedence can't accidentally swallow it.
+        share_index = rendered.index("location ~* ^/(album|artist|track|sl)(/|$)")
+        catch_all_index = rendered.index("proxy_pass http://$upstream_client;")
+        self.assertLess(share_index, catch_all_index)
+
+        # /playlist and /user are existing frontend pages and must not be touched.
+        self.assertNotIn("playlist", rendered.split("location ~* ^/(album|artist|track|sl)(/|$)")[1].split("}")[0])
+
+    def test_client_route_without_backend_route_emits_no_share_proxy(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [NginxRoute("client", "app.example.com", "client-app:3000", "5m")],
+            SCRIPTS_ROOT / "templates",
+        )
+
+        self.assertNotIn("_share", rendered)
+        self.assertNotIn("album|artist|track|sl", rendered)
+
+    def test_non_client_route_does_not_get_share_proxy(self) -> None:
+        rendered = render_nginx_conf_modular(
+            [
+                NginxRoute("api", "api.example.com", "backend:5073", "50m"),
+                NginxRoute("admin", "admin.example.com", "admin:3000", "5m"),
+            ],
+            SCRIPTS_ROOT / "templates",
+        )
+
+        self.assertNotIn("_share", rendered)
+        self.assertNotIn("album|artist|track|sl", rendered)
+
     def test_api_preflight_headers_allow_auth_and_csrf_headers(self) -> None:
         content = (SCRIPTS_ROOT / "templates" / "cors-api-preflight-headers.conf").read_text(encoding="utf-8")
 

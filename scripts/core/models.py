@@ -27,6 +27,21 @@ BACKEND_ROUTE_NAME = "api"
 # Route name for the media CDN proxy — used in nginx generation and smoke tests.
 MEDIA_ROUTE_NAME = "i"
 
+# Route name for the public-facing web app — used to attach the public entity
+# share-link proxy paths below to the right server block.
+CLIENT_ROUTE_NAME = "client"
+
+# Path prefixes under the client route that must proxy to the backend instead
+# of the frontend. These are public entity "share" links: the backend counts
+# the click and redirects to the frontend's plural route, e.g. /album/{id}
+# (backend) -> redirect -> /albums/{id} (frontend).
+#
+# /playlist and /user are intentionally excluded even though they follow the
+# same singular/plural pattern: the frontend already owns those singular
+# paths for its own pages ((client)/playlist/[id], (client)/user/[id]),
+# routing them to the backend would break existing functionality.
+CLIENT_BACKEND_SHARE_PATHS: tuple[str, ...] = ("album", "artist", "track", "sl")
+
 # Имена служебных маршрутов (закрытые за Basic Auth, только для администраторов)
 MANAGEMENT_ROUTE_NAMES = {
     "adminer",

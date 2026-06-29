@@ -30,6 +30,9 @@
 
         # Defers upstream DNS resolution to request time (nginx -t passes without running services)
         set $upstream_{{ route.name | replace('-', '_') }} {{ route.upstream }};
+        {% if route.public_entity_share_paths and backend_upstream %}
+        set $upstream_{{ route.name | replace('-', '_') }}_share {{ backend_upstream }};
+        {% endif %}
 
         access_log /dev/stdout main;
         error_log  /dev/stderr warn;
@@ -139,6 +142,25 @@
             try_files /nonexistent $cors_api_route;
         }
         {% else %}
+        {% if route.public_entity_share_paths and backend_upstream %}
+        # Public entity share links (e.g. /album/{id}) belong to the backend, not the
+        # frontend's plural routes (/albums/{id}) -- the backend counts the click and
+        # redirects to the frontend. Must be declared before the catch-all "location /".
+        location ~* ^/({{ route.public_entity_share_paths | join('|') }})(/|$) {
+            {% if route.rate_limit_zone %}
+            limit_req zone={{ route.rate_limit_zone }} burst={{ route.rate_limit_burst }} nodelay;
+            limit_req_status 429;
+            {% endif %}
+
+            proxy_pass http://$upstream_{{ route.name | replace('-', '_') }}_share;
+            include /etc/nginx/proxy-params.conf;
+
+            proxy_connect_timeout 5s;
+            proxy_send_timeout 15s;
+            proxy_read_timeout {{ nginx_proxy_read_timeout }};
+        }
+        {% endif %}
+
         location / {
             {% if route.basic_auth %}
             {% for cidr in route.admin_allowlist %}

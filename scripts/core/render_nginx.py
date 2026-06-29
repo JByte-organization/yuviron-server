@@ -26,7 +26,14 @@ from typing import Iterable, Mapping
 
 from jinja2 import Environment, StrictUndefined
 
-from .models import BACKEND_ROUTE_NAME, MANAGEMENT_ROUTE_NAMES, OPTIONAL_NGINX_ROUTE_NAMES, is_valid_route_host
+from .models import (
+    BACKEND_ROUTE_NAME,
+    CLIENT_BACKEND_SHARE_PATHS,
+    CLIENT_ROUTE_NAME,
+    MANAGEMENT_ROUTE_NAMES,
+    OPTIONAL_NGINX_ROUTE_NAMES,
+    is_valid_route_host,
+)
 from .nginx_csp import (
     STRICT_CONTENT_SECURITY_POLICY,  # noqa: F401  (re-exported for callers)
     _resolve_content_security_policy,
@@ -239,11 +246,14 @@ def render_nginx_conf_modular(
     )
 
     routes: list[dict[str, object]] = []
+    backend_upstream: str | None = None
     for route_line in route_lines:
         r = _validate_nginx_route(route_line)
         route_is_management = r.name in MANAGEMENT_ROUTE_NAMES
         route_is_optional = r.name in OPTIONAL_NGINX_ROUTE_NAMES
         route_is_backend_api = r.name == BACKEND_ROUTE_NAME
+        if route_is_backend_api:
+            backend_upstream = r.upstream
         route_ssl_certificate = default_ssl_certificate
         route_ssl_certificate_key = default_ssl_certificate_key
         if nginx_cert_mode == NGINX_CERT_MODE_PER_ROUTE:
@@ -273,10 +283,12 @@ def render_nginx_conf_modular(
             "upload_rate_limit_zone": r.upload_rate_limit_zone,
             "upload_rate_limit_burst": r.upload_rate_limit_burst,
             "media_proxy": r.media_proxy,
+            "public_entity_share_paths": CLIENT_BACKEND_SHARE_PATHS if r.name == CLIENT_ROUTE_NAME else (),
         })
 
     context = {
         "routes": routes,
+        "backend_upstream": backend_upstream,
         "security_headers": _security_headers(content_security_policy),
         "default_ssl_certificate": default_ssl_certificate,
         "default_ssl_certificate_key": default_ssl_certificate_key,
