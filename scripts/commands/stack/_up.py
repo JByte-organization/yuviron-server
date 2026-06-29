@@ -209,6 +209,10 @@ def _cmd_up_locked(args: argparse.Namespace, environment: str, root_dir: Path) -
     except CommandError:
         if snapshot:
             _restore_rollback_images(context, snapshot)
+            # restore already re-tagged the snapshot image as :latest, so the
+            # rollback tag is now redundant - clean it up here too, otherwise it
+            # never gets removed and accumulates across repeated failed deploys.
+            _cleanup_rollback_images(snapshot)
         raise
     finally:
         deploy_marker.unlink(missing_ok=True)
