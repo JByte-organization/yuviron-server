@@ -355,8 +355,8 @@ class BackupRestoreTestTests(unittest.TestCase):
             ]
         )
         cleanup_calls = [item.args[0] for item in run_mock.call_args_list]
-        self.assertIn(["docker", "rm", "-f", "restore-test-dev-2026-05-12-07-30-00-1234"], cleanup_calls)
-        self.assertIn(["docker", "rm", "-f", "restore-test-prod-2026-05-12-07-30-00-1234"], cleanup_calls)
+        self.assertIn(["docker", "rm", "-fv", "restore-test-dev-2026-05-12-07-30-00-1234"], cleanup_calls)
+        self.assertIn(["docker", "rm", "-fv", "restore-test-prod-2026-05-12-07-30-00-1234"], cleanup_calls)
 
     def test_backup_create_runs_automatic_restore_test_for_mysql_dumps(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -507,7 +507,7 @@ class BackupRestoreTestTests(unittest.TestCase):
                                             )
 
         rm_calls = [call.args[0] for call in run_mock.call_args_list]
-        self.assertTrue(any(cmd[:3] == ["docker", "rm", "-f"] for cmd in rm_calls))
+        self.assertTrue(any(cmd[:3] == ["docker", "rm", "-fv"] for cmd in rm_calls))
         rmtree_mock.assert_called_once()
 
     def test_run_mysqlcheck_returns_empty_list_when_all_tables_ok(self) -> None:

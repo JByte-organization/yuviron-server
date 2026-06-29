@@ -201,7 +201,10 @@ def _restore_mysql_dump_into_standalone_container(
     quoted_database_name = _quote_mysql_identifier(database_name, "database name")
 
     logger.info(f"Starting temporary MySQL container: {container_name}")  # type: ignore[attr-defined]
-    run(["docker", "rm", "-f", container_name], check=False, capture_output=True)
+    # -v: container gets no explicit volume mount, so the mysql image's declared
+    # VOLUME /var/lib/mysql is backed by an anonymous volume - without -v it survives
+    # `docker rm` and leaks on every restore-test run.
+    run(["docker", "rm", "-fv", container_name], check=False, capture_output=True)
     run(
         [
             "docker", "run", "-d", "--name", container_name,
@@ -286,7 +289,7 @@ def _run_archive_restore_tests(
                 )
                 logger.info(f"Automatic restore-test passed for {environment}")  # type: ignore[attr-defined]
             finally:
-                run(["docker", "rm", "-f", container_name], check=False, capture_output=True)
+                run(["docker", "rm", "-fv", container_name], check=False, capture_output=True)
 
         logger.info("Automatic restore-test completed successfully")  # type: ignore[attr-defined]
     finally:

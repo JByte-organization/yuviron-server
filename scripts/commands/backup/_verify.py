@@ -83,7 +83,7 @@ def cmd_backup_restore_test(args: argparse.Namespace) -> int:
         return 0
     finally:
         logger.info("Cleaning restore-test environment")
-        run(["docker", "rm", "-f", container_name], check=False, capture_output=True)
+        run(["docker", "rm", "-fv", container_name], check=False, capture_output=True)
         shutil.rmtree(work_dir, ignore_errors=True)
 
 
@@ -116,7 +116,7 @@ def cmd_backup_verify(args: argparse.Namespace) -> int:
     full_restore_requested = getattr(args, "full", False)
 
     def cleanup() -> None:
-        run(["docker", "rm", "-f", "restore-test-mysql"], check=False, capture_output=True)
+        run(["docker", "rm", "-fv", "restore-test-mysql"], check=False, capture_output=True)
         shutil.rmtree(work_dir, ignore_errors=True)
 
     logger.info(f"Testing restore from: {archive_file}")
@@ -215,7 +215,7 @@ def cmd_backup_verify(args: argparse.Namespace) -> int:
 
         if mysql_dumps:
             logger.info("Starting temporary MySQL container")
-            run(["docker", "rm", "-f", "restore-test-mysql"], check=False, capture_output=True)
+            run(["docker", "rm", "-fv", "restore-test-mysql"], check=False, capture_output=True)
             run(
                 [
                     "docker",
