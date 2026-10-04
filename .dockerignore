@@ -1,0 +1,40 @@
+# Runtime data — never send to daemon
+env/
+backups/
+certs/
+generated/
+logs/
+storage/
+
+# Infra tool — not part of any image
+scripts/
+docs/
+config/
+.github/
+.tmp/
+
+# Git and editor
+.git
+*.md
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# .NET build artifacts
+**/bin/
+**/obj/
+
+# Env-specific appsettings contain secrets — all secrets are injected via compose env vars.
+# The base appsettings.json (with placeholder values) stays in the image.
+**/appsettings.Production.json
+**/appsettings.Development.json
+
+# Frontend source and build artifacts — frontend images use src/yuviron-frontend as context
+src/yuviron-frontend/
+**/node_modules/
+**/.next/
+**/.turbo/
+**/out/

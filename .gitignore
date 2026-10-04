@@ -1,15 +1,35 @@
-# 1. Игнорируем файлы .env в папке env
+# env
 env/*.env
+!env/common.env
+!env/example.env
 
-# 2. Игнорируем сертификаты yuviron-
-certs/yuviron-*.pem
+# generated
+generated
 
-# 3. Игнорируем всё содержимое storage
+# certs
+certs/*.pem
+certs/*.crt
+certs/*-key.pem
+certs/**/*.pem
+certs/**/*.crt
+certs/**/*-key.pem
+certs/acme-challenge/
+certs/letsencrypt/
+
+# storage
 storage/**
 
-# 4. ПРАВИЛО ДЛЯ SRC:
-# Игнорируем вообще всё внутри src
-src/**/*
+# backups
+backups
 
-# Но делаем исключение для всех .md файлов (включая подпапки)
-!src/**/*.md
+# python
+__pycache__/
+*.pyc
+.mypy_cache/
+.ruff_cache/
+.tmp/
+.venv/
+venv/
+
+src/*
+logs/*

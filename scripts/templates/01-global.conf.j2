@@ -1,0 +1,120 @@
+pid /tmp/nginx.pid;
+
+worker_processes {{ nginx_worker_processes }};
+
+events {
+    worker_connections {{ nginx_worker_connections }};
+}
+
+http {
+    proxy_cache_path /var/cache/nginx/media levels=1:2 keys_zone=media_cache:10m max_size={{ nginx_media_cache_max_size }} inactive={{ nginx_media_cache_inactive }} use_temp_path=off;
+
+    server_tokens off;
+
+    # Docker's embedded DNS resolver — required for variable-based proxy_pass
+    # (used by optional/profile-gated upstreams so nginx starts even when they are down).
+    resolver 127.0.0.11 valid=5s ipv6=off;
+
+    # -- TLS policy -----------------------------------------------------
+    ssl_protocols {{ nginx_tls_protocols }};
+    {% if nginx_tls_has_ciphers %}
+    ssl_ciphers {{ nginx_tls_ciphers }};
+    ssl_prefer_server_ciphers {{ nginx_tls_prefer_server_ciphers }};
+    {% endif %}
+    ssl_session_cache {{ nginx_tls_session_cache }};
+    ssl_session_timeout {{ nginx_tls_session_timeout }};
+    ssl_session_tickets {{ nginx_tls_session_tickets }};
+    # -------------------------------------------------------------------
+
+
+    # -- Gzip compression settings --------------------------------------
+    gzip on;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_types
+        text/plain
+        text/css
+        application/json
+        application/javascript
+        application/xml
+        image/svg+xml;
+    # -------------------------------------------------------------------
+
+
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        '' close;
+    }
+
+    map $ssl_server_name $route_ssl_certificate {
+        default {{ default_ssl_certificate }};
+        {% for route in routes %}
+        {{ route.host }} {{ route.ssl_certificate }};
+        {% endfor %}
+    }
+
+    map $ssl_server_name $route_ssl_certificate_key {
+        default {{ default_ssl_certificate_key }};
+        {% for route in routes %}
+        {{ route.host }} {{ route.ssl_certificate_key }};
+        {% endfor %}
+    }
+
+    map $http_origin $cors_media_origin {
+        {% for route in routes if not route.media_proxy %}
+        "https://{{ route.host }}" $http_origin;
+        {% endfor %}
+        default "";
+    }
+
+    map $http_origin $cors_api_origin {
+        {% for route in routes if route.cors_origin %}
+        "https://{{ route.host }}" $http_origin;
+        {% endfor %}
+        {% if is_dev %}
+        "http://localhost:3000" $http_origin;
+        {% endif %}
+        default "";
+    }
+
+    map $request_method $cors_media_route {
+        OPTIONS "@cors_preflight";
+        default "@media_proxy";
+    }
+
+    map $request_method $cors_api_route {
+        OPTIONS "@api_cors_preflight";
+        default "@api_proxy";
+    }
+
+    map $request_method $cors_api_auth_route {
+        OPTIONS "@api_cors_preflight";
+        default "@api_auth_proxy";
+    }
+
+    map $request_method $cors_api_upload_route {
+        OPTIONS "@api_cors_preflight";
+        default "@api_upload_proxy";
+    }
+
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                '$status $body_bytes_sent "$http_referer" '
+                '"$http_user_agent" "$http_x_forwarded_for" '
+                'host="$host" request_time="$request_time" '
+                'upstream="$upstream_addr" upstream_time="$upstream_response_time"';
+
+    access_log /dev/stdout main;
+    error_log /dev/stderr warn;
+
+    client_body_temp_path /tmp/client_body_temp;
+    proxy_temp_path /tmp/proxy_temp;
+    fastcgi_temp_path /tmp/fastcgi_temp;
+    uwsgi_temp_path /tmp/uwsgi_temp;
+    scgi_temp_path /tmp/scgi_temp;
+
+    client_body_timeout 10s;
+    client_header_timeout 10s;
+    keepalive_timeout 15s;
+    send_timeout 10s;
+
+    client_max_body_size 5m;

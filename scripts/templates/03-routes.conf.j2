@@ -1,0 +1,328 @@
+{% for route in routes %}
+    server {
+        listen 80;
+        server_name {{ route.host }};
+
+        access_log /dev/stdout main;
+        error_log  /dev/stderr warn;
+
+        location = /health {
+            access_log off;
+            default_type text/plain;
+            return 200 "edge-nginx-ok\n";
+        }
+
+        location ^~ /.well-known/acme-challenge/ {
+            root /var/www/certbot;
+            default_type text/plain;
+            try_files $uri =404;
+        }
+
+        location / {
+            return 301 https://$host$request_uri;
+        }
+    }
+
+    server {
+        listen 443 ssl;
+        http2 on;
+        server_name {{ route.host }};
+
+        # Defers upstream DNS resolution to request time (nginx -t passes without running services)
+        set $upstream_{{ route.name | replace('-', '_') }} {{ route.upstream }};
+        {% if route.public_entity_share_paths and backend_upstream %}
+        set $upstream_{{ route.name | replace('-', '_') }}_share {{ backend_upstream }};
+        {% endif %}
+
+        access_log /dev/stdout main;
+        error_log  /dev/stderr warn;
+
+        {% if nginx_cert_mode == "per-route" %}
+        ssl_certificate $route_ssl_certificate;
+        ssl_certificate_key $route_ssl_certificate_key;
+        {% else %}
+        ssl_certificate {{ route.ssl_certificate }};
+        ssl_certificate_key {{ route.ssl_certificate_key }};
+        {% endif %}
+
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+        {% for header in security_headers %}
+        add_header {{ header.name }} "{{ header.value }}" always;
+        {% endfor %}
+
+        client_max_body_size {{ route.client_max_body_size }};
+        limit_conn conn_per_ip {{ nginx_conn_per_ip }};
+
+        {% if route.media_proxy %}
+        location = / {
+            include /etc/nginx/cors-media-headers.conf;
+            return 404;
+        }
+
+        location ^~ /i/ {
+            include /etc/nginx/cors-media-headers.conf;
+            return 404;
+        }
+
+        location @cors_preflight {
+            include /etc/nginx/cors-media-headers.conf;
+            add_header 'Access-Control-Max-Age' 1728000;
+            add_header 'Content-Type' 'text/plain; charset=utf-8';
+            add_header 'Content-Length' 0;
+            return 204;
+        }
+
+        location @media_proxy {
+            include /etc/nginx/proxy-params.conf;
+
+            rewrite ^/(?!health$)(.+)$ /i/$1 break;
+
+            proxy_pass http://$upstream_{{ route.name | replace('-', '_') }};
+
+            proxy_buffering on;
+
+            proxy_cache media_cache;
+            proxy_cache_methods GET HEAD;
+            proxy_cache_key "$scheme$host$uri";
+            proxy_cache_valid 200 365d;
+            proxy_cache_valid 404 1m;
+            proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+            proxy_cache_lock on;
+            proxy_cache_background_update on;
+            proxy_ignore_headers X-Accel-Expires Expires Cache-Control Set-Cookie Vary;
+            proxy_hide_header Cache-Control;
+            proxy_hide_header Expires;
+            proxy_hide_header Pragma;
+            proxy_hide_header Set-Cookie;
+
+            include /etc/nginx/cors-media-headers.conf;
+            add_header Cache-Control "public, immutable, max-age=31536000";
+            add_header X-Cache-Status $upstream_cache_status always;
+        }
+
+        location / {
+            limit_except GET HEAD OPTIONS {
+                deny all;
+            }
+
+            try_files /nonexistent $cors_media_route;
+        }
+        {% else %}
+        {% if route.api_cors_preflight %}
+        location @api_cors_preflight {
+            include /etc/nginx/cors-api-preflight-headers.conf;
+            return 204;
+        }
+
+        location @api_proxy {
+            {% if route.basic_auth %}
+            {% for cidr in route.admin_allowlist %}
+            allow {{ cidr }};
+            {% endfor %}
+            deny all;
+
+            auth_basic "Yuviron internal";
+            auth_basic_user_file /etc/nginx/htpasswd;
+            {% endif %}
+
+            {% if route.rate_limit_zone %}
+            limit_req zone={{ route.rate_limit_zone }} burst={{ route.rate_limit_burst }} nodelay;
+            limit_req_status 429;
+            {% endif %}
+
+            proxy_pass http://$upstream_{{ route.name | replace('-', '_') }};
+            include /etc/nginx/proxy-params.conf;
+
+            proxy_connect_timeout 5s;
+            proxy_send_timeout 15s;
+            proxy_read_timeout {{ nginx_proxy_read_timeout }};
+        }
+
+        location / {
+            try_files /nonexistent $cors_api_route;
+        }
+        {% else %}
+        {% if route.public_entity_share_paths and backend_upstream %}
+        # Public entity share links (e.g. /album/{id}) belong to the backend, not the
+        # frontend's plural routes (/albums/{id}) -- the backend counts the click and
+        # redirects to the frontend. Must be declared before the catch-all "location /".
+        location ~* ^/({{ route.public_entity_share_paths | join('|') }})(/|$) {
+            {% if route.rate_limit_zone %}
+            limit_req zone={{ route.rate_limit_zone }} burst={{ route.rate_limit_burst }} nodelay;
+            limit_req_status 429;
+            {% endif %}
+
+            proxy_pass http://$upstream_{{ route.name | replace('-', '_') }}_share;
+            include /etc/nginx/proxy-params.conf;
+
+            proxy_connect_timeout 5s;
+            proxy_send_timeout 15s;
+            proxy_read_timeout {{ nginx_proxy_read_timeout }};
+        }
+        {% endif %}
+
+        location / {
+            {% if route.basic_auth %}
+            {% for cidr in route.admin_allowlist %}
+            allow {{ cidr }};
+            {% endfor %}
+            deny all;
+
+            auth_basic "Yuviron internal";
+            auth_basic_user_file /etc/nginx/htpasswd;
+            {% endif %}
+
+            {% if route.rate_limit_zone %}
+            limit_req zone={{ route.rate_limit_zone }} burst={{ route.rate_limit_burst }} nodelay;
+            limit_req_status 429;
+            {% endif %}
+
+            proxy_pass http://$upstream_{{ route.name | replace('-', '_') }};
+            include /etc/nginx/proxy-params.conf;
+
+            proxy_connect_timeout 5s;
+            proxy_send_timeout 15s;
+            proxy_read_timeout {{ nginx_proxy_read_timeout }};
+        }
+        {% endif %}
+        {% endif %}
+
+        location = /health {
+            limit_req zone=health_probe burst=10 nodelay;
+            limit_req_status 429;
+            access_log off;
+            default_type text/plain;
+            return 200 "edge-nginx-ok\n";
+        }
+
+        location ~ /\.(?!well-known) {
+            deny all;
+            access_log off;
+            log_not_found off;
+        }
+
+        {% if route.has_auth_endpoints %}
+        {% if route.api_cors_preflight %}
+        location @api_auth_proxy {
+            {% if route.basic_auth %}
+            {% for cidr in route.admin_allowlist %}
+            allow {{ cidr }};
+            {% endfor %}
+            deny all;
+
+            auth_basic "Yuviron internal";
+            auth_basic_user_file /etc/nginx/htpasswd;
+            {% endif %}
+
+            limit_req zone=api_auth burst=3 nodelay;
+            limit_req_status 429;
+
+            proxy_pass http://$upstream_{{ route.name | replace('-', '_') }};
+            include /etc/nginx/proxy-params.conf;
+        }
+
+        location ~* ^/(auth|account|login|register|token|refresh) {
+            try_files /nonexistent $cors_api_auth_route;
+        }
+        {% else %}
+        location ~* ^/(auth|account|login|register|token|refresh) {
+            {% if route.basic_auth %}
+            {% for cidr in route.admin_allowlist %}
+            allow {{ cidr }};
+            {% endfor %}
+            deny all;
+
+            auth_basic "Yuviron internal";
+            auth_basic_user_file /etc/nginx/htpasswd;
+            {% endif %}
+
+            limit_req zone=api_auth burst=3 nodelay;
+            limit_req_status 429;
+
+            proxy_pass http://$upstream_{{ route.name | replace('-', '_') }};
+            include /etc/nginx/proxy-params.conf;
+        }
+        {% endif %}
+        {% endif %}
+
+        {% if route.upload_locations %}
+        {% if route.api_cors_preflight %}
+        location @api_upload_proxy {
+            client_max_body_size {{ route.upload_client_max_body_size }};
+
+            {% if route.upload_rate_limit_zone %}
+            limit_req zone={{ route.upload_rate_limit_zone }} burst={{ route.upload_rate_limit_burst }} nodelay;
+            limit_req_status 429;
+            {% endif %}
+
+            proxy_request_buffering off;
+
+            proxy_pass http://$upstream_{{ route.name | replace('-', '_') }};
+            include /etc/nginx/proxy-params.conf;
+        }
+
+        location ~* ^/({{ route.upload_locations_pattern }})(/|$) {
+            try_files /nonexistent $cors_api_upload_route;
+        }
+        {% else %}
+        location ~* ^/({{ route.upload_locations_pattern }})(/|$) {
+            client_max_body_size {{ route.upload_client_max_body_size }};
+
+            {% if route.upload_rate_limit_zone %}
+            limit_req zone={{ route.upload_rate_limit_zone }} burst={{ route.upload_rate_limit_burst }} nodelay;
+            limit_req_status 429;
+            {% endif %}
+
+            proxy_request_buffering off;
+
+            proxy_pass http://$upstream_{{ route.name | replace('-', '_') }};
+            include /etc/nginx/proxy-params.conf;
+        }
+        {% endif %}
+        {% endif %}
+    }
+
+{% endfor %}
+{% if tailscale_funnel_host %}
+    # Tailscale Funnel ingress — public endpoint for Stripe webhooks.
+    #
+    # Traffic path:
+    #   Internet → Tailscale Funnel ({{ tailscale_funnel_host }}:443)
+    #     → tailscale serve (https+insecure://localhost:4443)
+    #     → Docker host port 127.0.0.1:4443 → nginx container port 443
+    #     → this server block → backend:5073/api/webhooks/
+    #
+    # Port 4443 is published as 127.0.0.1:4443:443 in compose.yml so that
+    # Tailscale Serve reaches nginx without claiming port 443 on the Tailnet
+    # interface, which would break direct Tailnet access to dev domains.
+    #
+    # Setup commands (run once on dev-vm):
+    #   tailscale serve --bg --set-path /api/webhooks/ https+insecure://localhost:4443
+    #   tailscale funnel --bg --set-path /api/webhooks/ 443
+    #
+    # Tailscale Serve strips the --set-path prefix (/api/webhooks/) before
+    # forwarding here, so /api/webhooks/stripe arrives as /stripe.
+    # proxy_pass with a trailing path re-prepends the stripped prefix.
+    server {
+        listen 443 ssl;
+        http2 on;
+        server_name {{ tailscale_funnel_host }};
+
+        ssl_certificate     /etc/nginx/certs/{{ tailscale_funnel_host }}.pem;
+        ssl_certificate_key /etc/nginx/certs/{{ tailscale_funnel_host }}-key.pem;
+
+        access_log /dev/stdout main;
+        error_log  /dev/stderr warn;
+
+        # Defers upstream DNS resolution to request time (nginx -t passes without running services)
+        set $upstream_tailscale_backend backend;
+
+        location / {
+            proxy_request_buffering off;
+            proxy_pass http://$upstream_tailscale_backend:5073/api/webhooks/;
+            include /etc/nginx/proxy-params.conf;
+            proxy_set_header X-Forwarded-Proto https;
+        }
+    }
+{% endif %}
+}

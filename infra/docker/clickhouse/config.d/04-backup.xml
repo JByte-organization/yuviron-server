@@ -1,0 +1,7 @@
+<clickhouse>
+    <!--
+        Enable SYSTEM UNFREEZE to allow cleanup of ALTER TABLE ... FREEZE shadow copies.
+        Required for the backup script to clean up shadow directories after archiving.
+    -->
+    <enable_system_unfreeze>true</enable_system_unfreeze>
+</clickhouse>

@@ -1,0 +1,688 @@
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+import yaml
+
+SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+
+from commands import security
+
+
+class SecurityAuditTests(unittest.TestCase):
+    def test_default_nginx_admin_allowlist_uses_private_access_cidrs(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        common_env = security.parse_env_file(root / "env" / "common.env")
+        example_env = (root / "env" / "example.env").read_text(encoding="utf-8")
+
+        # NGINX_PRIVATE_ACCESS_CIDRS must not be hardcoded in common.env (tracked file)
+        self.assertNotIn("NGINX_PRIVATE_ACCESS_CIDRS", common_env)
+        # example.env must document where to set it
+        self.assertIn("NGINX_PRIVATE_ACCESS_CIDRS=", example_env)
+        self.assertEqual("127.0.0.1/32,${NGINX_PRIVATE_ACCESS_CIDRS}", common_env["NGINX_ADMIN_ALLOWLIST"])
+
+    def test_dotnet_rabbitmq_password_is_derived_from_default_password(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
+        example_env = (root / "env" / "example.env").read_text(encoding="utf-8")
+
+        self.assertEqual("${RABBITMQ_DEFAULT_PASS}", compose["x-dotnet-env"]["RabbitMQ__Password"])
+        self.assertNotIn("RabbitMQ__Password=", example_env)
+
+    def test_example_env_uses_placeholders_for_secret_like_values(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        example_env = (root / "env" / "example.env").read_text(encoding="utf-8")
+
+        self.assertIn("MYSQL_ROOT_PASSWORD=<YOUR_MYSQL_ROOT_PASSWORD>", example_env)
+        self.assertIn("ASPIRE_FRONTEND_BROWSER_TOKEN=<YOUR_ASPIRE_BROWSER_TOKEN_MIN_32_CHARS>", example_env)
+        self.assertIn("JamendoApi__ClientId=<YOUR_JAMENDO_CLIENT_ID>", example_env)
+        self.assertNotIn("YV_DEV_ASPIRE_2026", example_env)
+        self.assertNotIn("yv_dev_strong_password_1234", example_env)
+        self.assertNotIn("JamendoApi__ClientId=65493600", example_env)
+
+    def test_common_env_contains_no_hardcoded_secrets(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        findings = security._scan_tracked_file_for_secret_assignments(root, "env/common.env")
+        self.assertEqual(
+            [],
+            findings,
+            f"env/common.env contains hardcoded secret-like values: {findings}",
+        )
+
+    def test_prod_and_dev_env_are_not_tracked_by_git(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        result = subprocess.run(
+            ["git", "ls-files", "env/prod.env", "env/dev.env"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(
+            "",
+            result.stdout.strip(),
+            f"env/prod.env or env/dev.env is tracked by git: {result.stdout.strip()}",
+        )
+
+    def test_stateful_services_drop_capabilities_where_supported(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
+        services = compose["services"]
+
+        for service_name in ("mysql", "redis", "rabbitmq"):
+            self.assertEqual(["ALL"], services[service_name]["cap_drop"])
+            self.assertIn("user", services[service_name])
+
+        self.assertEqual("999:999", services["redis"]["user"])
+
+        self.assertNotIn("seq-init", services)
+
+        seq = services["seq"]
+        self.assertEqual("${SEQ_UID:-10002}:${SEQ_GID:-10002}", seq["user"])
+        self.assertEqual(["ALL"], seq["cap_drop"])
+        self.assertEqual(["NET_BIND_SERVICE"], seq["cap_add"])
+        self.assertNotIn("depends_on", seq)
+
+    def test_seq_root_is_no_longer_allowed_for_prod_audit(self) -> None:
+        report = security.AuditReport()
+
+        security._audit_container_hardening(
+            {
+                "seq": {
+                    "user": "0:0",
+                    "read_only": True,
+                    "cap_drop": ["ALL"],
+                    "security_opt": ["no-new-privileges:true"],
+                }
+            },
+            "prod",
+            report,
+        )
+
+        self.assertEqual(1, len(report.errors))
+        self.assertIn("seq: explicitly runs as root", report.errors[0].message)
+
+    def test_seq_init_root_is_not_allowed_for_prod_audit(self) -> None:
+        report = security.AuditReport()
+
+        security._audit_container_hardening(
+            {
+                "seq-init": {
+                    "user": "0:0",
+                    "read_only": True,
+                    "cap_drop": ["ALL"],
+                    "security_opt": ["no-new-privileges:true"],
+                }
+            },
+            "prod",
+            report,
+        )
+
+        self.assertEqual(1, len(report.errors))
+        self.assertEqual([], report.warnings)
+        self.assertIn("seq-init: explicitly runs as root", report.errors[0].message)
+
+    def test_dotnet_services_use_shared_dockerfile_and_hardening(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
+        services = compose["services"]
+
+        expected_targets = {
+            "migrator": "migrator",
+            "backend": "backend",
+            "media-worker": "media-worker",
+        }
+
+        for service_name, target in expected_targets.items():
+            service = services[service_name]
+
+            self.assertEqual("infra/docker/dotnet/Dockerfile", service["build"]["dockerfile"])
+            self.assertEqual(target, service["build"]["target"])
+            self.assertEqual("${DOTNET_VERSION}", service["build"]["args"]["DOTNET_VERSION"])
+            self.assertEqual("${DOTNET_APP_UID}", service["build"]["args"]["DOTNET_APP_UID"])
+            self.assertEqual("${DOTNET_APP_GID}", service["build"]["args"]["DOTNET_APP_GID"])
+            self.assertNotIn("RUNTIME_PACKAGES", service["build"]["args"])
+            self.assertEqual("${DOTNET_APP_UID}:${DOTNET_APP_GID}", service["user"])
+            self.assertIs(service["read_only"], True)
+            self.assertEqual(["/tmp"], service["tmpfs"])
+            self.assertEqual(["ALL"], service["cap_drop"])
+            self.assertEqual(["no-new-privileges:true"], service["security_opt"])
+
+        self.assertEqual(["migrate"], services["migrator"]["profiles"])
+        self.assertNotIn("migrator", services["backend"]["depends_on"])
+        self.assertNotIn("migrator", services["media-worker"]["depends_on"])
+
+    def test_dotnet_migrator_uses_writable_msbuild_extensions_path(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        dockerfile = (root / "infra" / "docker" / "dotnet" / "Dockerfile").read_text(encoding="utf-8")
+        migrator_script = (root / "infra" / "docker" / "dotnet" / "migrator.sh").read_text(encoding="utf-8")
+
+        self.assertIn("COPY infra/docker/dotnet/migrator.sh /usr/local/bin/yuviron-migrator", dockerfile)
+        self.assertIn('CMD ["/usr/local/bin/yuviron-migrator"]', dockerfile)
+        self.assertIn('cp -R /src/src/Yuviron.Infrastructure/obj/. "${EF_OBJ_DIR}/"', migrator_script)
+        self.assertIn('export MSBuildProjectExtensionsPath="${EF_OBJ_DIR}/"', migrator_script)
+        self.assertIn('--msbuildprojectextensionspath "${EF_OBJ_DIR}"', migrator_script)
+        self.assertIn('--configuration "${EF_CONFIGURATION}"', migrator_script)
+
+    def test_dotnet_migrator_verifies_no_pending_migrations_after_update(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        migrator_script = (root / "infra" / "docker" / "dotnet" / "migrator.sh").read_text(encoding="utf-8")
+
+        self.assertIn("run_ef database update", migrator_script)
+        self.assertIn("run_ef migrations list", migrator_script)
+        self.assertIn("pending migrations remain", migrator_script)
+        self.assertIn("exit 1", migrator_script)
+
+    def test_dotnet_migrator_requires_explicit_production_override(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
+        migrator_script = (root / "infra" / "docker" / "dotnet" / "migrator.sh").read_text(encoding="utf-8")
+
+        self.assertEqual(
+            "${ALLOW_PRODUCTION_MIGRATE:-false}",
+            compose["services"]["migrator"]["environment"]["ALLOW_PRODUCTION_MIGRATE"],
+        )
+        self.assertIn('case "${ASPNETCORE_ENVIRONMENT:-}" in', migrator_script)
+        self.assertIn("ALLOW_PRODUCTION_MIGRATE:-false", migrator_script)
+        # Fingerprint check: flag must equal MYSQL_DATABASE, not just "true"
+        self.assertIn("MYSQL_DATABASE", migrator_script)
+        self.assertIn('"${fingerprint}" != "${db_name}"', migrator_script)
+        self.assertIn("Refusing to run EF Core migrations in Production.", migrator_script)
+        self.assertIn("ALLOW_PRODUCTION_MIGRATE must equal MYSQL_DATABASE", migrator_script)
+
+    def test_cli_production_migrate_gate_exists_in_stack(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        stack_source = (root / "scripts" / "commands" / "stack" / "_migrate.py").read_text(encoding="utf-8")
+
+        self.assertIn("_confirm_production_migrate", stack_source)
+        self.assertIn("ALLOW_PRODUCTION_MIGRATE", stack_source)
+        self.assertIn("MYSQL_DATABASE", stack_source)
+        # Fingerprint: flag must match database name
+        self.assertIn("fingerprint == db_name", stack_source)
+        self.assertIn("yes, migrate production", stack_source)
+        self.assertIn("sys.stdin.isatty()", stack_source)
+        self.assertIn("context.environment == \"prod\"", stack_source)
+
+    def test_nginx_healthcheck_covers_http_and_cert_expiry_without_tls_handshake_probe(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
+        healthcheck = compose["services"]["nginx"]["healthcheck"]["test"][1]
+        ssl_defaults = (root / "scripts" / "templates" / "02-ssl-defaults.conf.j2").read_text(encoding="utf-8")
+
+        self.assertIn("http://127.0.0.1/health", healthcheck)
+        self.assertIn("grep -qx 'edge-nginx-ok'", healthcheck)
+        self.assertIn("openssl x509 -checkend 0", healthcheck)
+        self.assertNotIn("openssl s_client", healthcheck)
+        self.assertNotIn("127.0.0.1:443", healthcheck)
+        self.assertGreaterEqual(ssl_defaults.count("location = /health"), 2)
+        # Must cover both shared (*.pem) and per-route (*/*.pem) — not a single hardcoded path
+        self.assertIn("/etc/nginx/certs/*.pem", healthcheck)
+        self.assertIn("/etc/nginx/certs/*/*.pem", healthcheck)
+        self.assertNotIn("${ENVIRONMENT}-${BASE_DOMAIN}.pem", healthcheck)
+
+    def test_aspire_dashboard_uses_official_image_with_disabled_healthcheck(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
+        service = compose["services"]["aspire-dashboard"]
+        healthcheck = service["healthcheck"]
+
+        # Must use official image directly - no custom Dockerfile
+        self.assertNotIn("build", service)
+        self.assertIn("mcr.microsoft.com/dotnet/aspire-dashboard", service["image"])
+
+        # aspire-dashboard:9.0 is a distroless (chiseled) image with no shell or Unix tools;
+        # CMD-SHELL healthchecks fail with "exec: /bin/sh: no such file".
+        # No service depends on aspire health, so the healthcheck is disabled.
+        self.assertTrue(healthcheck.get("disable"), "aspire healthcheck must be disabled")
+
+    def test_mysql_healthcheck_runs_sql_query_instead_of_ping(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
+        healthcheck = compose["services"]["mysql"]["healthcheck"]["test"]
+
+        self.assertEqual("CMD-SHELL", healthcheck[0])
+        # Password via MYSQL_PWD env var — keeps it out of ps aux.
+        self.assertIn("MYSQL_PWD=$$MYSQL_PASSWORD", healthcheck[1])
+        self.assertNotIn("MYSQL_PWD=$$MYSQL_ROOT_PASSWORD", healthcheck[1])
+        self.assertNotIn("-p$$MYSQL_PASSWORD", healthcheck[1])
+        # Must use the unprivileged app user, not root.
+        self.assertIn("-u$$MYSQL_USER", healthcheck[1])
+        self.assertNotIn("-uroot", healthcheck[1])
+        self.assertIn("-e 'SELECT 1'", healthcheck[1])
+        self.assertIn(">/dev/null 2>&1", healthcheck[1])
+        self.assertNotIn("mysqladmin ping", healthcheck[1])
+
+    def test_media_worker_healthcheck_probes_http_health_endpoint(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
+        runtime_packages = (
+            root / "infra" / "docker" / "dotnet" / "runtime-packages.txt"
+        ).read_text(encoding="utf-8").splitlines()
+        service = compose["services"]["media-worker"]
+
+        self.assertIn("healthcheck", service)
+        healthcheck = service["healthcheck"]["test"]
+        self.assertEqual("CMD-SHELL", healthcheck[0])
+        self.assertIn("wget", healthcheck[1])
+        self.assertIn("/health/ready", healthcheck[1])
+        self.assertIn("wget", runtime_packages)
+        self.assertIn("ffmpeg", runtime_packages)
+        self.assertEqual(5074, service["environment"]["ASPNETCORE_HTTP_PORTS"])
+
+    def test_nginx_mounts_generated_basic_auth_file(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        compose = yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
+
+        self.assertIn(
+            "${NGINX_BASIC_AUTH_FILE}:/etc/nginx/htpasswd:ro",
+            compose["services"]["nginx"]["volumes"],
+        )
+
+    def test_non_nginx_published_port_is_error(self) -> None:
+        report = security.AuditReport()
+
+        security._audit_published_ports(
+            {
+                "mysql": {"ports": ["3306:3306"]},
+                "nginx": {"ports": ["8080:80", "8443:443"]},
+            },
+            report,
+        )
+
+        self.assertEqual(1, len(report.errors))
+        self.assertIn("mysql", report.errors[0].message)
+
+    def test_default_secrets_are_errors_in_prod_and_warnings_in_dev(self) -> None:
+        from core.env_validation import _KNOWN_DEV_SEQ_HASHES
+        values = {
+            "MYSQL_ROOT_PASSWORD": "root",
+            "MYSQL_PASSWORD": "admin",
+            "RABBITMQ_DEFAULT_PASS": "yv_dev_strong_password_1234_rabbit_!",
+            "REDIS_PASSWORD": "yv_test_strong_redis_2026_!",
+            "ASPIRE_FRONTEND_BROWSER_TOKEN": "short",
+            "ASPIRE_OTLP_API_KEY": "short",
+            # Known dev hash: error in prod, silent in dev (expected value there)
+            "SEQ_FIRSTRUN_ADMINPASSWORDHASH": next(iter(_KNOWN_DEV_SEQ_HASHES)),
+        }
+
+        prod_report = security.AuditReport()
+        dev_report = security.AuditReport()
+
+        security._audit_default_passwords(values, "prod", prod_report)
+        security._audit_default_passwords(values, "dev", dev_report)
+
+        self.assertGreaterEqual(len(prod_report.errors), 3)
+        self.assertEqual(0, len(prod_report.warnings))
+        self.assertEqual(0, len(dev_report.errors))
+        self.assertGreaterEqual(len(dev_report.warnings), 3)
+
+    def test_env_policy_flags_prod_runtime_misconfiguration(self) -> None:
+        report = security.AuditReport()
+
+        security._audit_env_policy(
+            {
+                "MYSQL_ROOT_PASSWORD": "root",
+                "Swagger__Enabled": "true",
+                "ASPNETCORE_ENVIRONMENT": "Development",
+                "ASPIRE_FRONTEND_BROWSER_TOKEN": "short",
+                "JWT_SECRET": "short",
+                "CLIENT_SECRET": "short",
+            },
+            "prod",
+            report,
+        )
+
+        messages = "\n".join(finding.message for finding in report.errors)
+        self.assertIn("MYSQL_ROOT_PASSWORD", messages)
+        self.assertIn("Swagger__Enabled", messages)
+        self.assertIn("ASPNETCORE_ENVIRONMENT", messages)
+        self.assertIn("ASPIRE_FRONTEND_BROWSER_TOKEN", messages)
+        self.assertIn("JWT_SECRET", messages)
+        self.assertIn("CLIENT_SECRET", messages)
+
+    def test_group_readable_tls_key_is_allowed_for_nginx_cert_group_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            cert_file = root / "cert.pem"
+            key_file = root / "key.pem"
+            cert_file.write_text("cert\n", encoding="utf-8")
+            key_file.write_text("key\n", encoding="utf-8")
+            key_file.chmod(0o640)
+
+            report = security.AuditReport()
+            security._audit_cert_files(
+                root,
+                {
+                    "CERT_FILE": str(cert_file),
+                    "KEY_FILE": str(key_file),
+                    "NGINX_CERT_GROUP_ID": str(os.getgid()),
+                },
+                report,
+            )
+
+            self.assertEqual([], report.errors)
+
+            report = security.AuditReport()
+            security._audit_cert_files(
+                root,
+                {
+                    "CERT_FILE": str(cert_file),
+                    "KEY_FILE": str(key_file),
+                    "NGINX_CERT_GROUP_ID": "999999",
+                },
+                report,
+            )
+
+        self.assertEqual(1, len(report.errors))
+        self.assertIn("does not match NGINX_CERT_GROUP_ID", report.errors[0].message)
+
+    def test_tls_audit_resolves_compose_relative_runtime_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            cert_file = root / "certs" / "cert.pem"
+            key_file = root / "certs" / "key.pem"
+            cert_file.parent.mkdir(parents=True)
+            cert_file.write_text("cert\n", encoding="utf-8")
+            key_file.write_text("key\n", encoding="utf-8")
+            key_file.chmod(0o600)
+
+            report = security.AuditReport()
+            security._audit_cert_files(
+                root,
+                {
+                    "CERT_FILE": "../certs/cert.pem",
+                    "KEY_FILE": "../certs/key.pem",
+                },
+                report,
+            )
+
+        self.assertEqual([], report.errors)
+
+    def test_git_secret_scan_ignores_github_secret_references_but_flags_literals(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / ".github" / "workflows").mkdir(parents=True)
+            workflow = root / ".github" / "workflows" / "deploy.yml"
+            workflow.write_text(
+                "env:\n"
+                "  JWT_SECRET: ${{ secrets.JWT_SECRET }}\n"
+                "  HARD_CODED_TOKEN: abcdef1234567890\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+            subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True)
+
+            report = security.AuditReport()
+            security._audit_tracked_secrets(root, report)
+
+        self.assertEqual(1, len(report.errors))
+        self.assertIn("HARD_CODED_TOKEN", report.errors[0].message)
+
+    def test_load_compose_services_merges_generated_frontends_and_interpolates_env(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "infra").mkdir(parents=True)
+            (root / "generated" / "dev").mkdir(parents=True)
+            (root / "infra" / "compose.yml").write_text(
+                "services:\n"
+                "  nginx:\n"
+                "    ports:\n"
+                "      - \"${HTTP_PORT}:80\"\n",
+                encoding="utf-8",
+            )
+            (root / "generated" / "dev" / "compose.frontends.yml").write_text(
+                "services:\n"
+                "  admin:\n"
+                "    container_name: ${COMPOSE_PROJECT_NAME}-admin\n",
+                encoding="utf-8",
+            )
+
+            report = security.AuditReport()
+            services = security._load_compose_services(
+                root,
+                "dev",
+                {"HTTP_PORT": "8080", "COMPOSE_PROJECT_NAME": "yuviron-dev"},
+                report,
+            )
+
+        self.assertEqual([], report.findings)
+        self.assertEqual(["8080:80"], services["nginx"]["ports"])
+        self.assertEqual("yuviron-dev-admin", services["admin"]["container_name"])
+
+
+    @unittest.skipUnless(
+        (SCRIPTS_ROOT.parent / "src" / "yuviron-frontend").is_dir(),
+        "src/yuviron-frontend not cloned — skipping build context guard",
+    )
+    def test_frontend_compose_overlay_does_not_override_dockerfile_healthcheck(self) -> None:
+        """Compose-generated frontend overlay must not define a healthcheck.
+
+        The Dockerfile uses HEALTHCHECK CMD http.get('/') which verifies an HTTP 2xx response.
+        If compose defines its own 'healthcheck' block it completely replaces the Dockerfile one,
+        downgrading to TCP-only (net.connect) which passes even when Next.js returns HTTP 500.
+        """
+        from core.compose_generator import build_frontend_service
+        from core.models import FrontendApp
+
+        dummy_root = SCRIPTS_ROOT.parent
+        app = FrontendApp(
+            key="client-app",
+            service_name="client-app",
+            app_name="client-app",
+            port=3000,
+            host_strategy="root",
+            required=True,
+            default_enabled=True,
+        )
+        service_def = build_frontend_service(app, dummy_root)
+        inner = service_def[app.service_name]
+        self.assertNotIn(
+            "healthcheck", inner,
+            "Frontend compose overlay must not define 'healthcheck' — use the Dockerfile one "
+            "which probes HTTP 2xx, not just TCP connectivity",
+        )
+
+    def test_backend_appsettings_env_files_are_excluded_from_docker_build_context(self) -> None:
+        """Generated env-specific appsettings must never enter the Docker build context."""
+        root = SCRIPTS_ROOT.parent
+        dockerignore = (root / ".dockerignore").read_text(encoding="utf-8")
+        self.assertIn("appsettings.Production.json", dockerignore)
+        self.assertIn("appsettings.Development.json", dockerignore)
+
+    def test_frontend_build_context_has_dockerignore_excluding_node_modules(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        frontend_dir = root / "src" / "yuviron-frontend"
+        if not frontend_dir.is_dir():
+            self.skipTest("src/yuviron-frontend not checked out (external repo)")
+        dockerignore = frontend_dir / ".dockerignore"
+
+        self.assertTrue(
+            dockerignore.is_file(),
+            "src/yuviron-frontend/.dockerignore must exist — Docker build context is the "
+            "frontend monorepo root; without it node_modules and .next artifacts are sent "
+            "to the daemon and copied into image layers",
+        )
+        content = dockerignore.read_text(encoding="utf-8")
+        # node_modules must be excluded — these are installed fresh inside the build
+        self.assertIn("node_modules", content)
+        # per-app node_modules must also be excluded
+        self.assertIn("**/node_modules", content)
+        # stale Next.js build artifacts must not shadow a fresh build
+        self.assertIn("**/.next", content)
+        # git history must not enter the image
+        self.assertIn(".git", content)
+        # local env files must not leak secrets into the image
+        self.assertIn(".env", content)
+
+
+class ComposeProductionHardeningTests(unittest.TestCase):
+    """#18-#25 — compose.yml production hardening checks."""
+
+    def _compose(self) -> dict:
+        root = SCRIPTS_ROOT.parent
+        return yaml.safe_load((root / "infra" / "compose.yml").read_text(encoding="utf-8"))
+
+    def test_mysql_healthcheck_uses_app_user_not_root(self) -> None:
+        hc = self._compose()["services"]["mysql"]["healthcheck"]["test"][1]
+        self.assertIn("-u$$MYSQL_USER", hc)
+        self.assertNotIn("-uroot", hc)
+        self.assertIn("MYSQL_PWD=$$MYSQL_PASSWORD", hc)
+        self.assertNotIn("MYSQL_ROOT_PASSWORD", hc)
+
+    def test_mysql_slow_query_log_enabled(self) -> None:
+        cmd = self._compose()["services"]["mysql"]["command"]
+        self.assertIn("--slow_query_log=ON", cmd)
+        self.assertIn("--long_query_time=1", cmd)
+        self.assertIn("--slow_query_log_file=", cmd)
+
+    def test_rabbitmq_image_uses_env_var_defaulting_to_plain_image(self) -> None:
+        image = self._compose()["services"]["rabbitmq"]["image"]
+        # Must use env var so prod can use rabbitmq:3 (no management)
+        self.assertIn("RABBITMQ_IMAGE", image)
+        # Default must NOT include the management variant
+        self.assertNotIn("management", image.split(":-")[-1] if ":-" in image else "")
+
+    def test_dotnet_service_defaults_include_stop_grace_period(self) -> None:
+        compose_text = (SCRIPTS_ROOT.parent / "infra" / "compose.yml").read_text(encoding="utf-8")
+        # stop_grace_period must be in the x-dotnet-service-defaults anchor
+        anchor_section = compose_text.split("x-dotnet-service-defaults:")[1].split("\nservices:")[0]
+        self.assertIn("stop_grace_period", anchor_section)
+
+    def test_backend_has_log_rotation(self) -> None:
+        svc = self._compose()["services"]["backend"]
+        self.assertIn("logging", svc)
+        self.assertEqual("json-file", svc["logging"]["driver"])
+        self.assertIn("max-size", svc["logging"]["options"])
+
+    def test_media_worker_has_log_rotation(self) -> None:
+        svc = self._compose()["services"]["media-worker"]
+        self.assertIn("logging", svc)
+        self.assertEqual("json-file", svc["logging"]["driver"])
+
+    def test_mysql_has_log_rotation(self) -> None:
+        svc = self._compose()["services"]["mysql"]
+        self.assertIn("logging", svc)
+        self.assertEqual("json-file", svc["logging"]["driver"])
+
+    def test_redis_has_log_rotation(self) -> None:
+        svc = self._compose()["services"]["redis"]
+        self.assertIn("logging", svc)
+        self.assertEqual("json-file", svc["logging"]["driver"])
+
+    def test_rabbitmq_has_log_rotation(self) -> None:
+        svc = self._compose()["services"]["rabbitmq"]
+        self.assertIn("logging", svc)
+        self.assertEqual("json-file", svc["logging"]["driver"])
+
+    def test_stripe_keys_are_in_schema_required(self) -> None:
+        import json
+        root = SCRIPTS_ROOT.parent
+        schema = json.loads((root / "env" / "schema.json").read_text(encoding="utf-8"))
+        required = schema["required"]
+        self.assertIn("Stripe__SecretKey", required)
+        self.assertIn("Stripe__WebhookSecret", required)
+
+    def test_stripe_keys_in_example_env(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        example = (root / "env" / "example.env").read_text(encoding="utf-8")
+        self.assertIn("Stripe__SecretKey=", example)
+        self.assertIn("Stripe__WebhookSecret=", example)
+
+    def test_rabbitmq_image_var_documented_in_example_env(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        example = (root / "env" / "example.env").read_text(encoding="utf-8")
+        self.assertIn("RABBITMQ_IMAGE", example)
+
+
+class FrontendStaticHardeningTests(unittest.TestCase):
+    """#56-#59 — nginx.conf security headers, Dockerfile HEALTHCHECK, pnpm version consistency."""
+
+    def _nginx_conf(self) -> str:
+        return (SCRIPTS_ROOT.parent / "infra" / "docker" / "frontend-static" / "nginx.conf").read_text(encoding="utf-8")
+
+    def _static_dockerfile(self) -> str:
+        return (SCRIPTS_ROOT.parent / "infra" / "docker" / "frontend-static" / "Dockerfile").read_text(encoding="utf-8")
+
+    def test_nginx_conf_has_server_tokens_off(self) -> None:
+        self.assertIn("server_tokens off", self._nginx_conf())
+
+    def test_nginx_conf_has_x_content_type_options_header(self) -> None:
+        self.assertIn("X-Content-Type-Options", self._nginx_conf())
+
+    def test_nginx_conf_has_x_frame_options_header(self) -> None:
+        self.assertIn("X-Frame-Options", self._nginx_conf())
+
+    def test_nginx_conf_has_referrer_policy_header(self) -> None:
+        self.assertIn("Referrer-Policy", self._nginx_conf())
+
+    def test_nginx_conf_has_gzip_enabled(self) -> None:
+        self.assertIn("gzip on", self._nginx_conf())
+
+    def test_nginx_conf_has_gzip_types(self) -> None:
+        self.assertIn("gzip_types", self._nginx_conf())
+
+    def test_nginx_conf_has_health_location(self) -> None:
+        self.assertIn("location = /health", self._nginx_conf())
+
+    def test_nginx_conf_health_location_returns_200(self) -> None:
+        self.assertIn("return 200", self._nginx_conf())
+
+    def test_frontend_static_dockerfile_declares_healthcheck(self) -> None:
+        dockerfile = self._static_dockerfile()
+        self.assertIn("HEALTHCHECK", dockerfile)
+        # Runtime is nginx:alpine (no Node.js) — must use wget
+        self.assertIn("wget", dockerfile)
+        self.assertIn("/health", dockerfile)
+
+    def test_frontend_static_healthcheck_probes_http_not_tcp(self) -> None:
+        # wget + /health endpoint = HTTP 2xx verification, not just port open
+        dockerfile = self._static_dockerfile()
+        self.assertIn("http://127.0.0.1:3000/health", dockerfile)
+
+    def test_pnpm_version_consistent_across_both_dockerfiles(self) -> None:
+        import re
+        root = SCRIPTS_ROOT.parent
+        df_next = (root / "infra" / "docker" / "frontend-next" / "Dockerfile").read_text(encoding="utf-8")
+        df_static = (root / "infra" / "docker" / "frontend-static" / "Dockerfile").read_text(encoding="utf-8")
+
+        ver_next = re.search(r"pnpm@(\S+)", df_next)
+        ver_static = re.search(r"pnpm@(\S+)", df_static)
+        self.assertIsNotNone(ver_next, "frontend-next/Dockerfile must pin a pnpm version")
+        self.assertIsNotNone(ver_static, "frontend-static/Dockerfile must pin a pnpm version")
+        self.assertEqual(
+            ver_next.group(1), ver_static.group(1),
+            "Both frontend Dockerfiles must use the same pnpm version",
+        )
+
+    def test_pnpm_version_is_not_9_0_0_in_next_dockerfile(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        df = (root / "infra" / "docker" / "frontend-next" / "Dockerfile").read_text(encoding="utf-8")
+        self.assertNotIn("pnpm@9.0.0", df, "pnpm 9.0.0 is outdated — update to a current 9.x release")
+
+    def test_pnpm_version_is_not_9_0_0_in_static_dockerfile(self) -> None:
+        df = self._static_dockerfile()
+        self.assertNotIn("pnpm@9.0.0", df, "pnpm 9.0.0 is outdated — update to a current 9.x release")
+
+    def test_service_health_poll_uses_single_docker_inspect_per_iteration(self) -> None:
+        root = SCRIPTS_ROOT.parent
+        source = (root / "scripts" / "commands" / "stack" / "_health.py").read_text(encoding="utf-8")
+        # Combined format string must be present — one call returns both status and health
+        self.assertIn(
+            "{{.State.Status}}/{{if .State.Health}}",
+            source,
+            "_wait_for_service_health must use a combined inspect format to retrieve status and health in one call",
+        )
+        # At most 2 total inspect calls: one in the poll loop, one in the timeout diagnostic
+        inspect_count = source.count('"docker", "inspect"')
+        self.assertLessEqual(inspect_count, 2, f"Expected ≤2 docker inspect calls, found {inspect_count}")
+
+
+if __name__ == "__main__":
+    unittest.main()

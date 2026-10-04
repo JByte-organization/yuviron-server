@@ -1,0 +1,24 @@
+frontend_apps:
+  client:
+    service_name: client-app
+    app_name: client-app
+    port: 3000
+    required: true
+    default_enabled: true
+    host_strategy: root
+
+  admin:
+    service_name: admin
+    app_name: admin
+    port: 3000
+    required: false
+    default_enabled: true
+    host_strategy: subdomain
+
+  backoffice:
+    service_name: backoffice
+    app_name: backoffice
+    port: 3000
+    required: false
+    default_enabled: true
+    host_strategy: subdomain

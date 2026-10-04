@@ -1,0 +1,99 @@
+#!/bin/sh
+# =============================================================================
+# infra/docker/dotnet/migrator.sh — Запуск EF Core миграций внутри контейнера.
+#
+# Этот скрипт является ENTRYPOINT контейнера "migrator" (docker compose профиль "migrate").
+# Запускается после "docker compose run --rm migrator" из команды "stack up" или "stack migrate".
+#
+# Что делает:
+#   1. В prod проверяет fingerprint: ALLOW_PRODUCTION_MIGRATE должна == MYSQL_DATABASE
+#      (защита от случайного запуска prod-миграций)
+#   2. Копирует obj/ папку в /tmp/ef-obj/ чтобы EF CLI не пересобирал проект
+#      (--no-build: образ уже скомпилирован во время "docker compose build")
+#   3. Запускает "dotnet ef database update" для применения pending миграций
+#   4. Запускает "dotnet ef migrations list" для проверки что все миграции применены
+#   5. Если остались pending миграции — выходит с ошибкой
+#
+# Переменные окружения:
+#   ASPNETCORE_ENVIRONMENT    — "Production" блокирует без fingerprint
+#   MYSQL_DATABASE            — имя базы (используется как fingerprint для prod)
+#   ALLOW_PRODUCTION_MIGRATE  — должна == MYSQL_DATABASE для разрешения prod-миграций
+#   MIGRATOR_STARTUP_PROJECT  — .csproj файл startup-проекта (по умолчанию Yuviron.Api)
+#   MIGRATOR_CONFIGURATION    — Debug/Release (по умолчанию Release)
+# =============================================================================
+set -eu
+
+EF_PROJECT="src/Yuviron.Infrastructure/Yuviron.Infrastructure.csproj"
+EF_STARTUP_PROJECT="${MIGRATOR_STARTUP_PROJECT:-src/Yuviron.Api/Yuviron.Api.csproj}"
+EF_CONFIGURATION="${MIGRATOR_CONFIGURATION:-Release}"
+EF_OBJ_DIR="/tmp/ef-obj"   # временная папка для EF obj файлов
+
+# Защита production: проверяем fingerprint перед применением миграций
+case "${ASPNETCORE_ENVIRONMENT:-}" in
+    [Pp][Rr][Oo][Dd][Uu][Cc][Tt][Ii][Oo][Nn])
+        db_name="${MYSQL_DATABASE:-}"
+        fingerprint="${ALLOW_PRODUCTION_MIGRATE:-false}"
+        if [ -z "${db_name}" ]; then
+            echo "Refusing to run EF Core migrations in Production." >&2
+            echo "MYSQL_DATABASE is not set; cannot verify migration fingerprint." >&2
+            exit 1
+        fi
+        if [ "${fingerprint}" != "${db_name}" ]; then
+            echo "Refusing to run EF Core migrations in Production." >&2
+            echo "ALLOW_PRODUCTION_MIGRATE must equal MYSQL_DATABASE ('${db_name}'), got '${fingerprint}'." >&2
+            echo "Set ALLOW_PRODUCTION_MIGRATE=<database-name> for this one-off migrator run." >&2
+            exit 1
+        fi
+        echo "Production migration fingerprint verified: ALLOW_PRODUCTION_MIGRATE=${fingerprint}"
+        ;;
+esac
+
+# Копируем obj/ в /tmp/ чтобы не изменять read-only образ
+mkdir -p "${EF_OBJ_DIR}"
+rm -rf "${EF_OBJ_DIR:?}"/* "${EF_OBJ_DIR}"/.[!.]* "${EF_OBJ_DIR}"/..?* 2>/dev/null || true
+cp -R /src/src/Yuviron.Infrastructure/obj/. "${EF_OBJ_DIR}/"
+
+export MSBuildProjectExtensionsPath="${EF_OBJ_DIR}/"
+
+run_ef() {
+    # Обёртка для вызова dotnet ef с общими аргументами
+    dotnet ef "$@" \
+        --project "${EF_PROJECT}" \
+        --startup-project "${EF_STARTUP_PROJECT}" \
+        --configuration "${EF_CONFIGURATION}" \
+        --no-build \
+        --msbuildprojectextensionspath "${EF_OBJ_DIR}"
+}
+
+echo "Applying EF Core migrations"
+
+# Retry-логика: MySQL может быть ещё не полностью готов сразу после healthcheck
+# (grant-таблицы инициализируются асинхронно). Несколько попыток с паузой
+# защищают от Access denied в первые секунды после старта MySQL.
+MIGRATOR_MAX_RETRIES="${MIGRATOR_MAX_RETRIES:-3}"
+MIGRATOR_RETRY_DELAY="${MIGRATOR_RETRY_DELAY:-5}"
+attempt=1
+while true; do
+    if run_ef database update; then
+        break
+    fi
+    if [ "$attempt" -ge "$MIGRATOR_MAX_RETRIES" ]; then
+        echo "EF Core migration failed after ${MIGRATOR_MAX_RETRIES} attempt(s)" >&2
+        exit 1
+    fi
+    echo "Migration attempt ${attempt}/${MIGRATOR_MAX_RETRIES} failed, retrying in ${MIGRATOR_RETRY_DELAY}s..." >&2
+    sleep "$MIGRATOR_RETRY_DELAY"
+    attempt=$((attempt + 1))
+done
+
+# Проверяем что не осталось pending миграций
+echo "Verifying EF Core migration state"
+migrations_output="$(run_ef migrations list)"
+printf '%s\n' "${migrations_output}"
+
+if printf '%s\n' "${migrations_output}" | grep -E "(\[Pending\]|\(Pending\)|Pending)" >/dev/null; then
+    echo "EF Core verification failed: pending migrations remain after database update" >&2
+    exit 1
+fi
+
+echo "EF Core migration verification completed"
